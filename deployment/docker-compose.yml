@@ -1,0 +1,184 @@
+# AssetForge em UMA máquina (ex.: a 206). Dois perfis de banco; IA (ComfyUI + worker Intel) opcional.
+#
+#   Standalone (PostgreSQL local):   COMPOSE_PROFILES=standalone,ai  docker compose --env-file .env -f deployment/docker-compose.yml up -d --build
+#   Banco externo (ex.: a 212):      COMPOSE_PROFILES=external-db,ai docker compose ... up -d --build
+#   Só CPU (sem IA):                 COMPOSE_PROFILES=standalone     (ou external-db)
+# O script scripts/install_single_node.sh faz isso por você. A arquitetura distribuída continua valendo: mais workers
+# (em outra máquina, ver docker-compose.worker-*.yml) registram-se na mesma API — mas nada exige mais de um servidor.
+#
+# NÃO FOI EXECUTADO pelo autor (sem Docker/GPU Intel no ambiente de desenvolvimento). Nada é publicado além da porta da API.
+# GPU via /dev/dri (sem privileged, sem CUDA, sem NVIDIA Container Toolkit).
+name: assetforge
+
+x-hardening: &hardening
+  security_opt: ["no-new-privileges:true"]
+  cap_drop: [ALL]
+
+x-gpu: &gpu
+  devices: ["/dev/dri:/dev/dri"]
+  group_add: ["${RENDER_GID:?rode scripts/install_single_node.sh ou defina RENDER_GID (getent group render)}", "${VIDEO_GID:-44}"]
+
+x-worker-build: &worker-build
+  build: { context: .., dockerfile: deployment/Dockerfile.worker }
+  image: assetforge-worker:local
+
+x-worker-env: &worker-env
+  ASSETFORGE_SERVER_URL: http://api:8000
+  ASSETFORGE_WORKER_ACTIVE_HOURS: ${ASSETFORGE_WORKER_ACTIVE_HOURS:-}
+  ASSETFORGE_WORKER_MAX_HOST_CPU_PERCENT: ${ASSETFORGE_WORKER_MAX_HOST_CPU_PERCENT:-0}
+  ASSETFORGE_WORKER_YIELD_TO: ${ASSETFORGE_WORKER_YIELD_TO:-}
+
+services:
+  # ------------------------------------------------------------------ banco (perfil standalone)
+  postgres:
+    profiles: [standalone]
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: assetforge
+      POSTGRES_USER: assetforge
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD}
+    volumes: ["pgdata:/var/lib/postgresql/data"]
+    networks: [internal]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U assetforge -d assetforge"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    <<: *hardening
+
+  # ------------------------------------------------------------------ API + dashboard + scheduler
+  api:
+    build: { context: .., dockerfile: deployment/Dockerfile.central }
+    image: assetforge-central:local
+    restart: unless-stopped
+    depends_on:
+      postgres: { condition: service_healthy, required: false }
+    environment:
+      ASSETFORGE_ENV: production
+      # standalone: usa o postgres do compose; external-db: defina ASSETFORGE_DATABASE_URL no .env
+      ASSETFORGE_DATABASE_URL: ${ASSETFORGE_DATABASE_URL:-postgresql://assetforge:${POSTGRES_PASSWORD:-unset}@postgres:5432/assetforge}
+      ASSETFORGE_SECRET_KEY: ${ASSETFORGE_SECRET_KEY:?defina ASSETFORGE_SECRET_KEY}
+      ASSETFORGE_ADMIN_USERNAME: ${ASSETFORGE_ADMIN_USERNAME:-admin}
+      ASSETFORGE_ADMIN_PASSWORD: ${ASSETFORGE_ADMIN_PASSWORD:?defina ASSETFORGE_ADMIN_PASSWORD}
+      ASSETFORGE_BOOTSTRAP_ENROLLMENT_TOKENS: ${ASSETFORGE_BOOTSTRAP_ENROLLMENT_TOKENS:-}
+      ASSETFORGE_MAX_UPLOAD_MB: ${ASSETFORGE_MAX_UPLOAD_MB:-256}
+      ASSETFORGE_AI_VRAM_MB: ${ASSETFORGE_AI_VRAM_MB:-7000}
+      ASSETFORGE_LLM_URL: ${ASSETFORGE_LLM_URL:-}
+      ASSETFORGE_LLM_MODEL: ${ASSETFORGE_LLM_MODEL:-}
+    volumes: ["assets:/data/storage"]
+    ports: ["${ASSETFORGE_BIND:-0.0.0.0}:${ASSETFORGE_PORT:-8000}:8000"]
+    networks: [internal]
+    read_only: true
+    tmpfs: ["/tmp"]
+    cpus: ${ASSETFORGE_API_CPUS:-2}
+    mem_limit: ${ASSETFORGE_API_MEM:-2g}
+    <<: *hardening
+
+  # ------------------------------------------------------------------ worker CPU (procedural + Blender)
+  worker-cpu:
+    <<: [*worker-build, *hardening]
+    restart: unless-stopped
+    depends_on: { api: { condition: service_healthy } }
+    environment:
+      <<: *worker-env
+      ASSETFORGE_ENROLLMENT_TOKEN: ${ASSETFORGE_ENROLLMENT_TOKEN_CPU:-}
+      ASSETFORGE_WORKER_NAME: ${HOSTNAME_TAG:-node}-cpu
+      ASSETFORGE_WORKER_KIND: cpu
+      ASSETFORGE_WORKER_MAX_JOBS: ${CPU_WORKER_MAX_JOBS:-2}
+      ASSETFORGE_WORKER_CPU_CORES: ${CPU_WORKER_CORES:-8}
+      ASSETFORGE_WORKER_RAM_MB: ${CPU_WORKER_RAM_MB:-16384}
+    volumes: ["worker-cpu-state:/state"]
+    tmpfs: ["/state/jobs:size=${ASSETFORGE_WORKER_SCRATCH:-4g},uid=10002"]
+    networks: [internal]
+    cpus: ${CPU_WORKER_DOCKER_CPUS:-8}
+    mem_limit: ${CPU_WORKER_DOCKER_MEM:-16g}
+    pids_limit: 512
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep -f assetforge_worker >/dev/null"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  # ------------------------------------------------------------------ IA: ComfyUI + PyTorch XPU (perfil ai)
+  comfyui:
+    profiles: [ai]
+    build: { context: .., dockerfile: deployment/Dockerfile.comfyui }
+    image: assetforge-comfyui:local
+    restart: unless-stopped
+    <<: [*gpu, *hardening]
+    environment:
+      COMFY_MEMORY_ARGS: ${COMFY_MEMORY_ARGS:---lowvram}      # --lowvram | --novram (offload para RAM) | vazio
+      COMFY_RESERVE_VRAM: ${COMFY_RESERVE_VRAM:-1.0}
+      COMFY_EXTRA_ARGS: ${COMFY_EXTRA_ARGS:-}
+    volumes:
+      - ai-models:/opt/ComfyUI/models          # cache persistente de modelos (formato do AI Playground)
+      - comfy-output:/opt/ComfyUI/output
+      - comfy-input:/opt/ComfyUI/input
+    expose: ["8188"]                            # só na rede interna; NUNCA publicar (ComfyUI não tem autenticação)
+    networks: [internal]
+    cpus: ${COMFY_DOCKER_CPUS:-8}
+    mem_limit: ${COMFY_DOCKER_MEM:-64g}         # folga para offload de pesos para a RAM
+    shm_size: 2g
+
+  # ------------------------------------------------------------------ worker Intel GPU / híbrido (perfil ai)
+  worker-gpu:
+    profiles: [ai]
+    <<: [*worker-build, *gpu, *hardening]
+    restart: unless-stopped
+    depends_on:
+      api: { condition: service_healthy }
+      comfyui: { condition: service_healthy }
+    environment:
+      <<: *worker-env
+      ASSETFORGE_ENROLLMENT_TOKEN: ${ASSETFORGE_ENROLLMENT_TOKEN_GPU:-}
+      ASSETFORGE_WORKER_NAME: ${HOSTNAME_TAG:-node}-gpu
+      ASSETFORGE_WORKER_KIND: hybrid
+      ASSETFORGE_WORKER_MAX_JOBS: 1                           # uma geração por vez na GPU
+      ASSETFORGE_WORKER_CPU_CORES: ${GPU_WORKER_CORES:-4}
+      ASSETFORGE_WORKER_RAM_MB: ${GPU_WORKER_RAM_MB:-16384}
+      ASSETFORGE_COMFYUI_URL: http://comfyui:8188
+      ASSETFORGE_AI_MODELS_DIR: /models
+      ASSETFORGE_AI_ALLOW_UNVALIDATED: ${ASSETFORGE_AI_ALLOW_UNVALIDATED:-0}
+    volumes: ["worker-gpu-state:/state", "ai-models:/models:ro"]
+    tmpfs: ["/state/jobs:size=${ASSETFORGE_WORKER_SCRATCH:-4g},uid=10002"]
+    networks: [internal]
+    cpus: ${GPU_WORKER_DOCKER_CPUS:-4}
+    mem_limit: ${GPU_WORKER_DOCKER_MEM:-16g}
+    pids_limit: 512
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep -f assetforge_worker >/dev/null"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  # ------------------------------------------------------------------ tarefas pontuais (perfil tools): baixar modelos, validar, benchmark
+  ai-tools:
+    profiles: [tools]
+    <<: [*worker-build, *gpu, *hardening]
+    entrypoint: ["python"]
+    environment:
+      ASSETFORGE_COMFYUI_URL: http://comfyui:8188
+      ASSETFORGE_AI_MODELS_DIR: /models
+    volumes:
+      - ai-models:/models                       # leitura/escrita: é aqui que os modelos são baixados
+      - worker-gpu-state:/state                 # o validate_node.py grava ai_validated.json aqui
+      - validation-reports:/app/validation_reports
+      - bench-out:/bench
+    networks: [internal]
+    mem_limit: ${GPU_WORKER_DOCKER_MEM:-16g}
+
+volumes:
+  pgdata:
+  assets:
+  ai-models:
+  comfy-output:
+  comfy-input:
+  worker-cpu-state:
+  worker-gpu-state:
+  validation-reports:
+  bench-out:
+
+networks:
+  internal:
+    driver: bridge

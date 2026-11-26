@@ -1,0 +1,36 @@
+# ComfyUI headless + PyTorch XPU (Intel Arc), montado como o Intel AI Playground faz: ComfyUI em tag fixa, dependências
+# do pyproject.toml/uv.lock da Intel no commit fixado, extra "xpu". Sem CUDA/NVIDIA.
+# ATENÇÃO: escrito a partir do código da Intel; NÃO foi construído nem executado pelo autor (sem Docker e sem Arc no ambiente
+# de desenvolvimento). O build baixa vários GB (torch XPU). O driver de GPU é do HOST; aqui só vão as bibliotecas de usuário
+# (Level Zero loader + driver de compute) — nenhum driver do host é alterado.
+FROM ubuntu:24.04
+ARG AIPG_COMMIT=1aa842352bebe454774c4c3840755451810ca8ab
+ARG COMFY_TAG=v0.34.0
+ENV DEBIAN_FRONTEND=noninteractive PYTHONUNBUFFERED=1
+
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl wget gpg git build-essential python3-dev python3-pip \
+    && wget -qO /tmp/intel-graphics.key https://repositories.intel.com/gpu/intel-graphics.key \
+    && gpg --dearmor -o /usr/share/keyrings/intel-graphics.gpg /tmp/intel-graphics.key && rm /tmp/intel-graphics.key \
+    && . /etc/os-release \
+    && echo "deb [arch=amd64 signed-by=/usr/share/keyrings/intel-graphics.gpg] https://repositories.intel.com/gpu/ubuntu ${VERSION_CODENAME} unified" > /etc/apt/sources.list.d/intel-gpu.list \
+    && apt-get update && apt-get install -y --no-install-recommends libze1 libze-intel-gpu1 intel-opencl-icd \
+    && rm -rf /var/lib/apt/lists/*
+RUN pip3 install --break-system-packages --no-cache-dir uv
+
+RUN useradd --create-home --uid 10003 comfy && mkdir -p /opt/ComfyUI && chown comfy /opt/ComfyUI
+USER comfy
+WORKDIR /opt/ComfyUI
+ENV PATH="/home/comfy/.local/bin:/opt/ComfyUI/.venv/bin:${PATH}"
+RUN git clone --quiet --depth 1 --branch "${COMFY_TAG}" https://github.com/comfyanonymous/ComfyUI.git . \
+    && cp pyproject.toml pyproject.toml.aipg-upstream \
+    && curl -fsSL "https://raw.githubusercontent.com/intel/AI-Playground/${AIPG_COMMIT}/comfyui-deps/pyproject.toml" -o pyproject.toml \
+    && curl -fsSL "https://raw.githubusercontent.com/intel/AI-Playground/${AIPG_COMMIT}/comfyui-deps/uv.lock" -o uv.lock \
+    && uv python install 3.12 && uv sync --extra xpu --python 3.12
+
+# Escuta em 0.0.0.0 SOMENTE dentro da rede interna do Compose (a porta NUNCA é publicada no host).
+# Flags de memória/offload vêm de COMFY_MEMORY_ARGS (ex.: --lowvram | --novram) e COMFY_EXTRA_ARGS.
+ENV COMFY_RESERVE_VRAM=1.0 COMFY_MEMORY_ARGS=--lowvram COMFY_EXTRA_ARGS=""
+EXPOSE 8188
+HEALTHCHECK --interval=20s --timeout=8s --start-period=120s --retries=6 \
+  CMD python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8188/system_stats', timeout=6).status==200 else 1)"
+CMD ["sh", "-c", "exec python main.py --listen 0.0.0.0 --port 8188 --disable-auto-launch ${COMFY_MEMORY_ARGS} --reserve-vram ${COMFY_RESERVE_VRAM} --use-quad-cross-attention ${COMFY_EXTRA_ARGS}"]
