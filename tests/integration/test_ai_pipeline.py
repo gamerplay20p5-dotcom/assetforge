@@ -55,7 +55,7 @@ def fake(tmp_path, stand_in_glb):
 
 
 def _job(job_type="ai.text_to_3d", **params):
-    base = {"category": "school", "prompt": "a small stylized school with brick facade", "target_size_m": 14.0, "seed": 5, "lod_ratios": [0.5, 0.2]}
+    base = {"category": "school", "prompt": "a small stylized school with brick facade", "target_size_m": 14.0, "seed": 5, "lod_ratios": [0.5, 0.2], "provider": "intel"}
     base.update(params)
     return dict(job_id="jai", asset_id="ast_ai00001", name="Escola IA", version=1, job_type=job_type, params=base,
                 quality_profile="stylized_standard", formats=["glb", "fbx", "blend"], thumbnail_size=256, thumbnail_samples=4)
@@ -110,7 +110,7 @@ def test_ai_job_flows_through_queue_and_registers_asset(blender, fake, tmp_path,
     w = make_worker(kind="hybrid", features=("ai.text_to_3d", "comfyui", "blender"), limits={"max_concurrent_jobs": 1, "cpu_cores": 4, "ram_mb": 16000, "vram_mb": 7500})
     plain = make_worker(features=("procedural.building", "blender"))
     r = client.post(f"{API}/jobs", headers=admin, json={"name": "Escola IA", "job_type": "ai.text_to_3d", "formats": ["glb", "fbx"],
-                                                         "params": {"prompt": "stylized school", "category": "school", "target_size_m": 14, "lod_ratios": [0.5]}})
+                                                         "params": {"prompt": "stylized school", "category": "school", "target_size_m": 14, "lod_ratios": [0.5], "provider": "intel"}})
     assert r.status_code == 201, r.text
     job = r.json()
     assert plain.lease() is None  # a CPU-only worker never receives a generative job
@@ -144,9 +144,9 @@ def test_reference_upload_validation_and_job_requires_existing_reference(client,
     assert client.get(f"{API}/references/{ok.json()['id']}", headers=admin).headers["content-type"] == "image/png"
     assert client.get(f"{API}/references/ref_000000000000", headers=admin).status_code == 404
     assert client.get(f"{API}/references/..%2f..%2fx", headers=admin).status_code in (404, 422)
-    missing = client.post(f"{API}/jobs", headers=admin, json={"name": "x", "job_type": "ai.image_to_3d", "params": {"reference_id": "ref_aaaaaaaaaaaa"}})
+    missing = client.post(f"{API}/jobs", headers=admin, json={"name": "x", "job_type": "ai.image_to_3d", "params": {"reference_id": "ref_aaaaaaaaaaaa", "provider": "intel"}})
     assert missing.status_code == 404
-    good = client.post(f"{API}/jobs", headers=admin, json={"name": "x", "job_type": "ai.image_to_3d", "params": {"reference_id": ok.json()["id"], "category": "prop"}})
+    good = client.post(f"{API}/jobs", headers=admin, json={"name": "x", "job_type": "ai.image_to_3d", "params": {"reference_id": ok.json()["id"], "category": "prop", "provider": "intel"}})
     assert good.status_code == 201 and good.json()["requirements"]["features"] == ["ai.image_to_3d", "comfyui", "blender"]
 
 

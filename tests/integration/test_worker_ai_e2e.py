@@ -63,6 +63,7 @@ def test_worker_gates_ai_until_validated_then_runs_job(tmp_path, monkeypatch):
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_bytes(b"x")  # presence only; nothing loads these files
     monkeypatch.setenv("ASSETFORGE_COMFYUI_URL", fake.url)
+    monkeypatch.setenv("ASSETFORGE_ENABLE_INTEL_AI", "1")  # the Intel integration is opt-in
     monkeypatch.setenv("ASSETFORGE_AI_MODELS_DIR", str(models))
     monkeypatch.setenv("BLENDER_BIN", blender)
     monkeypatch.delenv("ASSETFORGE_AI_ALLOW_UNVALIDATED", raising=False)
@@ -99,7 +100,7 @@ def test_worker_gates_ai_until_validated_then_runs_job(tmp_path, monkeypatch):
 
         ref = httpx.post(f"{base}/api/v1/references", headers=h, files={"file": ("r.png", png.read_bytes(), "image/png")}).json()["id"]
         job = httpx.post(f"{base}/api/v1/jobs", headers=h, json={"name": "IA", "job_type": "ai.image_to_3d", "formats": ["glb"],
-                                                                  "params": {"reference_id": ref, "category": "house", "target_size_m": 8, "lod_ratios": [0.4]}}).json()
+                                                                  "params": {"reference_id": ref, "category": "house", "target_size_m": 8, "lod_ratios": [0.4], "provider": "intel"}}).json()
         time.sleep(4)
         assert httpx.get(f"{base}/api/v1/jobs/{job['id']}", headers=h).json()["status"] == "queued"  # nobody may take it yet
 

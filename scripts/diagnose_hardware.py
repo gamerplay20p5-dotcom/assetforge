@@ -19,7 +19,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-for d in ("workers/cpu", "generators/procedural", "generators/intel_ai", "pipeline/export", "pipeline/validation", "pipeline/optimization", "packages/asset-contract"):
+for d in ("workers/cpu", "generators/procedural", "generators/intel_ai", "generators/mesh", "pipeline/export", "pipeline/validation", "pipeline/optimization", "packages/asset-contract"):
     sys.path.insert(0, str(ROOT / d))
 
 import psutil  # noqa: E402

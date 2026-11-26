@@ -126,10 +126,12 @@ def test_target_faces_follow_contract_budget_and_override():
 
 
 def test_ai_job_contract_validation():
-    ok = JobCreate(name="t", job_type="ai.text_to_3d", params={"prompt": "a school", "category": "school"})
+    ok = JobCreate(name="t", job_type="ai.text_to_3d", params={"prompt": "a school", "category": "school", "provider": "intel"})
     assert ok.params["lod_ratios"] == [0.5, 0.25, 0.1] and ok.category == "school"
     with pytest.raises(ValidationError):
-        JobCreate(name="t", job_type="ai.text_to_3d", params={})
+        JobCreate(name="t", job_type="ai.text_to_3d", params={"provider": "intel"})
+    with pytest.raises(ValidationError, match="text-to-image"):
+        JobCreate(name="t", job_type="ai.text_to_3d", params={"prompt": "a school"})  # CPU providers have no text-to-image
     with pytest.raises(ValidationError):
         JobCreate(name="t", job_type="ai.image_to_3d", params={"prompt": "x"})
     with pytest.raises(ValidationError):

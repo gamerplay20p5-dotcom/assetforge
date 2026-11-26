@@ -22,7 +22,7 @@ from assetforge_export.ai_pipeline import plan_for
 from assetforge_export.pipeline import find_blender
 from assetforge_export.proc import JobCancelled, SubprocessFailed, SubprocessTimeout, run_supervised
 
-from .ai import AiRuntime
+from .ai import AiRuntime, Cpu3dRuntime
 from .client import AuthFailed, LeaseLost, ServerClient
 from .config import WorkerConfig
 from .policy import lease_gate, parse_active_hours
@@ -51,6 +51,7 @@ class Agent:
         self.gate_reason: str | None = None
         self.gpus = detect_gpus() if cfg.kind in ("intel", "hybrid") else []
         self.ai = AiRuntime(cfg.state_dir)
+        self.cpu3d = Cpu3dRuntime()
         if cfg.low_priority:  # children inherit: keep other services on this host responsive
             try:
                 psutil.Process().nice(psutil.BELOW_NORMAL_PRIORITY_CLASS if os.name == "nt" else 10)
@@ -59,7 +60,7 @@ class Agent:
 
     def _caps(self) -> dict:
         ai = self.ai.status()
-        return capabilities(self.cfg, self.blender, ai, self.ai.model_rows() if ai.get("enabled") else None)
+        return capabilities(self.cfg, self.blender, ai, self.ai.model_rows() if ai.get("enabled") else None, self.cpu3d.status())
 
     def _gate(self) -> str | None:
         self.cpu_samples.append(psutil.cpu_percent(interval=None))
@@ -118,7 +119,7 @@ class Agent:
             try:
                 with self._lock:
                     ids = list(self.active)
-                body = {"telemetry": telemetry(len(ids), str(self.cfg.work_dir), self.gate_reason, self.ai.gpus() or self.gpus), "active_jobs": ids}
+                body = {"telemetry": telemetry(len(ids), str(self.cfg.work_dir), self.gate_reason, self.ai.gpus() or self.gpus, self.cpu3d.telemetry()), "active_jobs": ids}
                 beat += 1
                 if not caps_sent or beat % 6 == 0:  # re-publish: ComfyUI/models may come up or change
                     body["capabilities"] = self._caps()
@@ -208,17 +209,17 @@ class Agent:
 
         try:
             flush(first=True)
-            if job["job_type"].startswith("ai."):
+            if job["job_type"].startswith("ai.") and job["requirements"].get("vram_mb", 0) > 0:
                 need = job["requirements"].get("vram_mb", 0)
                 free = self.ai.free_vram_mb()
                 if free is not None and free < need * 0.9:  # protect other GPU users (e.g. AI Stream Clipper)
                     self._report_failure(job_id, token, f"VRAM livre insuficiente: {free} MB < {need} MB necessários "
                                          "(outro processo está usando a GPU?)", True)
                     return
-                ref_id = job["params"].get("reference_id")
-                if ref_id:
-                    self.client.download_reference(ref_id, workdir / "reference.png")
-                    job = {**job, "reference_path": str(workdir / "reference.png")}
+            ref_id = job["params"].get("reference_id")
+            if job["job_type"].startswith("ai.") and ref_id:
+                self.client.download_reference(ref_id, workdir / "reference.png")
+                job = {**job, "reference_path": str(workdir / "reference.png")}
             (workdir / "job.json").write_text(json.dumps(job), encoding="utf-8")
             threading.Thread(target=flusher, daemon=True).start()
             log.info("job %s started: %s", job_id, job["name"])
@@ -232,7 +233,10 @@ class Agent:
                                cwd=workdir, env=env)
             except JobCancelled:
                 if job["job_type"].startswith("ai."):
-                    self.ai.provider().client.interrupt()  # stop the GPU work too, not only our subprocess
+                    if job["params"].get("provider") in ("sf3d", "triposr"):
+                        self.cpu3d.cancel(job_id)  # stop the CPU work inside the provider container
+                    elif self.ai.enabled:
+                        self.ai.provider().client.interrupt()  # stop the GPU work too, not only our subprocess
                 done.set()
                 flush()
                 log.info("job %s cancelled", job_id)

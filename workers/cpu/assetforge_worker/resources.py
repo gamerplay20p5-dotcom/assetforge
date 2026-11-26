@@ -116,7 +116,8 @@ def ai_runtimes() -> dict:
             "validated": []}
 
 
-def capabilities(cfg: WorkerConfig, blender_bin: str | None, ai: dict | None = None, ai_models: list[dict] | None = None) -> dict:
+def capabilities(cfg: WorkerConfig, blender_bin: str | None, ai: dict | None = None, ai_models: list[dict] | None = None,
+                 cpu3d: dict | None = None) -> dict:
     features = [GENERATOR_ID, "trimesh"]
     bver = blender_version(blender_bin)
     if bver:
@@ -124,6 +125,8 @@ def capabilities(cfg: WorkerConfig, blender_bin: str | None, ai: dict | None = N
     vm = psutil.virtual_memory()
     gpus = detect_gpus() if cfg.kind in ("intel", "hybrid") else []
     runtimes = ai_runtimes()
+    if cpu3d and cpu3d.get("features") and bver:  # post-processing needs Blender
+        features += [f for f in cpu3d["features"] if f not in features]
     if ai and ai.get("enabled"):
         features += ai["features"]
         runtimes["validated"] = ai.get("validated", [])
@@ -132,13 +135,13 @@ def capabilities(cfg: WorkerConfig, blender_bin: str | None, ai: dict | None = N
         "formats": ["glb"] + (["blend", "fbx"] if bver else []),
         "os": f"{platform.system()} {platform.release()}", "python": sys.version.split()[0],
         "cpu_model": platform.processor() or platform.machine(), "cpu_cores_total": psutil.cpu_count(logical=True),
-        "ram_total_mb": int(vm.total / 1024 / 1024), "gpus": gpus, "ai_runtimes": runtimes, "models": ai_models or [], "ai": ai or {"enabled": False},
+        "ram_total_mb": int(vm.total / 1024 / 1024), "gpus": gpus, "ai_runtimes": runtimes, "models": ai_models or [], "ai": ai or {"enabled": False}, "cpu3d": cpu3d or {"enabled": False},
         "schedule": {"active_hours": cfg.active_hours, "max_host_cpu_percent": cfg.max_host_cpu_percent,
                      "yield_to": cfg.yield_to},
     }
 
 
-def telemetry(active_jobs: int, work_dir: str, gate_reason: str | None = None, gpus: list[dict] | None = None) -> dict:
+def telemetry(active_jobs: int, work_dir: str, gate_reason: str | None = None, gpus: list[dict] | None = None, cpu3d: dict | None = None) -> dict:
     vm = psutil.virtual_memory()
     temp = None
     try:
@@ -154,5 +157,5 @@ def telemetry(active_jobs: int, work_dir: str, gate_reason: str | None = None, g
     return {
         "cpu_percent": psutil.cpu_percent(interval=None), "ram_used_mb": int(vm.used / 1024 / 1024),
         "ram_total_mb": int(vm.total / 1024 / 1024), "temperature_c": temp, "work_disk_free_gb": free_gb,
-        "active_jobs": active_jobs, "gpus": gpus or [], "gate": gate_reason,
+        "active_jobs": active_jobs, "gpus": gpus or [], "gate": gate_reason, "cpu3d": cpu3d or {},
     }

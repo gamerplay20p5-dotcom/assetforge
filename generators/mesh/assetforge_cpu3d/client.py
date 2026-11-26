@@ -14,6 +14,16 @@ import httpx
 from .registry import DEPENDENCY_LICENSES, PROVIDERS
 
 
+def parse_providers_env(value: str) -> dict[str, str]:
+    """'sf3d=http://sf3d:8080,triposr=http://triposr:8080' -> {name: url} (unknown names are ignored)."""
+    out: dict[str, str] = {}
+    for part in filter(None, (p.strip() for p in value.split(","))):
+        name, _, url = part.partition("=")
+        if name.strip() in PROVIDERS and url.strip():
+            out[name.strip()] = url.strip()
+    return out
+
+
 class ProviderError(Exception):
     pass
 

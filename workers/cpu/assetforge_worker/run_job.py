@@ -33,12 +33,22 @@ def main() -> int:
     try:
         if job["job_type"].startswith("ai."):
             from assetforge_export.ai_pipeline import run_ai_job
-            from assetforge_intel_ai import IntelAIProvider
 
-            url = os.environ.get("ASSETFORGE_COMFYUI_URL")
-            if not url:
-                raise PipelineError("ASSETFORGE_COMFYUI_URL is not set on this worker")
-            provider = IntelAIProvider(url, models_dir=Path(os.environ["ASSETFORGE_AI_MODELS_DIR"]) if os.environ.get("ASSETFORGE_AI_MODELS_DIR") else None)
+            name = job["params"].get("provider", "sf3d")
+            if name in ("sf3d", "triposr"):
+                from assetforge_cpu3d import CpuProvider, parse_providers_env
+
+                url = parse_providers_env(os.environ.get("ASSETFORGE_CPU3D_PROVIDERS", "")).get(name)
+                if not url:
+                    raise PipelineError(f"provider {name!r} is not configured on this worker (ASSETFORGE_CPU3D_PROVIDERS)")
+                provider = CpuProvider(name, url)
+            else:
+                from assetforge_intel_ai import IntelAIProvider
+
+                url = os.environ.get("ASSETFORGE_COMFYUI_URL")
+                if not url or os.environ.get("ASSETFORGE_ENABLE_INTEL_AI", "0") not in ("1", "true", "yes"):
+                    raise PipelineError("the Intel/ComfyUI integration is disabled on this worker")
+                provider = IntelAIProvider(url, models_dir=Path(os.environ["ASSETFORGE_AI_MODELS_DIR"]) if os.environ.get("ASSETFORGE_AI_MODELS_DIR") else None)
             result = run_ai_job(job, workdir, emit, provider, blender_bin=os.environ.get("BLENDER_BIN") or None, threads=threads,
                                 blender_timeout=float(os.environ.get("ASSETFORGE_BLENDER_TIMEOUT", "900")))
             (workdir / "result.json").write_text(json.dumps(result), encoding="utf-8")

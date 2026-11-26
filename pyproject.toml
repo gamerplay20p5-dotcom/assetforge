@@ -12,6 +12,7 @@ pythonpath = [
   "workers/cpu",
   "generators/procedural",
   "generators/intel_ai",
+  "generators/mesh",
   "pipeline/validation",
   "pipeline/optimization",
   "pipeline/export",
