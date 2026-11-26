@@ -1,0 +1,14 @@
+# Vision front-end (Qwen2.5-VL) on CPU only. Benchmark / extraction tool; no GPU, no host drivers touched.
+FROM python:3.11-slim-bookworm
+ENV PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1 HF_HOME=/models/hf
+RUN apt-get update && apt-get install -y --no-install-recommends libgomp1 && rm -rf /var/lib/apt/lists/* \
+    && useradd -m -u 10001 vlm && mkdir -p /models /out && chown vlm /models /out
+RUN pip install --extra-index-url https://download.pytorch.org/whl/cpu "torch==2.4.1+cpu" \
+    && pip install "transformers==4.49.0" "accelerate==1.2.1" "qwen-vl-utils==0.0.10" "pillow<11" "numpy<2" psutil "pydantic>=2.6"
+WORKDIR /app
+COPY generators/vision /app/generators/vision
+COPY generators/procedural /app/generators/procedural
+COPY packages/asset-contract /app/packages/asset-contract
+COPY scripts/vlm /app/scripts/vlm
+USER vlm
+ENTRYPOINT ["python", "/app/scripts/vlm/benchmark_vlm.py"]
