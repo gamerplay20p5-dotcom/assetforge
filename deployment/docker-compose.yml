@@ -46,6 +46,8 @@ services:
       timeout: 5s
       retries: 10
     <<: *hardening
+    # a imagem oficial troca para o usuário 'postgres' no entrypoint: precisa destas capabilities (o resto segue descartado)
+    cap_add: [CHOWN, DAC_OVERRIDE, FOWNER, SETGID, SETUID]
 
   # ------------------------------------------------------------------ API + dashboard + scheduler
   api:

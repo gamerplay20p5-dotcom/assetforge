@@ -49,6 +49,12 @@ def test_gpu_worker_is_single_job_and_models_are_readonly_for_services():
     assert SERVICES["worker-gpu"]["environment"]["ASSETFORGE_AI_ALLOW_UNVALIDATED"] == "${ASSETFORGE_AI_ALLOW_UNVALIDATED:-0}"
 
 
+def test_postgres_keeps_only_the_capabilities_its_entrypoint_needs():
+    pg = SERVICES["postgres"]
+    assert pg["cap_drop"] == ["ALL"] and set(pg["cap_add"]) == {"CHOWN", "DAC_OVERRIDE", "FOWNER", "SETGID", "SETUID"}
+    assert all("cap_add" not in svc for n, svc in SERVICES.items() if n != "postgres")
+
+
 def test_persistent_volumes_cover_models_assets_db_and_state():
     assert {"pgdata", "assets", "ai-models", "worker-cpu-state", "worker-gpu-state"} <= set(COMPOSE["volumes"])
 

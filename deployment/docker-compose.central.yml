@@ -21,6 +21,8 @@ services:
       timeout: 5s
       retries: 10
     security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    cap_add: [CHOWN, DAC_OVERRIDE, FOWNER, SETGID, SETUID]
 
   api:
     build:
