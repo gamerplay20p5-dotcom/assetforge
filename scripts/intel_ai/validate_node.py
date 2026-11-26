@@ -19,6 +19,7 @@ import platform
 import shutil
 import sys
 import tempfile
+import threading
 import time
 from datetime import UTC, datetime
 from pathlib import Path
@@ -35,6 +36,42 @@ from assetforge_export.pipeline import find_blender  # noqa: E402
 from assetforge_intel_ai import ComfyClient, IntelAIProvider  # noqa: E402
 
 
+class HostSampler:
+    """Mede, durante a geração, o pico de RAM do host, de CPU e a maior temperatura exposta pelo kernel (hwmon)."""
+
+    def __init__(self, interval: float = 2.0) -> None:
+        import psutil
+
+        self.psutil, self.interval = psutil, interval
+        self.peak_ram_mb = 0
+        self.peak_cpu = 0.0
+        self.peak_temp_c: float | None = None
+        self.samples = 0
+        self._stop = threading.Event()
+        self._t = threading.Thread(target=self._run, daemon=True)
+
+    def _run(self) -> None:
+        while not self._stop.is_set():
+            self.samples += 1
+            self.peak_ram_mb = max(self.peak_ram_mb, int(self.psutil.virtual_memory().used / 2**20))
+            self.peak_cpu = max(self.peak_cpu, self.psutil.cpu_percent(interval=None))
+            try:
+                temps = [t.current for entries in self.psutil.sensors_temperatures().values() for t in entries if t.current]
+                if temps:
+                    self.peak_temp_c = max(self.peak_temp_c or 0.0, max(temps))
+            except (AttributeError, OSError):
+                pass
+            self._stop.wait(self.interval)
+
+    def __enter__(self) -> "HostSampler":
+        self._t.start()
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        self._stop.set()
+        self._t.join(timeout=5)
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--state-dir", type=Path, required=True)
@@ -43,6 +80,7 @@ def main() -> int:
     ap.add_argument("--image", type=Path, help="usa esta imagem de referência em vez de gerar uma por texto")
     ap.add_argument("--prompt", default="a two-story stylized house with gable roof, brick walls and wooden door")
     ap.add_argument("--blender", default=None)
+    ap.add_argument("--repeat", type=int, default=1, help="repete a geração N vezes para medir estabilidade")
     ap.add_argument("--dry-run", action="store_true", help="não grava ai_validated.json")
     args = ap.parse_args()
 
@@ -63,38 +101,52 @@ def main() -> int:
         report["error"] = "pré-requisitos ausentes: " + ("; ".join(health.errors + (["Blender não encontrado"] if not blender else []) + health.models_missing[:3]))
         return _finish(args, report, 2)
 
-    work = Path(tempfile.mkdtemp(prefix="af-validate-"))
-    try:
-        job = {"job_id": "validate", "asset_id": "ast_validate", "name": "Validação do node", "version": 1,
-               "job_type": "ai.image_to_3d" if args.image else "ai.text_to_3d", "quality_profile": "stylized_standard",
-               "formats": ["glb", "fbx"], "thumbnail_size": 384, "thumbnail_samples": 8,
-               "params": {"category": "house", "prompt": args.prompt, "target_size_m": 8.0, "seed": 7, "lod_ratios": [0.5, 0.25],
-                          "reference_id": "ref_000000000000" if args.image else None}}
-        if args.image:
-            job["reference_path"] = str(args.image)
-        job["params"] = {k: v for k, v in job["params"].items() if v is not None}
-        t0 = time.monotonic()
-        events: list[dict] = []
-        result = run_ai_job(job, work, lambda e: (events.append(e), print(" ", e.get("name") or e.get("message", "")[:100], e.get("status", ""))), prov, blender_bin=blender)
-        m = result["manifest"]
-        ai = m["generation_params"]["ai"]["stages"]
-        report.update(ok=bool(result["validation"]["passed"]) and m["triangle_count"] > 0, seconds=round(time.monotonic() - t0, 1),
-                      stages=ai, triangles=[x["triangles"] for x in m["lods"]], dimensions_m=m["dimensions_m"],
-                      materials=len(m["materials"]), textured=any(x["texture"] for x in m["materials"]),
-                      peak_vram_mb=max((s.get("peak_vram_mb") or 0) for s in ai.values()),
-                      vram_total_mb=max((s.get("vram_total_mb") or 0) for s in ai.values()),
-                      validation_warnings=[c for c in result["validation"]["checks"] if c["status"] == "warn"])
-        if report["ok"] and not report["textured"]:
-            report["ok"], report["error"] = False, "o GLB gerado não tem textura"
-        keep = ROOT / "validation_reports"
-        keep.mkdir(exist_ok=True)
-        for f in ("thumbnail.png", "concept.png"):
-            if (work / "out" / f).is_file():
-                shutil.copy(work / "out" / f, keep / f"{platform.node()}_{f}")
-    except Exception as exc:  # noqa: BLE001
-        report["error"] = f"{type(exc).__name__}: {exc}"
-    finally:
-        shutil.rmtree(work, ignore_errors=True)
+    runs: list[dict] = []
+    for attempt in range(1, max(1, args.repeat) + 1):
+        work = Path(tempfile.mkdtemp(prefix="af-validate-"))
+        run: dict = {"attempt": attempt, "ok": False}
+        try:
+            job = {"job_id": "validate", "asset_id": "ast_validate", "name": "Validação do node", "version": 1,
+                   "job_type": "ai.image_to_3d" if args.image else "ai.text_to_3d", "quality_profile": "stylized_standard",
+                   "formats": ["glb", "fbx"], "thumbnail_size": 384, "thumbnail_samples": 8,
+                   "params": {"category": "house", "prompt": args.prompt, "target_size_m": 8.0, "seed": 7 + attempt, "lod_ratios": [0.5, 0.25],
+                              "reference_id": "ref_000000000000" if args.image else None}}
+            if args.image:
+                job["reference_path"] = str(args.image)
+            job["params"] = {k: v for k, v in job["params"].items() if v is not None}
+            t0 = time.monotonic()
+            with HostSampler() as host:
+                result = run_ai_job(job, work, lambda e: print(" ", e.get("name") or e.get("message", "")[:100], e.get("status", ""), flush=True), prov, blender_bin=blender)
+            m = result["manifest"]
+            ai = m["generation_params"]["ai"]["stages"]
+            run.update(ok=bool(result["validation"]["passed"]) and m["triangle_count"] > 0, seconds=round(time.monotonic() - t0, 1),
+                       stages=ai, triangles=[x["triangles"] for x in m["lods"]], dimensions_m=m["dimensions_m"],
+                       materials=len(m["materials"]), textured=any(x["texture"] for x in m["materials"]),
+                       peak_vram_mb=max((st.get("peak_vram_mb") or 0) for st in ai.values()),
+                       vram_total_mb=max((st.get("vram_total_mb") or 0) for st in ai.values()),
+                       peak_host_ram_mb=host.peak_ram_mb, peak_host_cpu_percent=host.peak_cpu, peak_temp_c=host.peak_temp_c,
+                       validation_warnings=[c for c in result["validation"]["checks"] if c["status"] == "warn"])
+            if run["ok"] and not run["textured"]:
+                run["ok"], run["error"] = False, "o GLB gerado não tem textura"
+            keep = ROOT / "validation_reports"
+            keep.mkdir(exist_ok=True)
+            for f in ("thumbnail.png", "concept.png"):
+                if (work / "out" / f).is_file():
+                    shutil.copy(work / "out" / f, keep / f"{platform.node()}_run{attempt}_{f}")
+        except Exception as exc:  # noqa: BLE001
+            run["error"] = f"{type(exc).__name__}: {exc}"
+        finally:
+            shutil.rmtree(work, ignore_errors=True)
+        runs.append(run)
+        print(f"execução {attempt}/{args.repeat}: {'ok' if run['ok'] else 'FALHOU'} {run.get('error', '')}")
+        if not run["ok"]:
+            break  # não insiste em uma GPU que já falhou (evita travar o nó)
+    best = runs[-1]
+    report.update(ok=all(r["ok"] for r in runs) and len(runs) == max(1, args.repeat), runs=runs,
+                  seconds=best.get("seconds"), peak_vram_mb=max((r.get("peak_vram_mb") or 0) for r in runs),
+                  vram_total_mb=best.get("vram_total_mb"), peak_host_ram_mb=max((r.get("peak_host_ram_mb") or 0) for r in runs),
+                  peak_temp_c=max((r.get("peak_temp_c") or 0) for r in runs) or None, error=best.get("error"),
+                  stability=f"{sum(r['ok'] for r in runs)}/{max(1, args.repeat)} execuções ok")
     return _finish(args, report, 0 if report["ok"] else 1)
 
 

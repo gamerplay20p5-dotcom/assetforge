@@ -1,15 +1,9 @@
 #!/usr/bin/env bash
-# Update AssetForge to the checked-out version. Takes a backup first (central only), then rebuilds ONLY this project.
-#   ./scripts/update.sh central|worker-cpu|worker-intel
+# Atualiza o AssetForge de um nó para a versão em checkout: backup -> rebuild SOMENTE deste projeto Compose.
+#   git pull && ./scripts/update.sh
+# Atenção: o esquema do banco é criado por create_all (sem Alembic ainda): leia o changelog antes de atualizar.
 set -euo pipefail
 cd "$(dirname "$0")/.."
-role="${1:?usage: update.sh central|worker-cpu|worker-intel}"
-if [[ "$role" == "central" ]]; then
-  ./scripts/backup.sh
-  docker compose --env-file .env -f deployment/docker-compose.central.yml up -d --build
-  docker compose --env-file .env -f deployment/docker-compose.central.yml ps
-else
-  files=(-f deployment/docker-compose.worker-cpu.yml)
-  [[ "$role" == "worker-intel" ]] && files+=(-f deployment/docker-compose.worker-intel.yml)
-  docker compose --env-file .env.worker "${files[@]}" up -d --build
-fi
+./scripts/backup.sh
+docker compose --env-file .env -f deployment/docker-compose.yml up -d --build
+docker compose --env-file .env -f deployment/docker-compose.yml ps
