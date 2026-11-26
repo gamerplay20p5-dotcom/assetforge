@@ -159,6 +159,7 @@ function AssetDetail({ id, onClose }: { id: string; onClose: () => void }) {
   const [bounds, setBounds] = useState(false);
   const [rotate, setRotate] = useState(false);
   const [stats, setStats] = useState<ViewerStats | null>(null);
+  const [lod, setLod] = useState(0);
   const asset = useQuery({ queryKey: ["asset", id, version], queryFn: () => api<Asset>(`/assets/${id}${version ? `?version=${version}` : ""}`) });
   const a = asset.data;
   const patch = useMutation({
@@ -185,7 +186,8 @@ function AssetDetail({ id, onClose }: { id: string; onClose: () => void }) {
   if (!a) return <Panel title="Asset"><Empty>Carregando…</Empty></Panel>;
   const m = a.manifest;
   const ver = a.version_info?.version ?? a.current_version;
-  const glb = token ? fileUrl(a.id, "model.glb", token, ver) : null;
+  const lodFile = m?.lods?.[lod]?.file ?? "model.glb";
+  const glb = token ? fileUrl(a.id, lodFile, token, ver) : null;
   const over = m && stats ? stats.triangles > m.triangle_budget[1] : false;
   return (
     <Panel
@@ -228,6 +230,18 @@ function AssetDetail({ id, onClose }: { id: string; onClose: () => void }) {
             <label className="check">
               <input type="checkbox" checked={rotate} onChange={(e) => setRotate(e.target.checked)} /> Girar
             </label>
+            {(m?.lods?.length ?? 0) > 1 && (
+              <label className="check">
+                LOD
+                <select style={{ width: 150 }} value={lod} onChange={(e) => setLod(Number(e.target.value))} aria-label="Nível de detalhe">
+                  {m!.lods.map((x, i) => (
+                    <option key={i} value={i}>
+                      LOD{x.level} · {x.triangles.toLocaleString()} △
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
           </div>
           {stats && (
             <div className="row wrap muted" style={{ marginTop: 6, fontSize: 12 }}>

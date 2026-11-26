@@ -40,3 +40,17 @@ describe("batch import", () => {
     expect(parseBatchJson('[{"params":{}}]').errors).toHaveLength(1);
   });
 });
+
+import { parseLods } from "../src/pages/AiGenerator";
+
+describe("AI LOD ratios", () => {
+  it("accepts descending values in [0.02, 1)", () => {
+    expect(parseLods("0.5, 0.25 0.1")).toEqual([0.5, 0.25, 0.1]);
+  });
+  it("rejects ascending, out-of-range and NaN", () => {
+    expect(parseLods("0.1, 0.5")).toBeNull();
+    expect(parseLods("1.0")).toBeNull();
+    expect(parseLods("0.01")).toBeNull();
+    expect(parseLods("abc")).toBeNull();
+  });
+});

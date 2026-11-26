@@ -88,6 +88,7 @@ export interface Worker {
     gpus?: Gpu[];
     models?: { name: string }[];
     ai_runtimes?: { openvino?: string | null; torch?: string | null; validated?: string[] };
+    ai?: { enabled?: boolean; reason?: string | null; validated?: string[] };
     schedule?: { active_hours?: string; max_host_cpu_percent?: number; yield_to?: string[] };
   };
   limits: { max_concurrent_jobs?: number; cpu_cores?: number; ram_mb?: number; vram_mb?: number };
