@@ -1,0 +1,29 @@
+# AssetForge worker (CPU / Intel GPU / hybrid). One image: the node kind is chosen with ASSETFORGE_WORKER_KIND.
+# Blender is downloaded from blender.org and verified against the SHA-256 published for 4.5.17 LTS.
+# NOTE: written for Docker but NOT built/tested in the authoring environment (no Docker available there).
+# No NVIDIA/CUDA components. Intel GPU access (hybrid/intel kinds) is by passing /dev/dri, never --privileged.
+
+FROM python:3.12-slim AS runtime
+ARG BLENDER_VERSION=4.5.17
+ARG BLENDER_SHA256=b7d09d1aa7c346fed1e56390e815dbf1589d47324734fbad9e2007fe75ca0b8d
+ENV PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1 BLENDER_BIN=/opt/blender/blender \
+    PYTHONPATH=/app/workers/cpu:/app/generators/procedural:/app/pipeline/validation:/app/pipeline/optimization:/app/pipeline/export:/app/packages/asset-contract
+RUN apt-get update && apt-get install -y --no-install-recommends curl xz-utils ca-certificates \
+      libgl1 libegl1 libxi6 libxrender1 libxfixes3 libxxf86vm1 libxkbcommon0 libsm6 libxext6 pciutils \
+    && rm -rf /var/lib/apt/lists/*
+RUN curl -fsSL -o /tmp/blender.tar.xz \
+      "https://download.blender.org/release/Blender4.5/blender-${BLENDER_VERSION}-linux-x64.tar.xz" \
+    && echo "${BLENDER_SHA256}  /tmp/blender.tar.xz" | sha256sum -c - \
+    && mkdir -p /opt/blender && tar -xJf /tmp/blender.tar.xz -C /opt/blender --strip-components=1 && rm /tmp/blender.tar.xz
+WORKDIR /app
+COPY requirements.txt ./
+RUN pip install -r requirements.txt
+COPY workers/cpu workers/cpu
+COPY generators/procedural generators/procedural
+COPY pipeline pipeline
+COPY packages packages
+RUN useradd --system --uid 10002 --create-home assetforge && mkdir -p /state && chown assetforge /state
+USER assetforge
+ENV ASSETFORGE_WORKER_STATE_DIR=/state
+VOLUME /state
+CMD ["python", "-m", "assetforge_worker"]

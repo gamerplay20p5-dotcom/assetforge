@@ -1,0 +1,16 @@
+# Intel GPU / hybrid worker. SKELETON: the node is detected and run as a hybrid worker (CPU jobs + Intel GPU
+# visibility); AI providers (OpenVINO Stable Diffusion, image-to-3D) are NOT included yet (Milestone 2) and
+# no Intel Arc compatibility is claimed until scripts/validate_intel_gpu.py and the benchmark have run on the
+# real node. No NVIDIA/CUDA. No --privileged: only the DRI render node is passed through.
+#   docker compose --env-file .env.worker -f deployment/docker-compose.worker-cpu.yml -f deployment/docker-compose.worker-intel.yml up -d
+# Not tested in the authoring environment (no Docker / Intel Arc there).
+name: assetforge-worker-intel
+
+services:
+  worker:
+    environment:
+      ASSETFORGE_WORKER_KIND: ${ASSETFORGE_WORKER_KIND:-hybrid}   # hybrid | intel
+    devices:
+      - /dev/dri:/dev/dri
+    group_add:
+      - ${RENDER_GID:-109}   # numeric gid of the host 'render' group: getent group render | cut -d: -f3

@@ -1,0 +1,57 @@
+# Central server: PostgreSQL + API/dashboard.  Usage (from the repo root):
+#   docker compose --env-file .env -f deployment/docker-compose.central.yml up -d --build
+# PostgreSQL is NOT published to the host; only the API port is. Put a TLS reverse proxy in front for access
+# outside a trusted LAN. Not tested in the authoring environment (no Docker there) - see docs/TESTING.md.
+name: assetforge-central
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: assetforge
+      POSTGRES_USER: assetforge
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks: [internal]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U assetforge -d assetforge"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    security_opt: ["no-new-privileges:true"]
+
+  api:
+    build:
+      context: ..
+      dockerfile: deployment/Dockerfile.central
+    restart: unless-stopped
+    depends_on:
+      postgres: { condition: service_healthy }
+    environment:
+      ASSETFORGE_ENV: production
+      ASSETFORGE_DATABASE_URL: postgresql://assetforge:${POSTGRES_PASSWORD}@postgres:5432/assetforge
+      ASSETFORGE_SECRET_KEY: ${ASSETFORGE_SECRET_KEY:?set ASSETFORGE_SECRET_KEY in .env}
+      ASSETFORGE_ADMIN_USERNAME: ${ASSETFORGE_ADMIN_USERNAME:-admin}
+      ASSETFORGE_ADMIN_PASSWORD: ${ASSETFORGE_ADMIN_PASSWORD:?set ASSETFORGE_ADMIN_PASSWORD in .env}
+      ASSETFORGE_MAX_UPLOAD_MB: ${ASSETFORGE_MAX_UPLOAD_MB:-256}
+      ASSETFORGE_LLM_URL: ${ASSETFORGE_LLM_URL:-}
+      ASSETFORGE_LLM_MODEL: ${ASSETFORGE_LLM_MODEL:-}
+    volumes:
+      - assets:/data/storage
+    ports:
+      - "${ASSETFORGE_BIND:-0.0.0.0}:${ASSETFORGE_PORT:-8000}:8000"
+    networks: [internal]
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    read_only: true
+    tmpfs: ["/tmp"]
+
+volumes:
+  pgdata:
+  assets:
+
+networks:
+  internal:
+    driver: bridge

@@ -1,0 +1,28 @@
+# AssetForge central server: FastAPI API + built dashboard (served by the API, no extra web server needed).
+# NOTE: written for Docker but NOT built/tested in the authoring environment (no Docker available there).
+
+FROM node:22-slim AS dashboard
+WORKDIR /build
+COPY apps/dashboard/package.json apps/dashboard/package-lock.json ./
+RUN npm ci
+COPY apps/dashboard/ ./
+RUN npm run build
+
+FROM python:3.12-slim AS runtime
+ENV PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1 \
+    PYTHONPATH=/app/apps/api:/app/generators/procedural:/app/pipeline/validation:/app/pipeline/optimization:/app/pipeline/export:/app/packages/asset-contract
+WORKDIR /app
+COPY requirements.txt ./
+RUN pip install -r requirements.txt
+COPY apps/api apps/api
+COPY generators/procedural generators/procedural
+COPY pipeline pipeline
+COPY packages packages
+COPY --from=dashboard /build/dist /app/dashboard-dist
+ENV ASSETFORGE_DASHBOARD_DIR=/app/dashboard-dist ASSETFORGE_STORAGE_ROOT=/data/storage
+# unprivileged user
+RUN useradd --system --uid 10001 --home /app assetforge && mkdir -p /data/storage && chown -R assetforge /data
+USER assetforge
+EXPOSE 8000
+HEALTHCHECK --interval=15s --timeout=5s --retries=5 CMD python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health/ready', timeout=4).status==200 else 1)"
+CMD ["python", "-m", "uvicorn", "assetforge_api.main:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers"]

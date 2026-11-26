@@ -1,0 +1,41 @@
+# CPU worker (procedural generation with Blender headless). Run on any Linux server that can reach the API.
+#   docker compose --env-file .env.worker -f deployment/docker-compose.worker-cpu.yml up -d --build
+# Resource limits are enforced twice: by the AssetForge scheduler (logical reservation) and by Docker below.
+# The worker only starts jobs inside ASSETFORGE_WORKER_ACTIVE_HOURS, when host CPU is below the limit and while
+# none of ASSETFORGE_WORKER_YIELD_TO (e.g. ai-stream-clipper) is running. It never touches other containers.
+# Not tested in the authoring environment (no Docker there) - see docs/TESTING.md.
+name: assetforge-worker-cpu
+
+services:
+  worker:
+    build:
+      context: ..
+      dockerfile: deployment/Dockerfile.worker
+    restart: unless-stopped
+    environment:
+      ASSETFORGE_SERVER_URL: ${ASSETFORGE_SERVER_URL:?set ASSETFORGE_SERVER_URL (e.g. http://central-host:8000)}
+      ASSETFORGE_ENROLLMENT_TOKEN: ${ASSETFORGE_ENROLLMENT_TOKEN:-}
+      ASSETFORGE_WORKER_NAME: ${ASSETFORGE_WORKER_NAME:?set a unique worker name}
+      ASSETFORGE_WORKER_KIND: cpu
+      ASSETFORGE_WORKER_MAX_JOBS: ${ASSETFORGE_WORKER_MAX_JOBS:-1}
+      ASSETFORGE_WORKER_CPU_CORES: ${ASSETFORGE_WORKER_CPU_CORES:-4}
+      ASSETFORGE_WORKER_RAM_MB: ${ASSETFORGE_WORKER_RAM_MB:-6144}
+      ASSETFORGE_WORKER_ACTIVE_HOURS: ${ASSETFORGE_WORKER_ACTIVE_HOURS:-}
+      ASSETFORGE_WORKER_MAX_HOST_CPU_PERCENT: ${ASSETFORGE_WORKER_MAX_HOST_CPU_PERCENT:-0}
+      ASSETFORGE_WORKER_YIELD_TO: ${ASSETFORGE_WORKER_YIELD_TO:-}
+    volumes:
+      - worker-state:/state
+    tmpfs:
+      - /state/jobs:size=${ASSETFORGE_WORKER_SCRATCH:-4g},uid=10002
+    cpus: ${ASSETFORGE_WORKER_DOCKER_CPUS:-4}
+    mem_limit: ${ASSETFORGE_WORKER_DOCKER_MEM:-6g}
+    pids_limit: 512
+    # Opt-in: lets ASSETFORGE_WORKER_YIELD_TO see host processes (e.g. ai-stream-clipper running on the host or in
+    # another container). Read-only visibility, but it weakens PID isolation - enable only if you need it.
+    # Without it, rely on ASSETFORGE_WORKER_MAX_HOST_CPU_PERCENT (container sees host-wide CPU) and active hours.
+    # pid: host
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+
+volumes:
+  worker-state:
