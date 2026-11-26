@@ -28,7 +28,7 @@ export const KIT_HOUSES: KitHouse[] = [
 ];
 export const STAGES = ["Terreno", "Fundação", "Estrutura", "Paredes e telhado", "Acabamento", "Finalizada"];
 
-export function KitGenerator({ onCreated }: { onCreated: (ids: string[]) => void }) {
+export function KitGenerator({ onCreated }: { onCreated: (ids: string[], preview?: string | null) => void }) {
   const qc = useQueryClient();
   const [house, setHouse] = useState("ref01");
   const [stage, setStage] = useState(6);
@@ -57,7 +57,7 @@ export function KitGenerator({ onCreated }: { onCreated: (ids: string[]) => void
     },
     onSuccess: (ids) => {
       qc.invalidateQueries({ queryKey: ["jobs"] });
-      onCreated(ids);
+      onCreated(ids, `/kit/${house}.jpg`);
     },
   });
 

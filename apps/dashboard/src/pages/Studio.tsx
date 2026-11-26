@@ -52,6 +52,7 @@ export function Studio() {
   const [rotate, setRotate] = useState(true);
   const [stats, setStats] = useState<ViewerStats | null>(null);
   const [tab, setTab] = useState<"assets" | "props">("assets");
+  const [lastPreview, setLastPreview] = useState<string | null>(null); // picture the dots take their shape from when the job has no reference of its own
 
   const workers = useQuery({ queryKey: ["workers"], queryFn: () => api<Worker[]>("/workers"), refetchInterval: 8000 });
   const online = (workers.data ?? []).filter((w) => w.online && w.state === "enabled");
@@ -177,6 +178,13 @@ export function Studio() {
   const lodFile = m?.lods?.[lod]?.file ?? "model.glb";
   const glb = a && token ? fileUrl(a.id, lodFile, token, ver) : null;
   const generating = !!j && ACTIVE.has(j.status);
+  const jp = j?.params as Record<string, unknown> | undefined;
+  const animSource: string | null =
+    typeof jp?.reference_id === "string" && token
+      ? `/api/v1/references/${jp.reference_id}?token=${encodeURIComponent(token)}`
+      : typeof jp?.archetype === "string"
+        ? `/kit/${jp.archetype}.jpg`
+        : lastPreview;
   const failed = !!j && (j.status === "failed" || j.status === "cancelled");
   const needed = (j?.requirements?.features ?? []).find((f) => f.startsWith("provider."))?.slice(9);
   const stuck = j?.status === "queued" && !!needed && !upFor(needed);
@@ -193,9 +201,9 @@ export function Studio() {
           <button role="tab" aria-selected={mode === "image"} className={mode === "image" ? "on" : ""} onClick={() => setMode("image")} title="Experimental">TripoSR</button>
         </div>
         {mode === "kit" ? (
-          <KitGenerator onCreated={(ids) => { setAssetId(null); setJobId(ids[0] ?? null); }} />
+          <KitGenerator onCreated={(ids, pv) => { setAssetId(null); setLastPreview(pv ?? null); setJobId(ids[0] ?? null); }} />
         ) : mode === "vision" ? (
-          <VisionHouse onCreated={(ids) => { setAssetId(null); setJobId(ids[0] ?? null); }} />
+          <VisionHouse onCreated={(ids, pv) => { setAssetId(null); setLastPreview(pv ?? null); setJobId(ids[0] ?? null); }} />
         ) : (
           <>
         <div className="st-title"><Sparkles size={16} /> Gerar modelo 3D</div>
@@ -332,7 +340,7 @@ export function Studio() {
       <section className="st-stage">
         {generating && j ? (
           <div className="st-gen">
-            <GenAnimation progress={j.progress} />
+            <GenAnimation progress={j.progress} source={animSource} />
             <div className="st-gen-info">
               <div className="st-pct">{Math.round(j.progress * 100)}<small>%</small></div>
               <div className="st-stage-name" aria-live="polite">{stageName}</div>
@@ -344,7 +352,7 @@ export function Studio() {
               </div>
               {stuck && <div className="st-warn" style={{ maxWidth: 420 }}>Este pedido não vai andar: {reasonFor(needed!) ?? "o modelo não está pronto em nenhum worker"}. Cancele e gere de novo com {triUp ? "o TripoSR" : "outro modelo"}.</div>}
               <button onClick={() => cancel.mutate(j.id)} disabled={cancel.isPending}>Cancelar</button>
-              <div className="st-sub dim">A animação é ilustrativa; o percentual e a etapa vêm do job real.</div>
+              <div className="st-sub dim">As bolinhas formam a silhueta da imagem de referência; o percentual e a etapa vêm do job real.</div>
             </div>
           </div>
         ) : failed && j ? (

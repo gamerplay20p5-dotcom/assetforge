@@ -20,7 +20,7 @@ from pathlib import Path
 import httpx
 
 ROOT = Path(__file__).resolve().parents[2]
-PKG_DIRS = ["apps/api", "workers/cpu", "generators/procedural", "generators/intel_ai", "generators/mesh", "pipeline/validation", "pipeline/optimization",
+PKG_DIRS = ["apps/api", "workers/cpu", "generators/procedural", "generators/vision", "generators/intel_ai", "generators/mesh", "pipeline/validation", "pipeline/optimization",
             "pipeline/export", "packages/asset-contract"]
 ADMIN_PASSWORD = "e2e-admin-password"
 

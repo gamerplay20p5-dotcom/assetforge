@@ -41,7 +41,7 @@ function ColorSelect({ label, value, onChange }: { label: string; value: string;
   );
 }
 
-export function VisionHouse({ onCreated }: { onCreated: (ids: string[]) => void }) {
+export function VisionHouse({ onCreated }: { onCreated: (ids: string[], preview?: string | null) => void }) {
   const qc = useQueryClient();
   const input = useRef<HTMLInputElement>(null);
   const [file, setFile] = useState<File | null>(null);
@@ -159,7 +159,7 @@ export function VisionHouse({ onCreated }: { onCreated: (ids: string[]) => void 
     },
     onSuccess: (ids) => {
       qc.invalidateQueries({ queryKey: ["jobs"] });
-      onCreated(ids);
+      onCreated(ids, url);
     },
   });
 
