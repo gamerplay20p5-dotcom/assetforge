@@ -15,10 +15,10 @@ from sqlalchemy import delete, select
 
 from .config import Settings, get_settings
 from .db import Database, utcnow
-from .models import ArtProfile, Event, User
+from .models import ArtProfile, EnrollmentToken, Event, User
 from .routers import assets, auth, jobs, references, system, workers
 from .scheduler import reap
-from .security import LoginThrottle, hash_password
+from .security import LoginThrottle, hash_password, hash_token
 from .storage import Storage
 
 log = logging.getLogger("assetforge.api")
@@ -45,6 +45,12 @@ def bootstrap(db: Database, settings: Settings) -> None:
             s.add(User(username=settings.admin_username, password_hash=hash_password(password), role="admin"))
         if s.execute(select(ArtProfile).where(ArtProfile.name == DEFAULT_ART_PROFILE["name"])).scalar_one_or_none() is None:
             s.add(ArtProfile(**DEFAULT_ART_PROFILE))
+        for raw in filter(None, (t.strip() for t in settings.bootstrap_enrollment_tokens.split(","))):
+            if len(raw) < 24:
+                raise RuntimeError("ASSETFORGE_BOOTSTRAP_ENROLLMENT_TOKENS entries must have at least 24 characters")
+            h = hash_token(raw)
+            if s.execute(select(EnrollmentToken).where(EnrollmentToken.token_hash == h)).scalar_one_or_none() is None:
+                s.add(EnrollmentToken(token_hash=h, label="bootstrap", created_by="bootstrap", expires_at=utcnow() + timedelta(days=30)))
         s.commit()
 
 

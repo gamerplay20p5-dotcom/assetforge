@@ -36,6 +36,8 @@ class Settings(BaseSettings):
 
     ai_vram_mb: int = 7000  # VRAM reserved per generative job (A750 8 GB: calibrate after validation)
     max_reference_mb: int = 20
+    # comma-separated one-time worker enrollment tokens created at startup (single-node installs: no manual dashboard step)
+    bootstrap_enrollment_tokens: str = ""
     llm_url: str = ""  # optional local Ollama-compatible server used by the text planner (never a cloud API)
     llm_model: str = ""
 
