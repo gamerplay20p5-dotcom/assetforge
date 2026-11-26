@@ -41,7 +41,7 @@ describe("batch import", () => {
   });
 });
 
-import { parseLods } from "../src/pages/AiGenerator";
+import { checkImageFile, parseLods } from "../src/pages/AiGenerator";
 
 describe("AI LOD ratios", () => {
   it("accepts descending values in [0.02, 1)", () => {
@@ -52,5 +52,16 @@ describe("AI LOD ratios", () => {
     expect(parseLods("1.0")).toBeNull();
     expect(parseLods("0.01")).toBeNull();
     expect(parseLods("abc")).toBeNull();
+  });
+});
+
+describe("checkImageFile", () => {
+  it("aceita imagens de até 10 MB nos formatos permitidos", () => {
+    expect(checkImageFile({ type: "image/png", size: 10 * 1024 * 1024 })).toBeNull();
+    expect(checkImageFile({ type: "image/webp", size: 1000 })).toBeNull();
+  });
+  it("recusa acima de 10 MB e formatos não suportados", () => {
+    expect(checkImageFile({ type: "image/png", size: 10 * 1024 * 1024 + 1 })).toMatch(/10 MB/);
+    expect(checkImageFile({ type: "image/gif", size: 10 })).not.toBeNull();
   });
 });

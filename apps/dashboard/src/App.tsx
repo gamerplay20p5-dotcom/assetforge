@@ -1,10 +1,11 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Boxes, Cpu, Gauge, Layers, ListChecks, LogOut, Moon, Pause, Play, Sparkles, Sun, Triangle } from "lucide-react";
+import { Boxes, Cpu, Gauge, ImagePlus, Layers, ListChecks, LogOut, Moon, Pause, Play, Sparkles, Sun, Triangle } from "lucide-react";
 import { useEffect, useState } from "react";
 import { NavLink, Navigate, Route, Routes } from "react-router-dom";
 import { api, getToken, setToken, useDownloadToken } from "./api";
 import { Dashboard } from "./pages/Dashboard";
 import { Generator } from "./pages/Generator";
+import { AiGenerator } from "./pages/AiGenerator";
 import { BatchStudio } from "./pages/BatchStudio";
 import { QueueManager } from "./pages/QueueManager";
 import { Library } from "./pages/Library";
@@ -67,7 +68,8 @@ function useLiveEvents(enabled: boolean) {
 
 const NAV = [
   { to: "/", label: "Dashboard", icon: Gauge, end: true },
-  { to: "/generator", label: "Asset Generator", icon: Sparkles },
+  { to: "/image3d", label: "Imagem → 3D", icon: ImagePlus },
+  { to: "/generator", label: "Procedural", icon: Sparkles },
   { to: "/batch", label: "Batch Studio", icon: Layers },
   { to: "/queue", label: "Queue Manager", icon: ListChecks },
   { to: "/library", label: "Asset Library", icon: Boxes },
@@ -152,6 +154,7 @@ export function App() {
         <main className="content">
           <Routes>
             <Route path="/" element={<Dashboard />} />
+            <Route path="/image3d" element={<AiGenerator />} />
             <Route path="/generator" element={<Generator />} />
             <Route path="/batch" element={<BatchStudio />} />
             <Route path="/queue" element={<QueueManager />} />

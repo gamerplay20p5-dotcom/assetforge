@@ -4,7 +4,6 @@ import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "../api";
 import { ErrorNote, Panel } from "../components/ui";
-import { AiGenerator } from "./AiGenerator";
 import type { GeneratorInfo, Preset, Worker } from "../types";
 
 interface Form {
@@ -98,7 +97,6 @@ const CAT_LABEL: Record<string, string> = {
 };
 
 export function Generator() {
-  const [mode, setMode] = useState<"procedural" | "ai">("procedural");
   const nav = useNavigate();
   const qc = useQueryClient();
   const [f, setF] = useState<Form>(DEFAULTS);
@@ -168,21 +166,8 @@ export function Generator() {
 
   const expected = useMemo(() => (budget ? [Math.round(budget[0] * mult), Math.round(budget[1] * mult)] : null), [budget, mult]);
 
-  const toggle = (
-    <div className="row" role="tablist" style={{ marginBottom: 12 }}>
-      <button role="tab" aria-selected={mode === "procedural"} className={mode === "procedural" ? "primary" : ""} onClick={() => setMode("procedural")}>
-        Procedural (principal)
-      </button>
-      <button role="tab" aria-selected={mode === "ai"} className={mode === "ai" ? "primary" : ""} onClick={() => setMode("ai")}>
-        Imagem → 3D (IA, CPU)
-      </button>
-    </div>
-  );
-  if (mode === "ai") return <div>{toggle}<AiGenerator /></div>;
-
   return (
     <div>
-    {toggle}
     <div className="grid" style={{ gridTemplateColumns: "minmax(0,1fr) 320px", gap: 14, alignItems: "start" }}>
       <div className="grid" style={{ gap: 14 }}>
         <Panel title="Descrição textual → parâmetros" actions={<span className="muted">regras PT/EN; LLM local opcional</span>}>

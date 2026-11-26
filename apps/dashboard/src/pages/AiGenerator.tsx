@@ -1,26 +1,26 @@
-import { useMutation, useQuery } from "@tanstack/react-query";
-import { Sparkles, Upload } from "lucide-react";
-import { useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { ImagePlus, Sparkles, X } from "lucide-react";
+import { useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api, getToken } from "../api";
 import { ErrorNote, Panel } from "../components/ui";
 import type { Worker } from "../types";
 
-const CATEGORIES = ["prop", "house", "apartment", "commercial", "skyscraper", "industrial", "hospital", "school", "university", "police", "fire_station", "transport_station", "warehouse", "government", "vehicle", "character", "tree"];
-const PROFILES = ["prototype", "stylized_standard", "stylized_detailed", "high_quality"];
+export const MAX_IMAGE_MB = 10;
 
-const PROVIDERS: Record<string, { title: string; blurb: string; license: string }> = {
-  sf3d: {
-    title: "Stable Fast 3D (CPU)",
-    blurb: "Textura PBR (albedo/rugosidade/metal/normal) com UV; melhor candidato para materiais.",
-    license: "Licença Stability AI Community: uso comercial exige registro na Stability e receita < US$ 1 mi/ano; exige “Powered by Stability AI”.",
-  },
-  triposr: {
-    title: "TripoSR (CPU)",
-    blurb: "Alternativa: textura baked (ou cor por vértice se o bake falhar).",
-    license: "MIT (código e pesos): sem restrições comerciais.",
-  },
-};
+/** Presets for a low/mid-poly game. `tris` is the LOD0 triangle target; the rest follows from it. */
+export const PRESETS = {
+  low: { label: "Low poly", hint: "personagens secundários, props, mobile", tris: 1500, profile: "prototype", tex: 512, lods: [0.5, 0.25] },
+  mid: { label: "Mid poly", hint: "equilíbrio para a maioria dos assets", tris: 6000, profile: "stylized_standard", tex: 1024, lods: [0.5, 0.25, 0.1] },
+  high: { label: "Mid-alto", hint: "heróis e objetos em destaque", tris: 15000, profile: "stylized_detailed", tex: 2048, lods: [0.5, 0.25, 0.1] },
+  custom: { label: "Personalizado", hint: "você define o número de triângulos", tris: 3000, profile: "stylized_standard", tex: 1024, lods: [0.5, 0.25] },
+} as const;
+type PresetKey = keyof typeof PRESETS;
+
+const PROVIDERS = {
+  triposr: { title: "TripoSR", note: "MIT — uso comercial livre" },
+  sf3d: { title: "Stable Fast 3D", note: "licença Stability: uso comercial exige registro" },
+} as const;
 
 export function parseLods(text: string): number[] | null {
   const parts = text.split(/[,\s;]+/).filter(Boolean).map(Number);
@@ -28,198 +28,247 @@ export function parseLods(text: string): number[] | null {
   return parts.every((n, i) => i === 0 || n < parts[i - 1]) ? parts : null;
 }
 
+/** Returns an error message when the file is not acceptable (checked before sending; the server checks again). */
+export function checkImageFile(f: { type: string; size: number }): string | null {
+  if (!["image/png", "image/jpeg", "image/webp"].includes(f.type)) return "use PNG, JPEG ou WEBP";
+  if (f.size > MAX_IMAGE_MB * 1024 * 1024) return `maior que ${MAX_IMAGE_MB} MB`;
+  return null;
+}
+
+interface Item {
+  key: string;
+  file: File;
+  url: string;
+  error: string | null;
+}
+
 export function AiGenerator() {
   const nav = useNavigate();
-  const [provider, setProvider] = useState<"sf3d" | "triposr">("sf3d");
-  const [name, setName] = useState("Asset a partir de imagem");
-  const [category, setCategory] = useState("house");
-  const [size, setSize] = useState(8);
-  const [profile, setProfile] = useState("stylized_standard");
-  const [tex, setTex] = useState("");
-  const [mc, setMc] = useState("");
-  const [remesh, setRemesh] = useState("none");
-  const [maxTris, setMaxTris] = useState("");
-  const [lods, setLods] = useState("0.5, 0.25, 0.1");
+  const qc = useQueryClient();
+  const input = useRef<HTMLInputElement>(null);
+  const [items, setItems] = useState<Item[]>([]);
+  const [over, setOver] = useState(false);
+  const [preset, setPreset] = useState<PresetKey>("mid");
+  const [tris, setTris] = useState<number>(PRESETS.mid.tris);
+  const [size, setSize] = useState(2);
+  const [provider, setProvider] = useState<"triposr" | "sf3d">("triposr");
+  const [advanced, setAdvanced] = useState(false);
+  const [tex, setTex] = useState<number>(PRESETS.mid.tex);
+  const [lods, setLods] = useState<string>(PRESETS.mid.lods.join(", "));
+  const [category, setCategory] = useState("prop");
   const [formats, setFormats] = useState<string[]>(["glb", "fbx", "blend"]);
-  const [ref, setRef] = useState<{ id: string; width: number; height: number } | null>(null);
-  const [refUrl, setRefUrl] = useState<string | null>(null);
-  const [upErr, setUpErr] = useState<string | null>(null);
+  const [progress, setProgress] = useState<string | null>(null);
+
   const workers = useQuery({ queryKey: ["workers"], queryFn: () => api<Worker[]>("/workers"), refetchInterval: 8000 });
   const online = (workers.data ?? []).filter((w) => w.online && w.state === "enabled");
-  const capable = online.filter((w) => w.capabilities.features?.includes(`provider.${provider}`));
-  const status = (workers.data ?? []).map((w) => w.capabilities.cpu3d?.providers?.[provider]).filter(Boolean);
+  const has = (p: string) => online.some((w) => w.capabilities.features?.includes(`provider.${p}`));
+  const reasons = (workers.data ?? []).map((w) => w.capabilities.cpu3d?.providers?.[provider]?.reason).filter(Boolean);
   const lodList = parseLods(lods);
 
-  const upload = async (file: File) => {
-    setUpErr(null);
+  const pick = (k: PresetKey) => {
+    setPreset(k);
+    const p = PRESETS[k];
+    setTris(p.tris);
+    setTex(p.tex);
+    setLods(p.lods.join(", "));
+  };
+  const add = (files: FileList | File[]) => {
+    const next: Item[] = [];
+    for (const f of Array.from(files)) {
+      next.push({ key: `${f.name}-${f.size}-${f.lastModified}-${Math.random()}`, file: f, url: URL.createObjectURL(f), error: checkImageFile(f) });
+    }
+    setItems((cur) => [...cur, ...next]);
+  };
+  const remove = (key: string) => setItems((cur) => cur.filter((i) => i.key !== key));
+  const valid = items.filter((i) => !i.error);
+
+  const upload = async (file: File): Promise<string> => {
     const fd = new FormData();
     fd.append("file", file);
     const res = await fetch("/api/v1/references", { method: "POST", headers: { Authorization: `Bearer ${getToken()}` }, body: fd });
-    if (!res.ok) {
-      const j = await res.json().catch(() => ({}));
-      setUpErr(typeof j.detail === "string" ? j.detail : `falha no upload (${res.status})`);
-      return;
-    }
-    setRef(await res.json());
-    setRefUrl(URL.createObjectURL(file));
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(typeof j.detail === "string" ? j.detail : `falha no upload (${res.status})`);
+    return j.id as string;
   };
 
   const submit = useMutation({
-    mutationFn: () =>
-      api("/jobs", {
-        method: "POST",
-        json: {
-          name,
-          job_type: "ai.image_to_3d",
-          quality_profile: profile,
-          formats,
-          params: {
-            provider,
-            reference_id: ref?.id,
-            category,
-            target_size_m: size,
-            lod_ratios: lodList ?? [],
-            ...(tex ? { texture_resolution: Number(tex) } : {}),
-            ...(provider === "triposr" && mc ? { mc_resolution: Number(mc) } : {}),
-            ...(provider === "sf3d" ? { remesh } : {}),
-            ...(maxTris ? { max_triangles: Number(maxTris) } : {}),
+    mutationFn: async () => {
+      const preset_ = PRESETS[preset];
+      for (const [n, it] of valid.entries()) {
+        setProgress(`Enviando ${n + 1}/${valid.length}: ${it.file.name}`);
+        const id = await upload(it.file);
+        await api("/jobs", {
+          method: "POST",
+          json: {
+            name: it.file.name.replace(/\.[^.]+$/, "").slice(0, 80) || "Asset",
+            job_type: "ai.image_to_3d",
+            quality_profile: preset_.profile,
+            formats,
+            params: { provider, reference_id: id, category, target_size_m: size, lod_ratios: lodList ?? [], texture_resolution: tex, max_triangles: tris },
           },
-        },
-      }),
-    onSuccess: () => nav("/queue"),
+        });
+      }
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["jobs"] });
+      nav("/queue");
+    },
+    onSettled: () => setProgress(null),
   });
-  const ready = name && lodList && ref;
+  const ready = valid.length > 0 && tris >= 200 && tris <= 200000 && !!lodList && size > 0;
 
   return (
-    <div className="grid" style={{ gridTemplateColumns: "minmax(0,1fr) 340px", gap: 14, alignItems: "start" }}>
+    <div className="grid" style={{ gridTemplateColumns: "minmax(0,1fr) 320px", gap: 14, alignItems: "start" }}>
       <div className="grid" style={{ gap: 14 }}>
-        <div className="note">
-          Geração <strong>complementar</strong> ao procedural: imagem de referência → modelo 3D texturizado, <strong>só com CPU e RAM</strong> (PyTorch CPU, containers independentes). Depois, o Blender normaliza escala/pivô, reduz polígonos, gera LODs e exporta GLB/FBX/BLEND. O estilo
-          “Premium Stylized” vem da imagem de referência que você fornece. Texto→3D exige um modelo de texto→imagem e não está habilitado.
-        </div>
-        <Panel title="1 · Modelo de geração">
-          <div className="grid g2">
-            {Object.entries(PROVIDERS).map(([k, p]) => (
-              <label key={k} className="card" style={{ padding: 12, cursor: "pointer", outline: provider === k ? "2px solid var(--accent)" : undefined }}>
+        <Panel title="1 · Imagens de referência">
+          <div
+            className="card"
+            role="button"
+            tabIndex={0}
+            aria-label="Escolher imagens"
+            onClick={() => input.current?.click()}
+            onKeyDown={(e) => e.key === "Enter" && input.current?.click()}
+            onDragOver={(e) => {
+              e.preventDefault();
+              setOver(true);
+            }}
+            onDragLeave={() => setOver(false)}
+            onDrop={(e) => {
+              e.preventDefault();
+              setOver(false);
+              add(e.dataTransfer.files);
+            }}
+            style={{ padding: 28, textAlign: "center", cursor: "pointer", borderStyle: "dashed", outline: over ? "2px solid var(--accent)" : undefined }}
+          >
+            <ImagePlus size={28} />
+            <div style={{ marginTop: 6 }}>
+              <strong>Arraste as imagens aqui</strong> ou clique para escolher
+            </div>
+            <div className="muted" style={{ fontSize: 12 }}>PNG, JPEG ou WEBP · até {MAX_IMAGE_MB} MB cada · um objeto por imagem, fundo liso. Cada imagem vira um modelo.</div>
+            <input
+              ref={input}
+              type="file"
+              multiple
+              accept="image/png,image/jpeg,image/webp"
+              style={{ display: "none" }}
+              onChange={(e) => {
+                if (e.target.files) add(e.target.files);
+                e.target.value = "";
+              }}
+            />
+          </div>
+          {items.length > 0 && (
+            <div className="row wrap" style={{ marginTop: 12, gap: 10 }}>
+              {items.map((i) => (
+                <div key={i.key} style={{ position: "relative", width: 110 }}>
+                  <img src={i.url} alt={i.file.name} style={{ width: 110, height: 110, objectFit: "contain", background: "var(--panel-2)", borderRadius: 6, opacity: i.error ? 0.4 : 1 }} />
+                  <button className="icon ghost" aria-label={`Remover ${i.file.name}`} style={{ position: "absolute", top: 2, right: 2 }} onClick={() => remove(i.key)}>
+                    <X size={14} />
+                  </button>
+                  <div className="muted" style={{ fontSize: 11, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={i.file.name}>{i.file.name}</div>
+                  {i.error && <div className="check-fail" style={{ fontSize: 11 }}>{i.error}</div>}
+                </div>
+              ))}
+            </div>
+          )}
+        </Panel>
+
+        <Panel title="2 · Quantos polígonos?">
+          <div className="grid g4">
+            {(Object.keys(PRESETS) as PresetKey[]).map((k) => (
+              <label key={k} className="card" style={{ padding: 10, cursor: "pointer", outline: preset === k ? "2px solid var(--accent)" : undefined }}>
                 <div className="row">
-                  <input type="radio" name="provider" checked={provider === k} onChange={() => setProvider(k as "sf3d" | "triposr")} />
-                  <strong>{p.title}</strong>
+                  <input type="radio" name="preset" checked={preset === k} onChange={() => pick(k)} />
+                  <strong>{PRESETS[k].label}</strong>
                 </div>
-                <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>{p.blurb}</div>
-                <div style={{ fontSize: 11, marginTop: 6 }} className={k === "sf3d" ? "check-warn" : "muted"}>
-                  {p.license}
-                </div>
+                <div style={{ fontSize: 13, marginTop: 4 }}>{k === "custom" ? "você escolhe" : `~${PRESETS[k].tris.toLocaleString("pt-BR")} triângulos`}</div>
+                <div className="muted" style={{ fontSize: 11 }}>{PRESETS[k].hint}</div>
               </label>
             ))}
           </div>
-        </Panel>
-        <Panel title="2 · Imagem de referência">
-          <div className="row" style={{ alignItems: "flex-start" }}>
-            <div>
-              <label className="btn">
-                <Upload size={14} /> Enviar imagem (PNG/JPEG/WEBP, 64–4096 px)
-                <input type="file" accept="image/png,image/jpeg,image/webp" style={{ display: "none" }} onChange={(e) => e.target.files?.[0] && upload(e.target.files[0])} />
-              </label>
-              {ref && <span className="chip" style={{ marginLeft: 8 }}>{ref.id} · {ref.width}×{ref.height}</span>}
-              {upErr && <div className="error-note">{upErr}</div>}
-              <p className="muted" style={{ fontSize: 11 }}>Um único objeto, bem visível, em fundo liso. O fundo é removido automaticamente (rembg).</p>
-            </div>
-            {refUrl && <img src={refUrl} alt="Referência enviada" style={{ width: 120, height: 120, objectFit: "contain", background: "var(--panel-2)", borderRadius: 6 }} />}
-          </div>
-        </Panel>
-        <Panel title="3 · Asset, qualidade e otimização">
-          <div className="grid g4">
-            <label className="field" style={{ gridColumn: "span 2" }}>
-              Nome
-              <input value={name} onChange={(e) => setName(e.target.value)} />
-            </label>
+          <div className="grid g4" style={{ marginTop: 12 }}>
             <label className="field">
-              Categoria (orçamento de triângulos)
-              <select value={category} onChange={(e) => setCategory(e.target.value)}>
-                {CATEGORIES.map((c) => (
-                  <option key={c}>{c}</option>
-                ))}
-              </select>
+              Triângulos do modelo final (LOD0)
+              <input type="number" min={200} max={200000} step={100} value={tris} onChange={(e) => { setTris(Number(e.target.value)); setPreset("custom"); }} />
             </label>
             <label className="field">
               Altura real (m)
-              <input type="number" min={0.2} step={0.5} value={size} onChange={(e) => setSize(Number(e.target.value))} />
+              <input type="number" min={0.1} step={0.5} value={size} onChange={(e) => setSize(Number(e.target.value))} />
             </label>
-            <label className="field">
-              Perfil de qualidade
-              <select value={profile} onChange={(e) => setProfile(e.target.value)}>
-                {PROFILES.map((p) => (
-                  <option key={p}>{p}</option>
-                ))}
-              </select>
-            </label>
-            <label className="field">
-              Resolução da textura
-              <select value={tex} onChange={(e) => setTex(e.target.value)}>
-                <option value="">do perfil</option>
-                {[512, 1024, 2048].map((r) => (
-                  <option key={r}>{r}</option>
-                ))}
-              </select>
-            </label>
-            {provider === "triposr" ? (
+          </div>
+          <p className="muted" style={{ fontSize: 12, margin: "8px 0 0" }}>
+            O polimento é automático: o Blender solda a malha, reduz até o número acima, refaz o UV e transfere cor e relevo do modelo detalhado para a textura. Também gera os LODs.
+          </p>
+        </Panel>
+
+        <Panel title="Opções avançadas" actions={<button onClick={() => setAdvanced(!advanced)}>{advanced ? "Esconder" : "Mostrar"}</button>}>
+          {advanced ? (
+            <div className="grid g4">
               <label className="field">
-                Marching cubes (detalhe da malha)
-                <select value={mc} onChange={(e) => setMc(e.target.value)}>
-                  <option value="">do perfil</option>
-                  {[192, 256, 320, 384].map((r) => (
-                    <option key={r}>{r}</option>
+                Modelo de IA
+                <select value={provider} onChange={(e) => setProvider(e.target.value as "triposr" | "sf3d")}>
+                  {Object.entries(PROVIDERS).map(([k, p]) => (
+                    <option key={k} value={k}>{p.title} — {p.note}</option>
                   ))}
                 </select>
               </label>
-            ) : (
               <label className="field">
-                Remalhamento (SF3D)
-                <select value={remesh} onChange={(e) => setRemesh(e.target.value)}>
-                  <option value="none">nenhum</option>
-                  <option value="triangle">triângulos</option>
-                  <option value="quad">quads</option>
+                Textura
+                <select value={tex} onChange={(e) => setTex(Number(e.target.value))}>
+                  {[256, 512, 1024, 2048].map((r) => (
+                    <option key={r} value={r}>{r} px</option>
+                  ))}
                 </select>
               </label>
-            )}
-            <label className="field">
-              Máx. triângulos do LOD0
-              <input type="number" min={200} value={maxTris} placeholder="orçamento da categoria" onChange={(e) => setMaxTris(e.target.value)} />
-            </label>
-            <label className="field">
-              LODs (razões)
-              <input value={lods} onChange={(e) => setLods(e.target.value)} aria-invalid={!lodList} />
-              {!lodList && <span className="check-fail">decrescente, entre 0,02 e 1</span>}
-            </label>
-          </div>
-          <div className="row wrap" style={{ marginTop: 12 }}>
-            <span className="muted">Formatos:</span>
-            <label className="check">
-              <input type="checkbox" checked disabled /> GLB (+ LODs)
-            </label>
-            {["fbx", "blend"].map((f) => (
-              <label key={f} className="check">
-                <input type="checkbox" checked={formats.includes(f)} onChange={(e) => setFormats(e.target.checked ? [...formats, f] : formats.filter((x) => x !== f))} />
-                {f.toUpperCase()}
+              <label className="field">
+                LODs (razões)
+                <input value={lods} onChange={(e) => setLods(e.target.value)} aria-invalid={!lodList} />
+                {!lodList && <span className="check-fail">decrescente, entre 0,02 e 1</span>}
               </label>
-            ))}
-          </div>
+              <label className="field">
+                Categoria
+                <select value={category} onChange={(e) => setCategory(e.target.value)}>
+                  {["prop", "house", "commercial", "industrial", "vehicle", "character", "tree"].map((c) => (
+                    <option key={c}>{c}</option>
+                  ))}
+                </select>
+              </label>
+              <div className="row wrap" style={{ gridColumn: "1 / -1" }}>
+                <span className="muted">Formatos:</span>
+                <label className="check"><input type="checkbox" checked disabled /> GLB</label>
+                {["fbx", "blend"].map((f) => (
+                  <label key={f} className="check">
+                    <input type="checkbox" checked={formats.includes(f)} onChange={(e) => setFormats(e.target.checked ? [...formats, f] : formats.filter((x) => x !== f))} />
+                    {f.toUpperCase()}
+                  </label>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <div className="muted" style={{ fontSize: 12 }}>
+              Padrão: {PROVIDERS[provider].title} · textura {tex}px · LODs {lods} · GLB + FBX + BLEND.
+            </div>
+          )}
         </Panel>
       </div>
-      <div className="grid" style={{ gap: 14, position: "sticky", top: 0 }}>
-        <Panel title="Disponibilidade">
-          {capable.length ? (
-            <div className="check-ok">✔ {capable.map((w) => w.name).join(", ")} com {PROVIDERS[provider].title}</div>
+
+      <div style={{ position: "sticky", top: 0 }}>
+        <Panel title="Gerar">
+          <div style={{ fontSize: 13 }}>
+            {valid.length} imagem(ns) · {PRESETS[preset].label} · ~{tris.toLocaleString("pt-BR")} triângulos
+          </div>
+          {has(provider) ? (
+            <div className="check-ok" style={{ marginTop: 8 }}>✔ {PROVIDERS[provider].title} disponível</div>
           ) : (
-            <div className="error-note">Nenhum worker oferece este modelo agora; o job ficaria na fila.</div>
+            <div className="error-note" style={{ marginTop: 8 }}>
+              {PROVIDERS[provider].title} não está disponível agora; o job ficaria na fila.
+              {reasons.map((r, i) => <div key={i} className="muted" style={{ fontSize: 12 }}>{r}</div>)}
+            </div>
           )}
-          {!capable.length && status.map((s, i) => <div key={i} className="muted" style={{ fontSize: 12 }}>{s?.reason}</div>)}
-          <p className="muted" style={{ fontSize: 11 }}>
-            Threads, RAM e concorrência: limites do worker (aba Workers) e do container (.env). Resultados de tempo e RAM aparecem no manifesto e no benchmark — nada é estimado aqui.
-          </p>
+          {progress && <div className="muted" style={{ fontSize: 12, marginTop: 8 }}>{progress}</div>}
           <ErrorNote error={submit.error} />
-          <button className="primary" style={{ width: "100%", justifyContent: "center" }} disabled={!ready || submit.isPending} onClick={() => submit.mutate()}>
-            <Sparkles size={15} /> Gerar modelo 3D
+          <button className="primary" style={{ width: "100%", justifyContent: "center", marginTop: 10 }} disabled={!ready || submit.isPending} onClick={() => submit.mutate()}>
+            <Sparkles size={15} /> Gerar {valid.length > 1 ? `${valid.length} modelos 3D` : "modelo 3D"}
           </button>
         </Panel>
       </div>
