@@ -66,3 +66,12 @@ def test_garage_and_porch_edits_follow_the_description():
     no_g = description_to_spec(parse_description({**base, "garage": False, "garage_side": "none", "volumes": "single", "porch": "none"}))
     assert any(w.garage for w in with_g.wings) and not any(w.garage for w in no_g.wings)
     assert not any(f.type == "porch" for f in no_g.features)
+
+
+def test_split_wall_only_counts_brick_under_a_different_wall():
+    from assetforge_vision.mapper import has_split_wall
+
+    base = {k: _first(v) for k, v in TRUTH["03_casa_amarela_meios_niveis"].items()}
+    assert has_split_wall(parse_description(base))
+    assert not has_split_wall(parse_description({**base, "lower_wall_material": "siding", "lower_wall_color": "blue"}))  # invented by the model
+    assert not has_split_wall(parse_description({**base, "wall_material": "brick"}))

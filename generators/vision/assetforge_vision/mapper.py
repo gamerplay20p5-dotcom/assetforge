@@ -20,14 +20,22 @@ HEX = {
 WALL_KIND = {"siding": "clapboard", "brick": "brick", "stucco": "stucco", "stone": "stucco", "wood": "clapboard"}
 
 
+def has_split_wall(d: HouseDescription) -> bool:
+    """A lower wall counts only when it is brick under a different upper wall. Measured: the 7B model invented a lower wall in 4 of 6 houses
+    (same material as the upper one, or wood), so every other combination is ignored."""
+    return d.lower_wall_material == "brick" and d.lower_wall_color != "none" and d.wall_material != "brick"
+
+
 def pick_base(d: HouseDescription) -> str:
     """Name of the kit house whose volumes are closest to the description."""
-    if d.garage or d.volumes == "with_side_wing" and d.floors >= 2:
+    if d.garage:
         return "ref06"
+    if has_split_wall(d) and d.floors >= 2:
+        return "ref03"
     if d.roof_type == "shed":
         return "ref04"
-    if d.lower_wall_material != "none" and d.floors >= 2:
-        return "ref03"
+    if d.volumes == "with_side_wing" and d.floors >= 2:
+        return "ref06"
     if d.wall_material == "brick" and d.floors >= 2:
         return "ref05"
     if d.floors >= 2:
@@ -50,7 +58,7 @@ def description_to_spec(d: HouseDescription, seed: int = 1) -> HouseSpec:
     if main.floors != d.floors and d.floors in (1, 2, 3):
         main.floors = d.floors
     # lower wall (e.g. brick under siding)
-    if d.lower_wall_material != "none" and d.lower_wall_color != "none":
+    if has_split_wall(d):
         main.wall_lower, main.lower_h = "wall2", main.fh
         pal["wall2"] = HEX[d.lower_wall_color]
         spec.wall2_kind = WALL_KIND[d.lower_wall_material]
