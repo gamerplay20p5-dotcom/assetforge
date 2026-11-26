@@ -1380,3 +1380,81 @@ tr.selected td {
     animation: none;
   }
 }
+
+/* ---------- fila de pedidos (cartões) ---------- */
+.q-list {
+  display: grid;
+  gap: 8px;
+}
+.q-item {
+  display: grid;
+  grid-template-columns: 56px minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: center;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 10px 14px;
+  cursor: pointer;
+  transition: border-color 0.15s, transform 0.12s;
+}
+.q-item:hover {
+  border-color: var(--muted);
+  transform: translateY(-1px);
+}
+.q-item.st-running {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+}
+.q-thumb {
+  width: 56px;
+  height: 56px;
+  border-radius: 10px;
+  background: var(--panel-2);
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+}
+.q-thumb .thumb {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.q-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+.st-failed .q-dot {
+  background: var(--err);
+}
+.q-main {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+}
+.q-title {
+  font-weight: 600;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.q-sub {
+  font-size: 12px;
+}
+.q-actions {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+@media (max-width: 700px) {
+  .q-item {
+    grid-template-columns: 48px minmax(0, 1fr);
+  }
+  .q-actions {
+    grid-column: 1 / -1;
+  }
+}

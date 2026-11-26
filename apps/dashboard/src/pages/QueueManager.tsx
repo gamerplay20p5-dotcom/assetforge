@@ -1,9 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowDown, ArrowUp, Clock, RotateCcw, X, XCircle } from "lucide-react";
+import { ArrowDown, ArrowUp, RotateCcw, X, XCircle } from "lucide-react";
 import { useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { api } from "../api";
-import { Empty, ErrorNote, Panel, Progress, StatusBadge } from "../components/ui";
+import { Empty, ErrorNote, Progress, StatusBadge, Thumb } from "../components/ui";
 import { formatDuration, stageLabel, timeAgo } from "../lib";
 import type { Job, JobLog, Worker } from "../types";
 
@@ -15,6 +15,16 @@ const FILTERS: [string, string][] = [
   ["failed", "Falhas"],
   ["cancelled", "Cancelados"],
 ];
+
+const KIND: Record<string, string> = { "ai.image_to_3d": "Imagem → 3D", "ai.text_to_3d": "Texto → 3D", "procedural.building": "Procedural" };
+
+/** Short, readable message for the most common failures; the full text stays in the tooltip and in the job detail. */
+export function friendlyError(e: string | null): string {
+  if (!e) return "Falhou (veja os detalhes)";
+  if (e.includes("output validation failed")) return "O modelo gerado não passou na validação automática";
+  if (e.includes("timeout")) return "Demorou mais que o limite";
+  return e.length > 90 ? `${e.slice(0, 90)}…` : e;
+}
 
 export function QueueManager() {
   const qc = useQueryClient();
@@ -53,84 +63,47 @@ export function QueueManager() {
         <span className="muted">{jobs.data?.total ?? 0} jobs</span>
       </div>
       <ErrorNote error={cancel.error ?? retry.error ?? patch.error} />
-      <Panel>
-        <div className="panel-body flush table-wrap" style={{ margin: -14 }}>
-          {items.length === 0 ? (
-            <Empty>Nenhum job neste filtro.</Empty>
-          ) : (
-            <table>
-              <thead>
-                <tr>
-                  <th>Job</th>
-                  <th>Estado</th>
-                  <th style={{ width: 170 }}>Progresso real</th>
-                  <th>Worker</th>
-                  <th>Tent.</th>
-                  <th>Prio</th>
-                  <th>ETA</th>
-                  <th />
-                </tr>
-              </thead>
-              <tbody>
-                {items.map((j) => (
-                  <tr key={j.id} className="clickable" onClick={() => setOpen(j.id)}>
-                    <td>
-                      <div>{j.name}</div>
-                      <div className="muted mono">
-                        {j.id} · seed {j.seed ?? "—"}
-                      </div>
-                    </td>
-                    <td>
-                      <StatusBadge state={j.state} />
-                      {j.not_before && j.state === "scheduled" && (
-                        <div className="muted" style={{ fontSize: 11 }}>
-                          <Clock size={10} /> {new Date(j.not_before).toLocaleString()}
-                        </div>
-                      )}
-                    </td>
-                    <td>
-                      <Progress value={j.progress} tone={j.status === "succeeded" ? "ok" : ""} />
-                      <div className="muted" style={{ fontSize: 11 }}>
-                        {j.status === "running" ? stageLabel(j.current_stage) : j.error ? <span className="check-fail">{j.error.slice(0, 40)}</span> : ""}
-                      </div>
-                    </td>
-                    <td>{wname(j.worker_id)}</td>
-                    <td className="mono">
-                      {j.attempts}/{j.max_attempts}
-                    </td>
-                    <td className="mono">{j.priority}</td>
-                    <td className="mono">{formatDuration(j.eta_seconds)}</td>
-                    <td onClick={(e) => e.stopPropagation()}>
-                      <div className="row">
-                        {j.status === "queued" && (
-                          <>
-                            <button className="icon" title="Aumentar prioridade" onClick={() => patch.mutate({ id: j.id, priority: Math.min(100, j.priority + 1) })}>
-                              <ArrowUp size={13} />
-                            </button>
-                            <button className="icon" title="Diminuir prioridade" onClick={() => patch.mutate({ id: j.id, priority: Math.max(-100, j.priority - 1) })}>
-                              <ArrowDown size={13} />
-                            </button>
-                          </>
-                        )}
-                        {(j.status === "queued" || j.status === "running") && !j.cancel_requested && (
-                          <button className="icon danger" title="Cancelar (cooperativo)" onClick={() => cancel.mutate(j.id)}>
-                            <XCircle size={14} />
-                          </button>
-                        )}
-                        {(j.status === "failed" || j.status === "cancelled" || j.status === "succeeded") && (
-                          <button className="icon" title="Reprocessar (novo job)" onClick={() => retry.mutate(j.id)}>
-                            <RotateCcw size={14} />
-                          </button>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </div>
-      </Panel>
+      <div className="q-list">
+        {items.length === 0 ? (
+          <Empty>Nenhum pedido neste filtro.</Empty>
+        ) : (
+          items.map((j) => (
+            <div key={j.id} className={`q-item st-${j.status}`} onClick={() => setOpen(j.id)}>
+              <div className="q-thumb">{j.status === "succeeded" ? <Thumb assetId={j.asset_id} alt={j.name} /> : <span className={j.status === "running" ? "spin" : "q-dot"} />}</div>
+              <div className="q-main">
+                <div className="q-title">
+                  {j.name} <span className="chip">{KIND[j.job_type] ?? j.job_type}</span>
+                </div>
+                {j.status === "running" || j.status === "queued" ? (
+                  <>
+                    <div className="st-bar"><i style={{ width: `${Math.max(2, j.progress * 100)}%` }} /></div>
+                    <div className="muted q-sub">{j.status === "queued" ? "Aguardando um worker livre" : `${Math.round(j.progress * 100)}% · ${stageLabel(j.current_stage)}`}{j.eta_seconds ? ` · ~${formatDuration(j.eta_seconds)}` : ""}</div>
+                  </>
+                ) : j.status === "failed" ? (
+                  <div className="check-fail q-sub" title={j.error ?? ""}>{friendlyError(j.error)}</div>
+                ) : (
+                  <div className="muted q-sub">{j.status === "cancelled" ? "Cancelado" : "Concluído"} · {timeAgo(j.finished_at ?? j.created_at)}</div>
+                )}
+              </div>
+              <div className="q-actions" onClick={(e) => e.stopPropagation()}>
+                <StatusBadge state={j.state} />
+                {j.status === "queued" && (
+                  <>
+                    <button className="icon" title="Aumentar prioridade" onClick={() => patch.mutate({ id: j.id, priority: Math.min(100, j.priority + 1) })}><ArrowUp size={13} /></button>
+                    <button className="icon" title="Diminuir prioridade" onClick={() => patch.mutate({ id: j.id, priority: Math.max(-100, j.priority - 1) })}><ArrowDown size={13} /></button>
+                  </>
+                )}
+                {(j.status === "queued" || j.status === "running") && !j.cancel_requested && (
+                  <button className="icon danger" title="Cancelar" onClick={() => cancel.mutate(j.id)}><XCircle size={14} /></button>
+                )}
+                {(j.status === "failed" || j.status === "cancelled") && (
+                  <button title="Tentar de novo (cria um novo pedido)" onClick={() => retry.mutate(j.id)}><RotateCcw size={14} /> Tentar de novo</button>
+                )}
+              </div>
+            </div>
+          ))
+        )}
+      </div>
       {open && <JobDrawer id={open} onClose={() => setOpen(null)} wname={wname} />}
     </div>
   );

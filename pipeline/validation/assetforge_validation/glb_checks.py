@@ -84,7 +84,7 @@ def validate_glb(path: Path, expected_triangles: int | None = None,
     try:
         import trimesh
 
-        scene = trimesh.load(str(path), force="scene")
+        scene = trimesh.load(str(path), force="scene", process=False)  # raw faces: do not let trimesh silently drop/merge any
         tri_count = int(sum(len(g.faces) for g in scene.geometry.values()))
         bounds = scene.bounds
         dims = (bounds[1] - bounds[0]).tolist()

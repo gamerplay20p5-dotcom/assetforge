@@ -93,6 +93,19 @@ def clean_loose(obj) -> None:
     bpy.ops.object.mode_set(mode="OBJECT")
 
 
+def finalize_mesh(obj) -> None:
+    """After a heavy decimation a few triangles can end up degenerate (zero area / repeated vertices). Blender then warns that the mesh
+    "is not valid" and exporters/readers drop those faces, so the exported count would not match the reported one. Remove them here."""
+    select_only(obj)
+    bpy.ops.object.mode_set(mode="EDIT")
+    bpy.ops.mesh.select_all(action="SELECT")
+    bpy.ops.mesh.dissolve_degenerate(threshold=1e-6)
+    bpy.ops.mesh.delete_loose(use_verts=True, use_edges=True, use_faces=False)
+    bpy.ops.object.mode_set(mode="OBJECT")
+    obj.data.validate(clean_customdata=True)
+    obj.data.update()
+
+
 def weld_copy(src, name: str):
     """Copy without UVs and with vertices merged by distance: AI meshes come with one vertex per UV-seam side (xatlas), which makes
     a straight Decimate tear the surface apart. Merging first restores a connected surface that decimates cleanly."""
@@ -203,6 +216,7 @@ def reduce_with_bake(high, target_tris: int, res: int, name: str):
     if welded > target_tris:
         decimate(low, target_tris / welded)
         clean_loose(low)
+    finalize_mesh(low)
     smart_uv(low)
     rough, metal, rough_tex = source_pbr(high)
     mat = bpy.data.materials.new(name + "_mat")
@@ -251,6 +265,7 @@ def main() -> None:
             method = "bake"
         else:
             decimate(obj, limit / tri_count(obj))
+            finalize_mesh(obj)
             method = "collapse"
     obj.name = f"{name}_LOD0"
     lod_objs = [obj]
@@ -263,6 +278,7 @@ def main() -> None:
             lod.data = obj.data.copy()
             bpy.context.collection.objects.link(lod)
             decimate(lod, ratio)
+            finalize_mesh(lod)
             lod.name = f"{name}_LOD{i}"
         lod_objs.append(lod)
     if high not in lod_objs:  # the high-poly was only the bake source
