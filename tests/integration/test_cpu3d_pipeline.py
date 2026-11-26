@@ -57,9 +57,9 @@ def stand_in_glb(tmp_path_factory):
 def start_provider(tmp_path, stand_in_glb, monkeypatch):
     servers = []
 
-    def factory(name):
+    def factory(name, glb=None):
         monkeypatch.setenv("PROVIDER_CMD_OVERRIDE", str(STUB))
-        monkeypatch.setenv("STUB_GLB", str(stand_in_glb))
+        monkeypatch.setenv("STUB_GLB", str(glb or stand_in_glb))
         monkeypatch.setenv("STUB_SLEEP", "0.6")
         svc = Service(name, tmp_path / f"w-{name}", tmp_path / "hf", 2, 1, 120)
         srv = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(svc))
@@ -105,6 +105,29 @@ def test_pipeline_with_cpu_provider(blender, start_provider, tmp_path, provider,
     assert checks["material_preserved"] == "pass" and res["validation"]["passed"]
     assert any(f["name"] == "preview_raw.png" for f in res["files"])
     assert [n for n, s in [(e["name"], e["status"]) for e in events if e["type"] == "stage"] if s == "done"] == [n for n, _ in plan_for("ai.image_to_3d")]
+
+
+def test_reduction_by_bake_keeps_color_of_a_metallic_by_default_source(blender, start_provider, tmp_path):
+    """Regression (found on the real node): providers export glTF without PBR data, which means metallic=1; a diffuse bake of that
+    came out BLACK. The baked base color must stay red here."""
+    import numpy as np
+    import trimesh
+
+    img = Image.fromarray(np.full((64, 64, 3), (200, 30, 30), dtype=np.uint8))
+    sphere = trimesh.creation.icosphere(subdivisions=5, radius=0.5)  # ~20k triangles
+    uv = np.stack([(sphere.vertices[:, 0] + 0.5), (sphere.vertices[:, 1] + 0.5)], axis=1)
+    sphere.visual = trimesh.visual.TextureVisuals(uv=uv, image=img)  # no metallic/roughness given -> glTF defaults
+    glb = tmp_path / "red_sphere.glb"
+    sphere.export(str(glb))
+    url = start_provider("triposr", glb=glb)
+    res = run_ai_job(_job("triposr", tmp_path, max_triangles=800, target_size_m=1.0, category="prop"), tmp_path / "wd", lambda e: None,
+                     CpuProvider("triposr", url), blender_bin=blender, threads=2)
+    assert res["manifest"]["generation_params"]["reduction"]["method"] == "bake" and res["manifest"]["triangle_count"] <= 850
+    scene = trimesh.load(str(tmp_path / "wd" / "out" / "model.glb"), force="scene")
+    mat = next(iter(scene.geometry.values())).visual.material
+    tex = np.asarray(mat.baseColorTexture.convert("RGB")).reshape(-1, 3)
+    painted = tex[tex.sum(axis=1) > 30]  # ignore the untouched (black) padding of the atlas
+    assert len(painted) > 100 and painted[:, 0].mean() > 120 and painted[:, 0].mean() > 2 * painted[:, 1].mean(), painted.mean(axis=0)
 
 
 def test_max_triangles_overrides_the_category_budget(blender, start_provider, tmp_path):

@@ -79,7 +79,7 @@ def decimate(obj, ratio: float) -> None:
     select_only(obj)
     mod = obj.modifiers.new("lod", "DECIMATE")
     mod.decimate_type = "COLLAPSE"
-    mod.ratio = max(0.01, min(1.0, ratio))
+    mod.ratio = max(1e-4, min(1.0, ratio))
     mod.use_collapse_triangulate = True
     bpy.ops.object.modifier_apply(modifier=mod.name)
 
@@ -122,19 +122,48 @@ def smart_uv(obj) -> None:
     bpy.ops.object.mode_set(mode="OBJECT")
 
 
-def source_pbr(high) -> tuple[float, float]:
-    """Roughness / metallic of the high-poly material (kept as constants; the base color and the normal detail are baked)."""
-    for slot in high.material_slots:
+def principled_nodes(obj):
+    for slot in obj.material_slots:
         nt = slot.material.node_tree if slot.material and slot.material.use_nodes else None
-        bsdf = next((n for n in nt.nodes if n.type == "BSDF_PRINCIPLED"), None) if nt else None
-        if bsdf:
-            return float(bsdf.inputs["Roughness"].default_value), float(bsdf.inputs["Metallic"].default_value)
-    return 0.8, 0.0
+        if nt:
+            yield from (n for n in nt.nodes if n.type == "BSDF_PRINCIPLED")
+
+
+def source_pbr(high) -> tuple[float, float, bool]:
+    """(roughness, metallic, roughness_is_textured). A provider without PBR data (e.g. TripoSR) exports glTF defaults
+    (metallic=1) that mean "unspecified": use dielectric constants then. Real PBR textures (Stable Fast 3D) are baked."""
+    for bsdf in principled_nodes(high):
+        if bsdf.inputs["Roughness"].is_linked:
+            return 0.8, 0.0, True
+    return 0.85, 0.0, False
+
+
+class NeutralMetal:
+    """Diffuse baking of a metal gives black. Temporarily make the high-poly dielectric so the BASE COLOR is what gets baked."""
+
+    def __init__(self, obj) -> None:
+        self.obj, self.saved = obj, []
+
+    def __enter__(self):
+        for bsdf in principled_nodes(self.obj):
+            sock = bsdf.inputs["Metallic"]
+            links = [(lk.from_socket, lk.to_socket) for lk in sock.links]
+            for lk in list(sock.links):
+                bsdf.id_data.links.remove(lk)
+            self.saved.append((bsdf, sock.default_value, links))
+            sock.default_value = 0.0
+        return self
+
+    def __exit__(self, *exc):
+        for bsdf, val, links in self.saved:
+            bsdf.inputs["Metallic"].default_value = val
+            for src, dst in links:
+                bsdf.id_data.links.new(src, dst)
 
 
 def bake_pass(high, low, kind: str, res: int, label: str, extrusion: float):
     img = bpy.data.images.new(label, res, res, alpha=False)
-    if kind == "NORMAL":
+    if kind in ("NORMAL", "ROUGHNESS"):
         img.colorspace_settings.name = "Non-Color"
     nt = low.data.materials[0].node_tree
     node = nt.nodes.new("ShaderNodeTexImage")
@@ -175,7 +204,7 @@ def reduce_with_bake(high, target_tris: int, res: int, name: str):
         decimate(low, target_tris / welded)
         clean_loose(low)
     smart_uv(low)
-    rough, metal = source_pbr(high)
+    rough, metal, rough_tex = source_pbr(high)
     mat = bpy.data.materials.new(name + "_mat")
     mat.use_nodes = True
     low.data.materials.append(mat)
@@ -184,12 +213,16 @@ def reduce_with_bake(high, target_tris: int, res: int, name: str):
     bsdf.inputs["Roughness"].default_value = rough
     bsdf.inputs["Metallic"].default_value = metal
     extrusion = 0.02 * max(high.dimensions)
-    color_node = bake_pass(high, low, "DIFFUSE", res, name + "_color", extrusion)
+    with NeutralMetal(high):
+        color_node = bake_pass(high, low, "DIFFUSE", res, name + "_color", extrusion)
     normal_node = bake_pass(high, low, "NORMAL", res, name + "_normal", extrusion)
     nt.links.new(color_node.outputs["Color"], bsdf.inputs["Base Color"])
     nmap = nt.nodes.new("ShaderNodeNormalMap")
     nt.links.new(normal_node.outputs["Color"], nmap.inputs["Color"])
     nt.links.new(nmap.outputs["Normal"], bsdf.inputs["Normal"])
+    if rough_tex:  # real PBR source: keep the roughness detail too
+        rough_node = bake_pass(high, low, "ROUGHNESS", res, name + "_roughness", extrusion)
+        nt.links.new(rough_node.outputs["Color"], bsdf.inputs["Roughness"])
     return low
 
 
