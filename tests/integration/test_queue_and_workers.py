@@ -1,3 +1,4 @@
+import pytest
 from datetime import timedelta
 
 from assetforge_api.db import utcnow
@@ -327,3 +328,24 @@ def test_health_ready(client):
     r = client.get(f"{API}/health/ready")
     assert r.status_code == 200 and r.json()["checks"] == {"database": "ok", "storage": "ok"}
 
+
+
+def test_bootstrap_enrollment_tokens_allow_hands_off_worker_registration(tmp_path):
+    """Single-node installs pre-seed one-time tokens through the environment (no dashboard step)."""
+    from assetforge_api.main import create_app
+    from conftest import make_settings
+    from fastapi.testclient import TestClient
+
+    tok = "enr_" + "a" * 40
+    app = create_app(make_settings(tmp_path, bootstrap_enrollment_tokens=f"{tok},enr_{'b' * 40}"), start_reaper=False)
+    with TestClient(app) as c:
+        body = {"enrollment_token": tok, "name": "node-cpu", "kind": "cpu", "capabilities": {}, "limits": {}}
+        assert c.post(f"{API}/worker/register", json=body).status_code == 201
+        assert c.post(f"{API}/worker/register", json={**body, "name": "other"}).status_code == 401  # still one-time
+    app.state.db.dispose()
+    app2 = create_app(make_settings(tmp_path, bootstrap_enrollment_tokens=tok), start_reaper=False)  # restart: not re-created
+    with TestClient(app2) as c:
+        assert c.post(f"{API}/worker/register", json={**body, "name": "third"}).status_code == 401
+    app2.state.db.dispose()
+    with pytest.raises(RuntimeError, match="at least 24"):
+        create_app(make_settings(tmp_path / "x", bootstrap_enrollment_tokens="short"), start_reaper=False)
