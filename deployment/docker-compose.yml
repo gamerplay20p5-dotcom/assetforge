@@ -189,6 +189,20 @@ services:
       HF_TOKEN: ${HF_TOKEN:-}          # só nesta tarefa: pesos gated (aceite a licença no HF com a sua conta)
       HOME: /tmp
 
+  # benchmark/ferramentas dos providers CPU (perfil tools): usa o worker image (Blender + pacotes), fala com os providers pela rede interna
+  cpu3d-tools:
+    profiles: [tools]
+    <<: [*worker-build, *hardening]
+    restart: "no"
+    entrypoint: ["python"]
+    environment:
+      ASSETFORGE_CPU3D_PROVIDERS: sf3d=http://sf3d:8080,triposr=http://triposr:8080
+    volumes: ["bench-out:/bench"]
+    tmpfs: ["/tmp:size=4g"]
+    networks: [internal]
+    cpus: ${AI_WORKER_DOCKER_CPUS:-4}
+    mem_limit: ${AI_WORKER_DOCKER_MEM:-8g}
+
   # ------------------------------------------------------------------ IA Intel: ComfyUI + PyTorch XPU (perfil ai) — DESABILITADO por decisão do projeto
   # (a Arc A750 da 206 não inicializa sem Resizable BAR). Mantido como opção futura; só liga com ASSETFORGE_ENABLE_INTEL_AI=1.
   comfyui:

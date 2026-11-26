@@ -8,6 +8,7 @@
 #   ./scripts/intel_ai/docker_tasks.sh benchmark [pasta_de_imagens] [perfil ...]
 #   ./scripts/intel_ai/docker_tasks.sh export-reports         # copia relatórios/benchmarks para ./reports_out
 #   ./scripts/intel_ai/docker_tasks.sh logs
+# Providers CPU (método principal): ver também ./scripts/cpu3d/tasks.sh
 # Não suspende nem altera outros serviços. Se precisar liberar VRAM suspendendo workers do AI Stream Clipper, faça-o
 # conscientemente pelo asc-ctl (preservando dados) antes do 'validate'; este script não faz isso.
 set -euo pipefail

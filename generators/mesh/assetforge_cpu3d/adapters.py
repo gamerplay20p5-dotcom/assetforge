@@ -68,6 +68,9 @@ def build_command(provider: str, image: Path, out_dir: Path, params: dict, *, ba
     cmd = [py, str(TRIPOSR_DIR / "run.py"), str(image), "--device", "cpu", "--output-dir", str(out_dir), "--mc-resolution", str(p["mc_resolution"]),
            "--chunk-size", "8192", "--foreground-ratio", str(p["foreground_ratio"])]
     if do_bake:
+        # moderngl needs a display/GL context: run under a virtual X server (Mesa llvmpipe, software GL) when available (container)
+        if shutil.which("xvfb-run"):
+            cmd = ["xvfb-run", "-a", "-s", "-screen 0 1024x768x24", *cmd]
         cmd += ["--bake-texture", "--texture-resolution", str(p["texture_resolution"]), "--model-save-format", "obj"]
     else:
         cmd += ["--model-save-format", "glb"]

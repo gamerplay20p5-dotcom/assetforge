@@ -125,7 +125,7 @@ class Service:
                "OPENBLAS_NUM_THREADS": str(self.threads), "PYTHONUNBUFFERED": "1", "HF_HOME": str(self.hf_home)}
         override = os.environ.get("PROVIDER_CMD_OVERRIDE")  # tests: a stub that writes the expected output files
         if override:
-            cmd = [sys.executable, override, *cmd[2:3], str(out)]
+            cmd = [sys.executable, override, str(self.work / job.id / "input"), str(out)]
         job.metrics["attempts"] += 1
         job.proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, env=env, start_new_session=True,
                                     cwd=str(self.work / job.id))

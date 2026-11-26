@@ -57,6 +57,7 @@ def test_command_lines_are_cpu_only_and_whitelisted():
     assert cmd[cmd.index("--remesh_option") + 1] == "quad" and "--target_vertex_count" in cmd
     cmd, _ = adapters.build_command("triposr", Path("/w/in.png"), Path("/w/out"), {"mc_resolution": 320, "texture_resolution": 1024})
     assert cmd[cmd.index("--device") + 1] == "cpu" and "--bake-texture" in cmd and cmd[cmd.index("--mc-resolution") + 1] == "320"
+    assert cmd[0] == "xvfb-run" or not __import__("shutil").which("xvfb-run")  # bake needs a (virtual) display when available
     cmd, _ = adapters.build_command("triposr", Path("/w/in.png"), Path("/w/out"), {}, bake=False)
     assert "--bake-texture" not in cmd and cmd[cmd.index("--model-save-format") + 1] == "glb"
 

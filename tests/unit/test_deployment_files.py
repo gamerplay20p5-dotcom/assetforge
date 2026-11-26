@@ -16,7 +16,7 @@ ENV_FILES = {n: (DEP / f"{n}.env.example").read_text(encoding="utf-8") for n in 
 
 
 def test_expected_services_and_profiles():
-    assert set(SERVICES) == {"postgres", "api", "worker-cpu", "comfyui", "worker-gpu", "ai-tools", "triposr", "sf3d", "worker-ai", "triposr-setup", "sf3d-setup"}
+    assert set(SERVICES) == {"postgres", "api", "worker-cpu", "comfyui", "worker-gpu", "ai-tools", "triposr", "sf3d", "worker-ai", "triposr-setup", "sf3d-setup", "cpu3d-tools"}
     assert SERVICES["postgres"]["profiles"] == ["standalone"]
     assert SERVICES["comfyui"]["profiles"] == ["ai"] and SERVICES["worker-gpu"]["profiles"] == ["ai"] and SERVICES["ai-tools"]["profiles"] == ["tools"]
     assert "profiles" not in SERVICES["api"] and "profiles" not in SERVICES["worker-cpu"]  # work with either DB profile and without AI
