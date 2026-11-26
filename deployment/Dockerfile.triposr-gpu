@@ -7,7 +7,8 @@ ENV DEBIAN_FRONTEND=noninteractive PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1 HF_HOME
     TRIPOSR_DIR=/opt/TripoSR PYTHONPATH=/app/generators/mesh PROVIDER_DEVICE=cuda:0 TORCH_CUDA_ARCH_LIST="8.0;8.6;8.9;9.0"
 RUN apt-get update && apt-get install -y --no-install-recommends python3 python3-pip python3-dev git build-essential cmake ninja-build libgl1 libegl1 libglib2.0-0 libgomp1 \
     libgl1-mesa-dri libxext6 xvfb xauth && rm -rf /var/lib/apt/lists/* && ln -sf /usr/bin/python3 /usr/local/bin/python
-RUN pip install "torch==2.4.1" "torchvision==0.19.1" --index-url https://download.pytorch.org/whl/cu124 \
+RUN pip install -U pip \
+    && pip install "torch==2.4.1" "torchvision==0.19.1" --index-url https://download.pytorch.org/whl/cu124 \
     && pip install numpy==1.26.4 setuptools wheel psutil onnxruntime
 RUN git clone --quiet https://github.com/VAST-AI-Research/TripoSR.git /opt/TripoSR && git -C /opt/TripoSR checkout --quiet ${TRIPOSR_COMMIT} \
     && grep -v -E "^(gradio|git\+https://github.com/tatsy/torchmcubes)" /opt/TripoSR/requirements.txt > /tmp/req.txt && pip install -r /tmp/req.txt \
