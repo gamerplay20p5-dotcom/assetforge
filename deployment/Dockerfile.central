@@ -10,12 +10,13 @@ RUN npm run build
 
 FROM python:3.12-slim AS runtime
 ENV PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1 \
-    PYTHONPATH=/app/apps/api:/app/generators/procedural:/app/pipeline/validation:/app/pipeline/optimization:/app/pipeline/export:/app/packages/asset-contract
+    PYTHONPATH=/app/apps/api:/app/generators/procedural:/app/generators/intel_ai:/app/pipeline/validation:/app/pipeline/optimization:/app/pipeline/export:/app/packages/asset-contract
 WORKDIR /app
 COPY requirements.txt ./
 RUN pip install -r requirements.txt
 COPY apps/api apps/api
 COPY generators/procedural generators/procedural
+COPY generators/intel_ai generators/intel_ai
 COPY pipeline pipeline
 COPY packages packages
 COPY --from=dashboard /build/dist /app/dashboard-dist

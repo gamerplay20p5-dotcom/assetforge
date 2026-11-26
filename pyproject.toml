@@ -11,6 +11,7 @@ pythonpath = [
   "apps/api",
   "workers/cpu",
   "generators/procedural",
+  "generators/intel_ai",
   "pipeline/validation",
   "pipeline/optimization",
   "pipeline/export",

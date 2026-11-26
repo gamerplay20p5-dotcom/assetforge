@@ -7,7 +7,7 @@ FROM python:3.12-slim AS runtime
 ARG BLENDER_VERSION=4.5.17
 ARG BLENDER_SHA256=b7d09d1aa7c346fed1e56390e815dbf1589d47324734fbad9e2007fe75ca0b8d
 ENV PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1 BLENDER_BIN=/opt/blender/blender \
-    PYTHONPATH=/app/workers/cpu:/app/generators/procedural:/app/pipeline/validation:/app/pipeline/optimization:/app/pipeline/export:/app/packages/asset-contract
+    PYTHONPATH=/app/workers/cpu:/app/generators/procedural:/app/generators/intel_ai:/app/pipeline/validation:/app/pipeline/optimization:/app/pipeline/export:/app/packages/asset-contract
 RUN apt-get update && apt-get install -y --no-install-recommends curl xz-utils ca-certificates \
       libgl1 libegl1 libxi6 libxrender1 libxfixes3 libxxf86vm1 libxkbcommon0 libsm6 libxext6 pciutils \
     && rm -rf /var/lib/apt/lists/*
@@ -20,6 +20,7 @@ COPY requirements.txt ./
 RUN pip install -r requirements.txt
 COPY workers/cpu workers/cpu
 COPY generators/procedural generators/procedural
+COPY generators/intel_ai generators/intel_ai
 COPY pipeline pipeline
 COPY packages packages
 RUN useradd --system --uid 10002 --create-home assetforge && mkdir -p /state && chown assetforge /state
