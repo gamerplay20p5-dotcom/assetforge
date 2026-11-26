@@ -1,0 +1,15 @@
+# Provider Stable Fast 3D (image-to-3D, CPU only via SF3D_USE_CPU=1: PyTorch CPU, sem CUDA/XPU).
+# LICENÇA: Stability AI Community License (comercial condicionado a registro e < US$ 1 milhão/ano; ver docs/CPU3D.md).
+# Os pesos são 'gated' no Hugging Face: exigem aceite da licença e HF_TOKEN (tarefa sf3d-download). Interno: porta 8080 nunca publicada.
+FROM python:3.10-slim
+ARG SF3D_COMMIT=ff21fc491b4dc5314bf6734c7c0dabd86b5f5bb2
+ENV PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1 HF_HOME=/models/hf U2NET_HOME=/models/u2net PROVIDER_NAME=sf3d PROVIDER_WORK_DIR=/work     SF3D_DIR=/opt/sf3d SF3D_USE_CPU=1 PYTHONPATH=/app/generators/mesh
+RUN apt-get update && apt-get install -y --no-install-recommends git build-essential cmake ninja-build libgl1 libegl1 libglib2.0-0 libgomp1 libxext6     && rm -rf /var/lib/apt/lists/*
+RUN pip install torch==2.4.1 torchvision==0.19.1 --index-url https://download.pytorch.org/whl/cpu     && pip install setuptools==69.5.1 wheel psutil onnxruntime
+RUN git clone --quiet https://github.com/Stability-AI/stable-fast-3d.git /opt/sf3d && git -C /opt/sf3d checkout --quiet ${SF3D_COMMIT}     && sed -e 's/^rembg\[gpu\].*/rembg==2.0.57/' -e '/^\.\/texture_baker/d' -e '/^\.\/uv_unwrapper/d' /opt/sf3d/requirements.txt > /tmp/req.txt     && pip install -r /tmp/req.txt     && cd /opt/sf3d && pip install --no-build-isolation ./texture_baker ./uv_unwrapper
+COPY generators/mesh /app/generators/mesh
+RUN useradd --system --uid 10005 --create-home c3d && mkdir -p /models /work && chown c3d /models /work
+USER c3d
+EXPOSE 8080
+HEALTHCHECK --interval=20s --timeout=6s --start-period=30s --retries=5 CMD python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=5).status==200 else 1)"
+CMD ["python", "-m", "assetforge_cpu3d.server"]

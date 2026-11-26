@@ -1,0 +1,113 @@
+"""Adapters that run the OFFICIAL CLIs of Stable Fast 3D and TripoSR on CPU (nothing is re-implemented here).
+
+Only whitelisted, range-checked numeric/enum parameters ever reach a command line.
+"""
+
+from __future__ import annotations
+
+import glob
+import os
+import shutil
+import sys
+from pathlib import Path
+
+SF3D_DIR = Path(os.environ.get("SF3D_DIR", "/opt/sf3d"))
+TRIPOSR_DIR = Path(os.environ.get("TRIPOSR_DIR", "/opt/TripoSR"))
+REMESH = ("none", "triangle", "quad")
+
+
+def _int(params: dict, key: str, lo: int, hi: int, default: int) -> int:
+    try:
+        v = int(params.get(key, default))
+    except (TypeError, ValueError):
+        raise ValueError(f"parameter {key!r} must be an integer") from None
+    if not lo <= v <= hi:
+        raise ValueError(f"parameter {key!r} must be in [{lo}, {hi}]")
+    return v
+
+
+def _float(params: dict, key: str, lo: float, hi: float, default: float) -> float:
+    try:
+        v = float(params.get(key, default))
+    except (TypeError, ValueError):
+        raise ValueError(f"parameter {key!r} must be a number") from None
+    if not lo <= v <= hi:
+        raise ValueError(f"parameter {key!r} must be in [{lo}, {hi}]")
+    return v
+
+
+def validate_params(provider: str, params: dict) -> dict:
+    """Return a clean copy of the parameters or raise ValueError."""
+    out = {"foreground_ratio": _float(params, "foreground_ratio", 0.5, 1.0, 0.85),
+           "texture_resolution": _int(params, "texture_resolution", 256, 4096, 1024)}
+    if provider == "sf3d":
+        remesh = str(params.get("remesh", "none"))
+        if remesh not in REMESH:
+            raise ValueError(f"remesh must be one of {REMESH}")
+        out["remesh"] = remesh
+        out["target_vertex_count"] = _int(params, "target_vertex_count", -1, 200000, -1)
+    elif provider == "triposr":
+        out["mc_resolution"] = _int(params, "mc_resolution", 64, 512, 256)
+        out["bake_texture"] = bool(params.get("bake_texture", True))
+    else:
+        raise ValueError(f"unknown provider {provider!r}")
+    return out
+
+
+def build_command(provider: str, image: Path, out_dir: Path, params: dict, *, bake: bool | None = None) -> tuple[list[str], dict[str, str]]:
+    p = validate_params(provider, params)
+    py = sys.executable
+    if provider == "sf3d":
+        cmd = [py, str(SF3D_DIR / "run.py"), str(image), "--output-dir", str(out_dir), "--device", "cpu",
+               "--texture-resolution", str(p["texture_resolution"]), "--remesh_option", p["remesh"],
+               "--foreground-ratio", str(p["foreground_ratio"])]
+        if p["remesh"] != "none" and p["target_vertex_count"] > 0:
+            cmd += ["--target_vertex_count", str(p["target_vertex_count"])]
+        return cmd, {"SF3D_USE_CPU": "1"}
+    do_bake = p["bake_texture"] if bake is None else bake
+    cmd = [py, str(TRIPOSR_DIR / "run.py"), str(image), "--device", "cpu", "--output-dir", str(out_dir), "--mc-resolution", str(p["mc_resolution"]),
+           "--chunk-size", "8192", "--foreground-ratio", str(p["foreground_ratio"])]
+    if do_bake:
+        cmd += ["--bake-texture", "--texture-resolution", str(p["texture_resolution"]), "--model-save-format", "obj"]
+    else:
+        cmd += ["--model-save-format", "glb"]
+    return cmd, {}
+
+
+def can_fallback(provider: str, params: dict) -> bool:
+    """TripoSR texture baking needs an OpenGL context; if it fails we retry once with vertex colors."""
+    return provider == "triposr" and bool(validate_params(provider, params)["bake_texture"])
+
+
+def collect_result(provider: str, out_dir: Path, dest: Path) -> dict:
+    """Place the final textured GLB at ``dest`` and describe how the colour is stored."""
+    d = out_dir / "0"
+    if provider == "sf3d":
+        src = d / "mesh.glb"
+        if not src.is_file():
+            raise FileNotFoundError("Stable Fast 3D produced no mesh.glb")
+        shutil.copyfile(src, dest)
+        return {"color": "pbr_texture"}
+    glb, obj, tex = d / "mesh.glb", d / "mesh.obj", d / "texture.png"
+    if obj.is_file() and tex.is_file():
+        import trimesh
+        from PIL import Image
+
+        mesh = trimesh.load(str(obj), process=False, maintain_order=True)
+        uv = getattr(mesh.visual, "uv", None)
+        if uv is None:
+            raise RuntimeError("baked OBJ has no UV coordinates")
+        mesh.visual = trimesh.visual.TextureVisuals(uv=uv, material=trimesh.visual.material.PBRMaterial(baseColorTexture=Image.open(tex).convert("RGB")))
+        mesh.export(str(dest))
+        return {"color": "baked_texture"}
+    if glb.is_file():
+        shutil.copyfile(glb, dest)
+        return {"color": "vertex_color"}
+    raise FileNotFoundError("TripoSR produced no mesh output")
+
+
+def weights_ready(provider: str, hf_home: Path) -> tuple[bool, str]:
+    pattern = {"sf3d": "models--stabilityai--stable-fast-3d/snapshots/*/model.safetensors",
+               "triposr": "models--stabilityai--TripoSR/snapshots/*/model.ckpt"}[provider]
+    hit = glob.glob(str(hf_home / "hub" / pattern))
+    return (True, "weights cached") if hit else (False, f"weights not downloaded in {hf_home} (run the download task)")
