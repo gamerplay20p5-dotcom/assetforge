@@ -38,7 +38,9 @@ def main() -> int:
     job = svc.submit(example.read_bytes(), {"texture_resolution": 512, "mc_resolution": 192})
     while job.status in ("queued", "running"):
         time.sleep(2)
-    print("warm-up:", job.status, job.error or "", job.metrics, job.info)
+    print("warm-up:", job.status, job.error or "", job.metrics, {k: v for k, v in job.info.items() if k != "bake_error"})
+    if job.info.get("bake_error"):
+        print("bake_error:", job.info["bake_error"])
     for line in list(job.log)[-8:]:
         print("  |", line)
     return 0 if job.status == "succeeded" else 1

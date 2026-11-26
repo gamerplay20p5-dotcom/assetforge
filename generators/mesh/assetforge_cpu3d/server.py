@@ -42,7 +42,7 @@ class Job:
         self.started: float | None = None
         self.finished: float | None = None
         self.error: str | None = None
-        self.log: collections.deque[str] = collections.deque(maxlen=200)
+        self.log: collections.deque[str] = collections.deque(maxlen=400)
         self.cancel = threading.Event()
         self.proc: subprocess.Popen | None = None
         self.result: Path | None = None
@@ -153,6 +153,7 @@ class Service:
                 cmd, env = adapters.build_command(self.provider, d / "input", out, job.params)
                 code = self._exec(job, cmd, env, out)
                 if code != 0 and not job.cancel.is_set() and adapters.can_fallback(self.provider, job.params):
+                    job.info["bake_error"] = " | ".join(list(job.log)[-6:])[:900]
                     job.log.append("texture bake failed; retrying with vertex colors")
                     shutil.rmtree(out, ignore_errors=True)
                     cmd, env = adapters.build_command(self.provider, d / "input", out, job.params, bake=False)
