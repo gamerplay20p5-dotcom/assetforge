@@ -106,16 +106,24 @@ class Service:
                 p.kill()
 
     def _sample(self, job: Job, proc: subprocess.Popen, stop: threading.Event) -> None:
+        """Peak RSS/CPU of the whole process tree. Process objects are kept across samples: psutil's cpu_percent() is 0.0 on a fresh object."""
         try:
             root = psutil.Process(proc.pid)
         except psutil.Error:
             return
+        known: dict[int, psutil.Process] = {root.pid: root}
         while not stop.wait(0.5):
             try:
-                procs = [root, *root.children(recursive=True)]
-                rss = sum(p.memory_info().rss for p in procs) / 2**20
-                cpu = sum(p.cpu_percent(interval=None) for p in procs)
-                job.metrics["peak_rss_mb"] = max(job.metrics["peak_rss_mb"], int(rss))
+                for ch in root.children(recursive=True):
+                    known.setdefault(ch.pid, ch)
+                rss = cpu = 0.0
+                for pid, p in list(known.items()):
+                    try:
+                        rss += p.memory_info().rss
+                        cpu += p.cpu_percent(interval=None)
+                    except psutil.Error:
+                        known.pop(pid, None)
+                job.metrics["peak_rss_mb"] = max(job.metrics["peak_rss_mb"], int(rss / 2**20))
                 job.metrics["peak_cpu_percent"] = max(job.metrics["peak_cpu_percent"], round(cpu, 1))
             except psutil.Error:
                 continue
