@@ -83,7 +83,8 @@ services:
       ASSETFORGE_CPU3D_CORES: ${AI_WORKER_CORES:-12}
       ASSETFORGE_CPU3D_RAM_MB: ${CPU3D_JOB_RAM_MB:-16384}
       ASSETFORGE_LLM_MODEL: ${ASSETFORGE_LLM_MODEL:-}
-      ASSETFORGE_VLM_URL: ${ASSETFORGE_VLM_URL:-}               # http://vlm:8080 quando o perfil vision está ligado
+      ASSETFORGE_VLM_URL: ${ASSETFORGE_VLM_URL:-}               # lista em ordem de preferência: GPU primeiro, CPU como reserva (ex.: http://192.168.1.203:8081,http://vlm:8080)
+      ASSETFORGE_VLM_TOKEN: ${ASSETFORGE_VLM_TOKEN:-}           # segredo compartilhado com o serviço de GPU
     volumes: ["assets:/data/storage"]
     ports: ["${ASSETFORGE_BIND:-0.0.0.0}:${ASSETFORGE_PORT:-8000}:8000"]
     networks: [internal]
