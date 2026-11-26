@@ -14,6 +14,9 @@ RUN git clone --quiet https://github.com/VAST-AI-Research/TripoSR.git /opt/Tripo
     && grep -v -E "^(gradio|git\+https://github.com/tatsy/torchmcubes)" /opt/TripoSR/requirements.txt > /tmp/req.txt && pip install -r /tmp/req.txt \
     && pip install -U pip scikit-build-core pybind11 cmake ninja && pip install --no-build-isolation "git+https://github.com/tatsy/torchmcubes.git@${TORCHMCUBES_COMMIT}" \
     && pip install "numpy==1.26.4"
+# Upstream bug on GPU: the texture bake builds the query positions on the CPU while the model sits on the GPU ("cuda:0 and cpu"). Keep them on the model's device.
+RUN sed -i 's/positions = torch.tensor(positions_texture.reshape(-1, 4)\[:, :-1\])/positions = torch.tensor(positions_texture.reshape(-1, 4)[:, :-1]).to(scene_code.device)/; s/queried_grid\["color"\].numpy()/queried_grid["color"].detach().cpu().numpy()/' /opt/TripoSR/tsr/bake_texture.py \
+    && grep -q 'to(scene_code.device)' /opt/TripoSR/tsr/bake_texture.py && grep -q 'detach().cpu().numpy()' /opt/TripoSR/tsr/bake_texture.py
 COPY generators/mesh /app/generators/mesh
 RUN useradd --system --uid 10004 --create-home c3d && mkdir -p /models /work && chown c3d /models /work
 USER c3d
