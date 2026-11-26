@@ -64,6 +64,7 @@ def main() -> int:
     ap.add_argument("--task", choices=["house", "analysis"], default="house")
     ap.add_argument("--extra", type=Path, default=None, help="folder of <category>__name.png images: only the category is checked")
     ap.add_argument("--tag", default="")
+    ap.add_argument("--quant", default="fp32", choices=["fp32", "int8lm"])
     args = ap.parse_args()
 
     import torch
@@ -74,7 +75,9 @@ def main() -> int:
     t0 = time.monotonic()
     with Sampler() as load_s:
         processor = AutoProcessor.from_pretrained(args.model, min_pixels=128 * 28 * 28, max_pixels=args.max_side * args.max_side)
-        model = Qwen2_5_VLForConditionalGeneration.from_pretrained(args.model, torch_dtype=torch.float32, low_cpu_mem_usage=True).eval()
+        from assetforge_vision.quant import apply_quant
+
+        model = apply_quant(Qwen2_5_VLForConditionalGeneration.from_pretrained(args.model, torch_dtype=torch.float32, low_cpu_mem_usage=True).eval(), args.quant)
     load_s_total = time.monotonic() - t0
     print(f"loaded {args.model} in {load_s_total:.0f}s, peak RSS {load_s.peak_rss / 2**30:.1f} GB", flush=True)
 

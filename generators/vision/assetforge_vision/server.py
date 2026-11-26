@@ -26,8 +26,9 @@ MAX_PENDING = 8
 
 
 class Engine:
-    def __init__(self, model: str, threads: int, max_side: int, max_new_tokens: int, idle_unload: int) -> None:
+    def __init__(self, model: str, threads: int, max_side: int, max_new_tokens: int, idle_unload: int, quant: str = "fp32") -> None:
         self.model_name, self.threads, self.max_side, self.max_new_tokens, self.idle_unload = model, threads, max_side, max_new_tokens, idle_unload
+        self.quant = quant
         self._model: Any = None
         self._processor: Any = None
         self.last_used = time.monotonic()
@@ -52,7 +53,9 @@ class Engine:
 
         torch.set_num_threads(self.threads)
         self._processor = AutoProcessor.from_pretrained(self.model_name, min_pixels=128 * 28 * 28, max_pixels=self.max_side * self.max_side)
-        self._model = Qwen2_5_VLForConditionalGeneration.from_pretrained(self.model_name, torch_dtype=torch.float32, low_cpu_mem_usage=True).eval()
+        from .quant import apply_quant
+
+        self._model = apply_quant(Qwen2_5_VLForConditionalGeneration.from_pretrained(self.model_name, torch_dtype=torch.float32, low_cpu_mem_usage=True).eval(), self.quant)
 
     def unload(self) -> None:
         with self.lock:
@@ -130,7 +133,7 @@ class Service:
 
     def health(self) -> dict[str, Any]:
         e = self.engine
-        return dict(ready=e.weights_cached(), loaded=e.loaded, model=e.model_name, threads=e.threads, max_side=e.max_side,
+        return dict(ready=e.weights_cached(), loaded=e.loaded, model=e.model_name, quant=e.quant, threads=e.threads, max_side=e.max_side,
                     pending=sum(1 for j in self.jobs.values() if j["status"] in ("queued", "running")))
 
 
@@ -179,7 +182,7 @@ def make_handler(svc: Service):  # noqa: ANN201
 def main() -> None:
     env = os.environ.get
     engine = Engine(env("VLM_MODEL", "Qwen/Qwen2.5-VL-7B-Instruct"), int(env("VLM_THREADS", "20")), int(env("VLM_MAX_SIDE", "640")),
-                    int(env("VLM_MAX_NEW_TOKENS", "420")), int(env("VLM_IDLE_UNLOAD_SECONDS", "900")))
+                    int(env("VLM_MAX_NEW_TOKENS", "520")), int(env("VLM_IDLE_UNLOAD_SECONDS", "900")), env("VLM_QUANT", "fp32"))
     svc = Service(engine)
     ThreadingHTTPServer(("0.0.0.0", 8080), make_handler(svc)).serve_forever()
 
