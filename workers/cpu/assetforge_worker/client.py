@@ -107,6 +107,12 @@ class ServerClient:
         if r.status_code >= 400:
             raise RuntimeError(f"upload of {rel} rejected: {r.status_code} {r.text[:200]}")
 
+    def download_reference(self, ref_id: str, dest: Path) -> None:
+        r = self.request("GET", f"/worker/references/{ref_id}")
+        if r.status_code != 200:
+            raise RuntimeError(f"reference {ref_id} unavailable: {r.status_code}")
+        dest.write_bytes(r.content)
+
     def complete(self, job_id: str, token: str, result: dict) -> dict:
         r = self.request("POST", f"/worker/jobs/{job_id}/complete", json={"lease_token": token, "result": result})
         if r.status_code >= 400:

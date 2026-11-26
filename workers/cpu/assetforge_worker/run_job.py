@@ -31,6 +31,18 @@ def main() -> int:
     job = json.loads((workdir / "job.json").read_text(encoding="utf-8"))
     threads = int(job.get("requirements", {}).get("cpu_cores", 1))
     try:
+        if job["job_type"].startswith("ai."):
+            from assetforge_export.ai_pipeline import run_ai_job
+            from assetforge_intel_ai import IntelAIProvider
+
+            url = os.environ.get("ASSETFORGE_COMFYUI_URL")
+            if not url:
+                raise PipelineError("ASSETFORGE_COMFYUI_URL is not set on this worker")
+            provider = IntelAIProvider(url, models_dir=Path(os.environ["ASSETFORGE_AI_MODELS_DIR"]) if os.environ.get("ASSETFORGE_AI_MODELS_DIR") else None)
+            result = run_ai_job(job, workdir, emit, provider, blender_bin=os.environ.get("BLENDER_BIN") or None, threads=threads,
+                                blender_timeout=float(os.environ.get("ASSETFORGE_BLENDER_TIMEOUT", "900")))
+            (workdir / "result.json").write_text(json.dumps(result), encoding="utf-8")
+            return 0
         if job["job_type"] != "procedural.building":
             raise PipelineError(f"unsupported job type {job['job_type']!r}")
         result = run_building_job(job, workdir, emit, engine=engine, threads=threads,

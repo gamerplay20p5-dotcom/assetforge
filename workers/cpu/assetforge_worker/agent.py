@@ -18,9 +18,11 @@ from datetime import datetime
 from pathlib import Path
 
 import psutil
-from assetforge_export.pipeline import STAGE_PLAN, find_blender
+from assetforge_export.ai_pipeline import plan_for
+from assetforge_export.pipeline import find_blender
 from assetforge_export.proc import JobCancelled, SubprocessFailed, SubprocessTimeout, run_supervised
 
+from .ai import AiRuntime
 from .client import AuthFailed, LeaseLost, ServerClient
 from .config import WorkerConfig
 from .policy import lease_gate, parse_active_hours
@@ -48,11 +50,16 @@ class Agent:
         self.cpu_samples: deque[float] = deque(maxlen=6)
         self.gate_reason: str | None = None
         self.gpus = detect_gpus() if cfg.kind in ("intel", "hybrid") else []
+        self.ai = AiRuntime(cfg.state_dir)
         if cfg.low_priority:  # children inherit: keep other services on this host responsive
             try:
                 psutil.Process().nice(psutil.BELOW_NORMAL_PRIORITY_CLASS if os.name == "nt" else 10)
             except (psutil.Error, OSError, AttributeError):
                 log.warning("could not lower process priority")
+
+    def _caps(self) -> dict:
+        ai = self.ai.status()
+        return capabilities(self.cfg, self.blender, ai, self.ai.model_rows() if ai.get("enabled") else None)
 
     def _gate(self) -> str | None:
         self.cpu_samples.append(psutil.cpu_percent(interval=None))
@@ -88,9 +95,9 @@ class Agent:
         payload = {
             "enrollment_token": self.cfg.enrollment_token, "name": self.cfg.name, "kind": self.cfg.kind,
             "hostname": platform.node() or self.cfg.name,
-            "version": WORKER_VERSION, "capabilities": capabilities(self.cfg, self.blender),
+            "version": WORKER_VERSION, "capabilities": self._caps(),
             "limits": {"max_concurrent_jobs": self.cfg.max_jobs, "cpu_cores": self.cfg.cpu_cores,
-                       "ram_mb": self.cfg.ram_mb},
+                       "ram_mb": self.cfg.ram_mb, **({"vram_mb": v} if (v := self.ai.vram_limit_mb()) else {})},
         }
         data = self.client.register(payload)
         self.client.token = data["token"]
@@ -106,13 +113,15 @@ class Agent:
     # ------------------------------------------------------------------ heartbeat
     def heartbeat_loop(self) -> None:
         caps_sent = False
+        beat = 0
         while not self.stop.is_set():
             try:
                 with self._lock:
                     ids = list(self.active)
-                body = {"telemetry": telemetry(len(ids), str(self.cfg.work_dir), self.gate_reason, self.gpus), "active_jobs": ids}
-                if not caps_sent:
-                    body["capabilities"] = capabilities(self.cfg, self.blender)
+                body = {"telemetry": telemetry(len(ids), str(self.cfg.work_dir), self.gate_reason, self.ai.gpus() or self.gpus), "active_jobs": ids}
+                beat += 1
+                if not caps_sent or beat % 6 == 0:  # re-publish: ComfyUI/models may come up or change
+                    body["capabilities"] = self._caps()
                 resp = self.client.heartbeat(body)
                 caps_sent = True
                 self.state = resp["state"]
@@ -166,7 +175,7 @@ class Agent:
         buf: list[dict] = []
         buf_lock = threading.Lock()
         done = threading.Event()
-        plan = [{"name": n, "weight": w} for n, w in STAGE_PLAN]
+        plan = [{"name": n, "weight": w} for n, w in plan_for(job["job_type"])]
 
         def flush(first: bool = False) -> None:
             with buf_lock:
@@ -199,6 +208,17 @@ class Agent:
 
         try:
             flush(first=True)
+            if job["job_type"].startswith("ai."):
+                need = job["requirements"].get("vram_mb", 0)
+                free = self.ai.free_vram_mb()
+                if free is not None and free < need * 0.9:  # protect other GPU users (e.g. AI Stream Clipper)
+                    self._report_failure(job_id, token, f"VRAM livre insuficiente: {free} MB < {need} MB necessários "
+                                         "(outro processo está usando a GPU?)", True)
+                    return
+                ref_id = job["params"].get("reference_id")
+                if ref_id:
+                    self.client.download_reference(ref_id, workdir / "reference.png")
+                    job = {**job, "reference_path": str(workdir / "reference.png")}
             (workdir / "job.json").write_text(json.dumps(job), encoding="utf-8")
             threading.Thread(target=flusher, daemon=True).start()
             log.info("job %s started: %s", job_id, job["name"])
@@ -211,6 +231,8 @@ class Agent:
                 run_supervised(cmd, timeout=self.cfg.job_timeout_s, on_line=on_line, should_cancel=cancel.is_set,
                                cwd=workdir, env=env)
             except JobCancelled:
+                if job["job_type"].startswith("ai."):
+                    self.ai.provider().client.interrupt()  # stop the GPU work too, not only our subprocess
                 done.set()
                 flush()
                 log.info("job %s cancelled", job_id)

@@ -10,6 +10,7 @@ Everything reported here is *detected*, never assumed. In particular:
 from __future__ import annotations
 
 import importlib.metadata
+from functools import lru_cache
 import importlib.util
 import json
 import platform
@@ -27,6 +28,7 @@ from .config import WorkerConfig
 INTEL_VENDOR_ID = "0x8086"
 
 
+@lru_cache(maxsize=4)
 def blender_version(blender_bin: str | None) -> str | None:
     if not blender_bin:
         return None
@@ -114,19 +116,23 @@ def ai_runtimes() -> dict:
             "validated": []}
 
 
-def capabilities(cfg: WorkerConfig, blender_bin: str | None) -> dict:
+def capabilities(cfg: WorkerConfig, blender_bin: str | None, ai: dict | None = None, ai_models: list[dict] | None = None) -> dict:
     features = [GENERATOR_ID, "trimesh"]
     bver = blender_version(blender_bin)
     if bver:
         features.append("blender")
     vm = psutil.virtual_memory()
     gpus = detect_gpus() if cfg.kind in ("intel", "hybrid") else []
+    runtimes = ai_runtimes()
+    if ai and ai.get("enabled"):
+        features += ai["features"]
+        runtimes["validated"] = ai.get("validated", [])
     return {
-        "kind": cfg.kind, "features": features, "job_types": [GENERATOR_ID], "blender_version": bver,
+        "kind": cfg.kind, "features": features, "job_types": [GENERATOR_ID] + ([f for f in features if f.startswith("ai.")]), "blender_version": bver,
         "formats": ["glb"] + (["blend", "fbx"] if bver else []),
         "os": f"{platform.system()} {platform.release()}", "python": sys.version.split()[0],
         "cpu_model": platform.processor() or platform.machine(), "cpu_cores_total": psutil.cpu_count(logical=True),
-        "ram_total_mb": int(vm.total / 1024 / 1024), "gpus": gpus, "ai_runtimes": ai_runtimes(), "models": [],
+        "ram_total_mb": int(vm.total / 1024 / 1024), "gpus": gpus, "ai_runtimes": runtimes, "models": ai_models or [], "ai": ai or {"enabled": False},
         "schedule": {"active_hours": cfg.active_hours, "max_host_cpu_percent": cfg.max_host_cpu_percent,
                      "yield_to": cfg.yield_to},
     }
