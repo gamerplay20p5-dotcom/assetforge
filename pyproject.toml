@@ -1,0 +1,23 @@
+[project]
+name = "assetforge"
+version = "0.1.0"
+description = "AssetForge - self-hosted distributed game asset generation studio"
+requires-python = ">=3.11"
+
+[tool.pytest.ini_options]
+# Monorepo layout: each component directory holds its own python package.
+# PYTHONPATH is assembled here instead of publishing 8 tiny distributions.
+pythonpath = [
+  "apps/api",
+  "workers/cpu",
+  "generators/procedural",
+  "pipeline/validation",
+  "pipeline/optimization",
+  "pipeline/export",
+  "packages/asset-contract",
+]
+testpaths = ["tests"]
+markers = [
+  "blender: requires a Blender executable (BLENDER_BIN or PATH)",
+  "postgres: requires a PostgreSQL server (ASSETFORGE_TEST_PG_URL)",
+]

@@ -1,0 +1,11 @@
+.venv
+.tools
+.git
+data
+data_dev
+**/node_modules
+apps/dashboard/dist
+**/__pycache__
+.env
+.env.*
+test-results
