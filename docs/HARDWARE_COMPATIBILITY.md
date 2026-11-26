@@ -36,14 +36,14 @@ OpenVINO/PyTorch não instalados → nenhuma capacidade de IA declarada.
 ## Nó 206 — diagnóstico real (2026‑11‑26, SSH somente leitura; nada foi alterado)
 | Item | Medido |
 |---|---|
-| Host | `website-applications`, Ubuntu 26.04.1, kernel 7.0.0‑44 |
+| Host | Servidor de aplicações (nó 206), Ubuntu 26.04.1, kernel 7.0.0‑44 |
 | CPU/RAM/disco | **AMD** Ryzen Threadripper PRO 3955WX, 32 threads · 200 GB RAM (≈196 GB livres) · swap 8 GB · 613 GB livres |
 | GPU | Intel **Arc A750** (DG2, `8086:56a1`), `/dev/dri/card0` (grupo `video`, gid 44) e `renderD128` (grupo `render`, **gid 993**) |
 | Driver do kernel | `i915` em uso (módulo `xe` também carregado). **Level Zero/OpenCL/oneAPI no host: ausentes** (não é problema: ficam dentro do container do ComfyUI) |
 | **Resizable BAR** | **desativado** — janela de VRAM de **256 MB** (`Region 2 … size=256M`). Habilitar no BIOS (Above 4G Decoding + Resizable BAR) costuma ser importante para o desempenho das Arc; é decisão do Hank |
 | Docker / Compose | 29.8.1 / v5.5.1 instalados |
 | **Permissão** | o usuário `asc` **não tem acesso ao Docker** (`permission denied … docker.sock`) e não está no grupo `render`; o único sudo é `asc-ctl` (sem `compose up`). **Quem for subir o AssetForge precisa de acesso ao Docker (Hank/root)** |
-| Portas | 8000 e 5432 livres (em uso: 22, 53, 80, 4000‑4002, 5001/5002/5011/5147/5180/5225, 7101, 7201, 8080, 8088, 8090/8091, 8781, 9000, 9080/9081, 21115‑21119) |
+| Portas | 8000 e 5432 livres (conferido; demais portas omitidas) |
 | Uso da GPU por outros serviços | os 3 workers do Stream Clipper na 206 (`capture`, `audio`, `render`) **não mapeiam `/dev/dri`** no compose → a Arc está livre; **não é preciso suspendê‑los** |
 | Python do host | 3.14.4 (irrelevante: tudo roda em containers); `uv`/`gcc` ausentes no host |
 **Isto é diagnóstico, não validação:** ainda não há prova de que PyTorch XPU/ComfyUI/Pixal3D rodem nessa A750 (Resizable BAR desligado e 8 GB são riscos de desempenho/memória).

@@ -1,7 +1,7 @@
 # Implantação em uma única máquina (Docker)
 
-**Alvo imediato:** tudo na **192.168.1.206** (Intel Arc A750 8 GB), validando a geração 3D em UMA placa antes de expandir.
-Os endereços aparecem só aqui, na documentação; nenhum IP é fixado no código ou nos arquivos de implantação.
+**Alvo imediato:** tudo no **nó 206** (Intel Arc A750 8 GB), validando a geração 3D em UMA placa antes de expandir.
+Nenhum endereço de rede é fixado no código ou nos arquivos de implantação.
 
 > **Nada aqui foi executado.** Os Dockerfiles/Compose foram escritos e verificados estaticamente (YAML, sintaxe de shell e testes de
 > política em `tests/unit/test_deployment_files.py`), mas **nunca construídos nem iniciados**: o ambiente de desenvolvimento não tem
