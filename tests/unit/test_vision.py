@@ -95,3 +95,15 @@ def test_analysis_accepts_any_category_and_routes_honestly():
         parse_analysis('{"category": "house", "subject": "x", "isolated_object": false, "house": null}')
     with pytest.raises(DescriptionError):
         parse_analysis('{"category": "spaceship", "subject": "x", "isolated_object": false}')
+
+
+def test_ground_like_subjects_never_go_to_the_mesh_provider():
+    """Regression for a measured failure: the model called flat ground 'baseball field' and an isolated object."""
+    from assetforge_vision.kits import looks_flat, route
+    from assetforge_vision.schema import parse_analysis
+
+    ground = parse_analysis('{"category": "prop", "subject": "baseball field", "isolated_object": true, "house": null}')
+    assert looks_flat("baseball field") and route(ground)["mode"] == "none"
+    chair = parse_analysis('{"category": "prop", "subject": "wooden chair", "isolated_object": true, "house": null}')
+    assert route(chair)["mode"] == "fallback"
+    assert "256" in route(chair, (172, 96))["message"] and "256" not in route(chair, (800, 600))["message"]

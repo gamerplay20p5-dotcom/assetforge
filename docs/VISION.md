@@ -39,3 +39,22 @@ Porta 8080 só na rede interna. Benchmark: `./scripts/vlm/tasks.sh benchmark ./p
 ## Segurança
 O modelo só preenche campos de um esquema fechado; nada do que ele escreve é executado. A API valida a resposta (valores fora das listas são rejeitados),
 só repassa imagens já validadas/re-codificadas e o serviço aceita apenas imagens (PNG/JPEG/WEBP até 12 MB) na rede interna.
+
+## Análise de qualquer imagem (categoria) — medido em 2026-11-26
+O prompt de análise pergunta primeiro a **categoria** (`house`, `vehicle`, `character`, `tree`, `prop`, `other`), o assunto e se é um objeto isolado; só para casas devolve a descrição detalhada.
+`assetforge_vision/kits.py` decide a rota: casa → kit; objeto isolado → TripoSR (**experimental**, aviso de que costuma deformar); o resto → nenhuma rota, dizendo o motivo.
+**Só existe kit de casas.** Veículos, personagens e árvores têm categoria detectada, mas ainda **não têm gerador** (marcados como "planejado" em `KITS`).
+
+Medido com o 7B (fp32, 640 px): as 6 casas foram classificadas como `house` (6/6) e 82 de 97 campos da casa estavam corretos (85%); uma cadeira foi lida como `prop` (1/1).
+Falha medida: um terreno vazio foi lido como "baseball field, objeto isolado". O ajuste do prompt não corrigiu; por isso `looks_flat()` bloqueia a rota do TripoSR quando o assunto soa
+como terreno/chão/mapa. **Só 2 imagens fora de casas foram testadas**: a classificação de carros e pessoas ainda NÃO foi medida (faltam imagens de exemplo).
+
+### Velocidade (206, 20 threads) — o tempo está na geração do texto, não na imagem
+| Variante | Geração | RAM | Resultado |
+|---|---|---|---|
+| fp32 (padrão) | 0,81 palavra/s (prefill da imagem 25–30 s) | 32 GB | correto, ~250 s por análise |
+| imagem 448 px em vez de 640 | sem ganho (249 s) | 32 GB | o tamanho da imagem não é o gargalo |
+| bf16 | travou (>58 min, CPU sem suporte nativo) | – | inviável |
+| int8 em tudo | 4,2 palavras/s | 39 GB | o modelo deixou de seguir o prompt |
+| int8 só nas camadas de texto (`VLM_QUANT=int8lm`) | 2,7 palavras/s, metade da RAM | 16 GB | **6 de 8 respostas inválidas**: não usar como padrão |
+Conclusão: fica em fp32. Para ganhar velocidade de verdade a opção é GPU (o Spark 252 está reservado para depois, sem uso por enquanto).

@@ -29,6 +29,11 @@ BASE_LABELS = {
 }
 
 
+def _ref_size(request: Request, job: dict[str, Any]) -> tuple[int, int] | None:
+    """Pixel size of the image of an analysis (remembered in memory when it was submitted; lost on API restart, then simply unknown)."""
+    return getattr(request.app.state, "vision_sizes", {}).get(job.get("id"))
+
+
 def _url(request: Request) -> str:
     url = request.app.state.settings.vlm_url
     if not url:
@@ -36,13 +41,13 @@ def _url(request: Request) -> str:
     return url.rstrip("/")
 
 
-def _describe_result(answer: str) -> dict[str, Any]:
+def _describe_result(answer: str, image_size: tuple[int, int] | None = None) -> dict[str, Any]:
     """Validate the raw model answer; on failure keep the answer so the person can still start from defaults."""
     try:
         raw = extract_json(answer)
         analysis = parse_analysis(raw)
         out: dict[str, Any] = dict(valid=True, category=analysis.category, subject=analysis.subject, isolated_object=analysis.isolated_object,
-                                   route=route(analysis))
+                                   route=route(analysis, image_size))
         if analysis.house is not None:
             house_raw = raw.get("house") if isinstance(raw.get("house"), dict) else raw
             base = pick_base(analysis.house)
@@ -86,6 +91,13 @@ def describe(body: DescribeIn, request: Request, user: User = Depends(require_op
         raise HTTPException(503, f"vision service unreachable: {type(exc).__name__}") from exc
     if r.status_code != 202:
         raise HTTPException(502 if r.status_code >= 500 else r.status_code, r.json().get("error", "vision service refused the image"))
+    from PIL import Image
+
+    with Image.open(reference_path(request, body.reference_id)) as im:
+        sizes = request.app.state.__dict__.setdefault("vision_sizes", {})
+        sizes[r.json()["id"]] = im.size
+        for k in list(sizes)[:-200]:  # keep it small
+            sizes.pop(k, None)
     log.info("vision analysis started by %s for %s", user.username, body.reference_id)
     return {"id": r.json()["id"], "status": "queued"}
 
@@ -102,10 +114,11 @@ def describe_status(job_id: str, request: Request) -> dict[str, Any]:
     if r.status_code == 404:
         raise HTTPException(404, "analysis not found (the vision service may have restarted)")
     j = r.json()
+    j.setdefault("id", job_id)
     out: dict[str, Any] = dict(id=job_id, status=j["status"], started=j.get("started"), finished=j.get("finished"), error=j.get("error"))
     if j["status"] == "succeeded":
         res = j["result"]
-        out.update(seconds=res.get("seconds"), new_tokens=res.get("new_tokens"), raw_answer=res["answer"], **_describe_result(res["answer"]))
+        out.update(seconds=res.get("seconds"), new_tokens=res.get("new_tokens"), raw_answer=res["answer"], **_describe_result(res["answer"], _ref_size(request, j)))
     return out
 
 
