@@ -879,6 +879,15 @@ class BuildingGenerator:
 
 
 def generate_building(params: BuildingParams) -> GeneratedBuilding:
+    if params.category == "house" and params.house_description and not params.house_spec:
+        from assetforge_vision.mapper import description_to_spec  # local import: the vision package builds on the house kit
+        from assetforge_vision.schema import parse_description
+
+        from .house import generate_house as _gh
+
+        spec = description_to_spec(parse_description(params.house_description), params.seed)
+        spec.wear = params.wear
+        return _gh(spec, params.construction_stage or 6)
     if params.category == "house" and (params.house_spec or params.archetype):
         from .house import ARCHETYPES, HouseSpec, generate_house  # local import: house.py builds on this module
 

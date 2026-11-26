@@ -16,7 +16,7 @@ from sqlalchemy import delete, select
 from .config import Settings, get_settings
 from .db import Database, utcnow
 from .models import ArtProfile, EnrollmentToken, Event, User
-from .routers import assets, auth, jobs, references, system, workers
+from .routers import assets, auth, jobs, references, system, vision, workers
 from .scheduler import reap
 from .security import LoginThrottle, hash_password, hash_token
 from .storage import Storage
@@ -105,7 +105,7 @@ def create_app(settings: Settings | None = None, *, start_reaper: bool = True) -
         app.add_middleware(CORSMiddleware, allow_origins=[o.strip() for o in settings.cors_origins.split(",")],
                            allow_methods=["*"], allow_headers=["*"])
     for r in (auth.router, workers.admin_router, workers.worker_router, jobs.router, assets.router, references.router,
-              references.worker_router, system.router):
+              references.worker_router, system.router, vision.router):
         app.include_router(r, prefix="/api/v1")
 
     if settings.dashboard_dir and settings.dashboard_dir.is_dir():

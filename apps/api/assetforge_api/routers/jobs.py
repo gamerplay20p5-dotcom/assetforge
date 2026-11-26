@@ -71,6 +71,14 @@ def _parse_spec(data: dict) -> JobCreate:
 @router.post("/jobs", status_code=201)
 def post_job(body: JobCreate, request: Request, user: User = Depends(require_operator),
              db: Session = Depends(get_db)) -> dict:
+    hd = (body.params or {}).get("house_description") if isinstance(body.params, dict) else None
+    if hd is not None:  # refuse a bad description now instead of failing later inside a worker
+        from assetforge_vision.schema import DescriptionError, parse_description
+
+        try:
+            parse_description(hd)
+        except DescriptionError as exc:
+            raise HTTPException(422, f"house_description: {exc}") from exc
     job = create_job(db, body, user, request.app.state.settings)
     audit(db, user.username, "job.create", "job", job.id, name=job.name)
     db.commit()

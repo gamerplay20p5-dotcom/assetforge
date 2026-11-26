@@ -7,6 +7,7 @@ import { GenAnimation } from "../components/GenAnimation";
 import { Viewer3D, type ViewerStats } from "../components/Viewer3D";
 import { ErrorNote, Thumb } from "../components/ui";
 import { KitGenerator } from "./KitGenerator";
+import { VisionHouse } from "./VisionHouse";
 import { MAX_IMAGE_MB, PRESETS, PROVIDERS, STAGE_LABEL, checkImageFile, parseLods, type PresetKey } from "../imageTo3d";
 import { formatDuration, timeAgo } from "../lib";
 import type { Asset, Job, Worker } from "../types";
@@ -26,7 +27,9 @@ export function Studio() {
   const input = useRef<HTMLInputElement>(null);
 
   // ---- generate form
-  const [mode, setMode] = useState<"kit" | "image">("kit");
+  const [mode, setMode] = useState<"kit" | "vision" | "image">("kit");
+  const modeRef = useRef(mode);
+  modeRef.current = mode;
   const [items, setItems] = useState<Item[]>([]);
   const [over, setOver] = useState(false);
   const [preset, setPreset] = useState<PresetKey>("mid");
@@ -102,6 +105,7 @@ export function Studio() {
   // Ctrl+V anywhere on the page: screenshots / copied images become references
   useEffect(() => {
     const onPaste = (e: ClipboardEvent) => {
+      if (modeRef.current !== "image") return; // the other modes handle their own paste
       const files: File[] = [];
       for (const it of Array.from(e.clipboardData?.items ?? [])) {
         if (it.kind === "file" && it.type.startsWith("image/")) {
@@ -185,10 +189,13 @@ export function Studio() {
       <aside className="st-left">
         <div className="mode-seg" role="tablist" aria-label="Como gerar">
           <button role="tab" aria-selected={mode === "kit"} className={mode === "kit" ? "on" : ""} onClick={() => setMode("kit")}>Casas do kit</button>
-          <button role="tab" aria-selected={mode === "image"} className={mode === "image" ? "on" : ""} onClick={() => setMode("image")}>Imagem → 3D (IA)</button>
+          <button role="tab" aria-selected={mode === "vision"} className={mode === "vision" ? "on" : ""} onClick={() => setMode("vision")}>Imagem → casa (IA)</button>
+          <button role="tab" aria-selected={mode === "image"} className={mode === "image" ? "on" : ""} onClick={() => setMode("image")} title="Experimental">TripoSR</button>
         </div>
         {mode === "kit" ? (
           <KitGenerator onCreated={(ids) => { setAssetId(null); setJobId(ids[0] ?? null); }} />
+        ) : mode === "vision" ? (
+          <VisionHouse onCreated={(ids) => { setAssetId(null); setJobId(ids[0] ?? null); }} />
         ) : (
           <>
         <div className="st-title"><Sparkles size={16} /> Gerar modelo 3D</div>

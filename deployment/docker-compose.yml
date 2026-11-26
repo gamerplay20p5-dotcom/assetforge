@@ -83,6 +83,7 @@ services:
       ASSETFORGE_CPU3D_CORES: ${AI_WORKER_CORES:-12}
       ASSETFORGE_CPU3D_RAM_MB: ${CPU3D_JOB_RAM_MB:-16384}
       ASSETFORGE_LLM_MODEL: ${ASSETFORGE_LLM_MODEL:-}
+      ASSETFORGE_VLM_URL: ${ASSETFORGE_VLM_URL:-}               # http://vlm:8080 quando o perfil vision está ligado
     volumes: ["assets:/data/storage"]
     ports: ["${ASSETFORGE_BIND:-0.0.0.0}:${ASSETFORGE_PORT:-8000}:8000"]
     networks: [internal]
@@ -142,6 +143,33 @@ services:
       HF_HUB_OFFLINE: ${CPU3D_OFFLINE:-0}
       SF3D_USE_CPU: "1"
       HOME: /tmp
+
+  # ------------------------------------------------------------------ visão local (perfil vision): Qwen2.5-VL 7B em CPU, lê a imagem e devolve a descrição da casa
+  # Carrega o modelo no primeiro pedido e o descarrega após VLM_IDLE_UNLOAD_SECONDS parado. Porta 8080 só na rede interna. Apache-2.0 (7B).
+  vlm:
+    profiles: [vision]
+    build: { context: .., dockerfile: deployment/Dockerfile.vlm }
+    image: assetforge-vlm:local
+    restart: unless-stopped
+    entrypoint: ["python", "-m", "assetforge_vision.server"]
+    environment:
+      VLM_MODEL: ${VLM_MODEL:-Qwen/Qwen2.5-VL-7B-Instruct}
+      VLM_THREADS: ${VLM_THREADS:-20}
+      VLM_MAX_SIDE: ${VLM_MAX_SIDE:-640}
+      VLM_IDLE_UNLOAD_SECONDS: ${VLM_IDLE_UNLOAD_SECONDS:-900}
+      HF_HUB_OFFLINE: ${VLM_OFFLINE:-1}                  # pesos vêm do cache; ver scripts/vlm/tasks.sh download
+    volumes: ["vlm-models:/models"]
+    networks: [internal]
+    tmpfs: ["/tmp:size=1g"]
+    cpus: ${VLM_DOCKER_CPUS:-22}
+    mem_limit: ${VLM_DOCKER_MEM:-64g}
+    pids_limit: 512
+    <<: *hardening
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=4).status==200 else 1)"]
+      interval: 30s
+      timeout: 6s
+      retries: 3
 
   worker-ai:
     profiles: [cpu3d]
@@ -283,6 +311,7 @@ volumes:
   worker-gpu-state:
   worker-ai-state:
   cpu3d-models:
+  vlm-models:
   validation-reports:
   bench-out:
 

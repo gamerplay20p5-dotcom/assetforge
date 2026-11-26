@@ -57,6 +57,8 @@ class BuildingParams(StrictModel):
     texture_resolution: Literal[128, 256, 512, 1024, 2048] = 512
     archetype: str | None = Field(
         default=None, pattern=r"^[a-z0-9_]{2,40}$", description="Premium Stylized house kit: builds the house from a named archetype spec (category must be house)")
+    house_description: dict[str, Any] | None = Field(
+        default=None, description="Coarse house description read by the vision model (validated by assetforge_vision); mapped onto a kit house")
     construction_stage: int | None = Field(default=None, ge=1, le=6, description="house kit: 1 terrain .. 6 landscaped (same geometry at every stage)")
     house_spec: dict[str, Any] | None = Field(
         default=None, description="Full architectural spec (JSON) for the house kit; overrides `archetype`. Validated by the generator")

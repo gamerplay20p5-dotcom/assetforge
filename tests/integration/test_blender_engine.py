@@ -64,3 +64,14 @@ def test_house_kit_archetype_runs_the_full_blender_pipeline(blender, tmp_path):
     assert result["validation"]["passed"], result["validation"]
     assert (out / "model.glb").stat().st_size > 10_000 and (out / "model.fbx").stat().st_size > 10_000
     assert validate_glb(out / "model.glb", expected_triangles=result["triangle_count"]).passed
+
+
+def test_vision_description_runs_the_full_blender_pipeline(blender, tmp_path):
+    desc = dict(floors=2, roof_type="gable", roof_color="dark_gray", wall_material="siding", wall_color="sage_green", trim_color="cream",
+                door_color="orange", door_position="left", windows_front_per_floor=[2, 2], porch="covered_porch", garage=True, garage_side="right",
+                chimney=False, volumes="with_side_wing", bay_window=False)
+    job = dict(asset_id="ast_vis01", name="Vision House", version=1, job_id="j", quality_profile="stylized_detailed", formats=["glb", "blend", "fbx"],
+               params=dict(category="house", house_description=desc, construction_stage=6, texture_resolution=256), thumbnail_size=256, thumbnail_samples=8)
+    result = run_building_job(job, tmp_path, lambda e: None, engine="blender", blender_bin=blender, threads=2)
+    assert result["validation"]["passed"], result["validation"]
+    assert (tmp_path / "out" / "model.fbx").stat().st_size > 10_000

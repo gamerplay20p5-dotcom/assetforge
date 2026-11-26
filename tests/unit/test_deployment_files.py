@@ -16,7 +16,7 @@ ENV_FILES = {n: (DEP / f"{n}.env.example").read_text(encoding="utf-8") for n in 
 
 
 def test_expected_services_and_profiles():
-    assert set(SERVICES) == {"postgres", "api", "worker-cpu", "comfyui", "worker-gpu", "ai-tools", "triposr", "sf3d", "worker-ai", "triposr-setup", "sf3d-setup", "cpu3d-tools"}
+    assert set(SERVICES) == {"postgres", "api", "worker-cpu", "comfyui", "worker-gpu", "ai-tools", "triposr", "sf3d", "worker-ai", "triposr-setup", "sf3d-setup", "cpu3d-tools", "vlm"}
     assert SERVICES["postgres"]["profiles"] == ["standalone"]
     assert SERVICES["comfyui"]["profiles"] == ["ai"] and SERVICES["worker-gpu"]["profiles"] == ["ai"] and SERVICES["ai-tools"]["profiles"] == ["tools"]
     assert "profiles" not in SERVICES["api"] and "profiles" not in SERVICES["worker-cpu"]  # work with either DB profile and without AI
@@ -108,3 +108,13 @@ def test_dockerfile_copy_sources_exist():
     for df in ("Dockerfile.worker", "Dockerfile.central"):
         for m in re.finditer(r"^COPY\s+(?!--from)(\S+)\s", (DEP / df).read_text(encoding="utf-8"), flags=re.M):
             assert (ROOT / m.group(1)).exists(), (df, m.group(1))
+
+
+def test_vision_service_is_internal_limited_and_offline_by_default():
+    v = SERVICES["vlm"]
+    assert v["profiles"] == ["vision"] and not v.get("ports")
+    assert v["cap_drop"] == ["ALL"] and "no-new-privileges:true" in v["security_opt"]
+    assert "cpus" in v and "mem_limit" in v  # never unbounded on a shared server
+    assert "HF_HUB_OFFLINE: ${VLM_OFFLINE:-1}" in str(v["environment"]).replace("'", "") or v["environment"]["HF_HUB_OFFLINE"] == "${VLM_OFFLINE:-1}"
+    assert "vlm-models" in COMPOSE["volumes"] and v["networks"] == ["internal"]
+    assert "ASSETFORGE_VLM_URL" in SERVICES["api"]["environment"]
