@@ -54,3 +54,13 @@ def test_blend_format_without_blender_is_refused_honestly(tmp_path):
     job = dict(asset_id="ast_x", name="x", version=1, job_id="j", formats=["glb", "fbx"], params=dict(category="house"))
     with pytest.raises(PipelineError, match="Blender"):
         run_building_job(job, tmp_path, lambda e: None, engine="trimesh")
+
+
+def test_house_kit_archetype_runs_the_full_blender_pipeline(blender, tmp_path):
+    job = dict(asset_id="ast_kit01", name="Kit House", version=1, job_id="j", quality_profile="stylized_detailed", formats=["glb", "blend", "fbx"],
+               params=dict(category="house", archetype="nordic_cabin", seed=1, texture_resolution=256), thumbnail_size=256, thumbnail_samples=8)
+    result = run_building_job(job, tmp_path, lambda e: None, engine="blender", blender_bin=blender, threads=2)
+    out = tmp_path / "out"
+    assert result["validation"]["passed"], result["validation"]
+    assert (out / "model.glb").stat().st_size > 10_000 and (out / "model.fbx").stat().st_size > 10_000
+    assert validate_glb(out / "model.glb", expected_triangles=result["triangle_count"]).passed

@@ -16,3 +16,4 @@ data_dev/
 backups/
 worker-state/
 .env.worker
+reports_out/

@@ -55,6 +55,10 @@ class BuildingParams(StrictModel):
     wear: float = Field(default=0.15, ge=0, le=1, description="Conservation level: 0 pristine, 1 worn")
     detail: int = Field(default=1, ge=0, le=2, description="0 = simplified windows, 2 = full moldings")
     texture_resolution: Literal[128, 256, 512, 1024, 2048] = 512
+    archetype: Literal["tudor_cottage", "colonial", "mediterranean", "nordic_cabin", "modern"] | None = Field(
+        default=None, description="Premium Stylized house kit: builds the house from a named archetype spec (category must be house)")
+    house_spec: dict[str, Any] | None = Field(
+        default=None, description="Full architectural spec (JSON) for the house kit; overrides `archetype`. Validated by the generator")
 
 
 JobType = Literal["procedural.building", "ai.text_to_3d", "ai.image_to_3d"]

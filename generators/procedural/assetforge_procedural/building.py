@@ -879,4 +879,13 @@ class BuildingGenerator:
 
 
 def generate_building(params: BuildingParams) -> GeneratedBuilding:
+    if params.category == "house" and (params.house_spec or params.archetype):
+        from .house import ARCHETYPES, HouseSpec, generate_house  # local import: house.py builds on this module
+
+        if params.house_spec:
+            spec = HouseSpec.from_dict(params.house_spec)
+        else:
+            spec = ARCHETYPES[params.archetype](params.seed)  # type: ignore[index]
+            spec.wear = params.wear
+        return generate_house(spec)
     return BuildingGenerator(params).generate()
