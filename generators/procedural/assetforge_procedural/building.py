@@ -887,5 +887,5 @@ def generate_building(params: BuildingParams) -> GeneratedBuilding:
         else:
             spec = ARCHETYPES[params.archetype](params.seed)  # type: ignore[index]
             spec.wear = params.wear
-        return generate_house(spec)
+        return generate_house(spec, params.construction_stage or 6)
     return BuildingGenerator(params).generate()

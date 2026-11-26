@@ -15,7 +15,7 @@ from assetforge_procedural.mesh import MeshBuilder
 @pytest.mark.parametrize("name", sorted(ARCHETYPES))
 def test_every_archetype_builds_a_closed_textured_house(name):
     gen = generate_house(ARCHETYPES[name](1))
-    assert 1_000 < gen.mesh.triangle_count < 9_000  # low/mid poly
+    assert 500 < gen.mesh.triangle_count < 9_000  # low/mid poly (the bungalow is deliberately simple)
     lo, hi = gen.mesh.bounds()
     assert abs(lo[1]) < 1e-4 and abs((lo[0] + hi[0]) / 2) < 1e-3 and abs((lo[2] + hi[2]) / 2) < 1e-3  # pivot bottom-center
     assert {"wall", "roof", "glass", "trim"} <= set(gen.mesh.parts)
@@ -96,3 +96,23 @@ def test_contract_dispatch_uses_the_house_kit_only_when_asked():
     assert classic.summary.get("archetype") is None and kit.summary["archetype"] == "colonial"
     custom = generate_building(BuildingParams(category="house", house_spec=ARCHETYPES["modern"](1).to_dict()))
     assert custom.summary["archetype"] == "modern"
+
+
+def test_construction_stages_share_one_footprint_and_grow_as_built():
+    from assetforge_procedural.house import archetype_bungalow
+
+    spec = archetype_bungalow(1)
+    stages = [generate_house(spec, s) for s in range(1, 7)]
+    foot = [tuple(np.round(g.dimensions[0::2], 2)) for g in stages]
+    assert len(set(foot)) == 1  # identical ground block -> same placement in the game at every stage
+    assert set(stages[0].mesh.parts) == {"soil", "dark"} and "concrete" in stages[1].mesh.parts
+    assert "framing" in stages[2].mesh.parts and "glass" not in stages[3].mesh.parts and "roof" in stages[3].mesh.parts
+    assert "glass" in stages[4].mesh.parts and "grass" not in stages[4].mesh.parts and "grass" in stages[5].mesh.parts
+    assert stages[2].mesh.triangle_count > stages[1].mesh.triangle_count > stages[0].mesh.triangle_count
+
+
+def test_stage_out_of_range_is_rejected():
+    from assetforge_procedural.house import archetype_bungalow
+
+    with pytest.raises(ValueError, match="stage"):
+        generate_house(archetype_bungalow(1), 7)

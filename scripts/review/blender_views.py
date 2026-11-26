@@ -24,6 +24,7 @@ VIEWS = {  # name: (azimuth deg from front (+Z of the glTF), elevation deg, dist
     "front_low": (0, 5, 0.95),
 }
 wanted = argv[4].split(",") if len(argv) > 4 else list(VIEWS)
+plain = len(argv) > 5 and argv[5] == "plain"  # neutral backdrop, fixed framing (stage sheets)
 
 bpy.ops.wm.read_factory_settings(use_empty=True)
 bpy.ops.import_scene.gltf(filepath=glb)
@@ -33,24 +34,27 @@ lo = Vector((min(p.x for p in pts), min(p.y for p in pts), min(p.z for p in pts)
 hi = Vector((max(p.x for p in pts), max(p.y for p in pts), max(p.z for p in pts)))
 centre = (lo + hi) / 2
 radius = (hi - lo).length / 2
+if plain:
+    radius = max(hi.x - lo.x, hi.y - lo.y) * 0.62
 
 # ground
-bpy.ops.mesh.primitive_plane_add(size=radius * 60, location=(centre.x, centre.y, lo.z - 0.005))
-ground = bpy.context.active_object
-gm = bpy.data.materials.new("grass")
-gm.use_nodes = True
-nt = gm.node_tree
-bsdf = nt.nodes["Principled BSDF"]
-noise = nt.nodes.new("ShaderNodeTexNoise")
-noise.inputs["Scale"].default_value = 1.2
-noise.inputs["Detail"].default_value = 6.0
-ramp = nt.nodes.new("ShaderNodeValToRGB")
-ramp.color_ramp.elements[0].color = (0.035, 0.085, 0.02, 1)
-ramp.color_ramp.elements[1].color = (0.085, 0.16, 0.04, 1)
-nt.links.new(noise.outputs["Fac"], ramp.inputs["Fac"])
-nt.links.new(ramp.outputs["Color"], bsdf.inputs["Base Color"])
-bsdf.inputs["Roughness"].default_value = 1.0
-ground.data.materials.append(gm)
+if not plain:
+  bpy.ops.mesh.primitive_plane_add(size=radius * 60, location=(centre.x, centre.y, lo.z - 0.005))
+  ground = bpy.context.active_object
+  gm = bpy.data.materials.new("grass")
+  gm.use_nodes = True
+  nt = gm.node_tree
+  bsdf = nt.nodes["Principled BSDF"]
+  noise = nt.nodes.new("ShaderNodeTexNoise")
+  noise.inputs["Scale"].default_value = 1.2
+  noise.inputs["Detail"].default_value = 6.0
+  ramp = nt.nodes.new("ShaderNodeValToRGB")
+  ramp.color_ramp.elements[0].color = (0.035, 0.085, 0.02, 1)
+  ramp.color_ramp.elements[1].color = (0.085, 0.16, 0.04, 1)
+  nt.links.new(noise.outputs["Fac"], ramp.inputs["Fac"])
+  nt.links.new(ramp.outputs["Color"], bsdf.inputs["Base Color"])
+  bsdf.inputs["Roughness"].default_value = 1.0
+  ground.data.materials.append(gm)
 
 # context dressing (render only, NOT part of the asset): low-poly trees and rocks around the lot
 import random
@@ -83,10 +87,10 @@ def tree(x, y, h, mat):
         o.data.materials.append(mat if k != 1 else leaf2)
 
 
-for ang, dist, h in ((205, 1.9, 5.5), (255, 2.0, 4.6), (330, 1.95, 6.0), (120, 1.9, 5.0), (160, 2.1, 6.5), (20, 2.0, 5.2), (292, 2.2, 6.2), (75, 2.0, 4.8)):
+for ang, dist, h in (() if plain else ((205, 1.9, 5.5), (255, 2.0, 4.6), (330, 1.95, 6.0), (120, 1.9, 5.0), (160, 2.1, 6.5), (20, 2.0, 5.2), (292, 2.2, 6.2), (75, 2.0, 4.8))):
     a_ = math.radians(ang)
     tree(centre.x + math.sin(a_) * radius * dist, centre.y - math.cos(a_) * radius * dist, h, leaf if ang % 2 else leaf2)
-for _ in range(9):
+for _ in range(0 if plain else 9):
     a_ = random.uniform(0, math.tau)
     d_ = radius * random.uniform(1.05, 1.5)
     bpy.ops.mesh.primitive_ico_sphere_add(subdivisions=1, radius=random.uniform(0.25, 0.55), location=(centre.x + math.sin(a_) * d_, centre.y - math.cos(a_) * d_, lo.z + 0.1))
@@ -106,6 +110,11 @@ bg = wn.nodes["Background"]
 bg.inputs["Strength"].default_value = 1.0
 wn.links.new(sky.outputs["Color"], bg.inputs["Color"])
 bpy.context.scene.world = world
+if plain:
+    sky_c = wn.nodes.new('ShaderNodeRGB')
+    sky_c.outputs[0].default_value = (0.80, 0.80, 0.79, 1)
+    wn.links.new(sky_c.outputs[0], bg.inputs['Color'])
+    bg.inputs['Strength'].default_value = 0.9
 
 scene = bpy.context.scene
 scene.render.engine = "CYCLES"
@@ -117,7 +126,7 @@ try:
 except Exception:  # noqa: BLE001
     pass
 scene.view_settings.view_transform = "AgX"
-scene.view_settings.exposure = -0.95
+scene.view_settings.exposure = 0.0 if plain else -0.95
 try:
     scene.view_settings.look = "AgX - High Contrast"
 except Exception:  # noqa: BLE001
@@ -130,7 +139,7 @@ cam.lens = 42
 cam_obj = bpy.data.objects.new("cam", cam)
 scene.collection.objects.link(cam_obj)
 scene.camera = cam_obj
-target = Vector((centre.x, centre.y, lo.z + (hi.z - lo.z) * 0.42))
+target = Vector((centre.x, centre.y, lo.z + (2.0 if plain else (hi.z - lo.z) * 0.42)))
 for name in wanted:
     az, el, k = VIEWS[name]
     a, e = math.radians(az), math.radians(el)

@@ -343,7 +343,8 @@ def _slab(mb: MeshBuilder, mat_top: str, mat_edge: str, mat_under: str, top: lis
 
 def gable_roof(mb: MeshBuilder, mats: dict[str, str], x0: float, x1: float, z0: float, z1: float, y_eave: float, pitch_deg: float,
                ov_eave: float = 0.5, ov_rake: float = 0.35, th: float = 0.14, ridge_cap: bool = True, tile: float = 1.6,
-               back_overhang: bool = True, gable_wall: str = "wall", end_a: bool = True, end_b: bool = True) -> float:
+               back_overhang: bool = True, gable_wall: str = "wall", end_a: bool = True, end_b: bool = True,
+               slopes: Sequence[str] = ("front", "back")) -> float:
     """Gable roof with the ridge along X over the footprint [x0,x1] x [z0,z1] (world/local frame of the caller).
     Returns the ridge height. Gable-end triangles are drawn at x=x0 and x=x1."""
     zc = (z0 + z1) / 2
@@ -360,11 +361,13 @@ def gable_roof(mb: MeshBuilder, mats: dict[str, str], x0: float, x1: float, z0: 
     inside = (zc * 0 + (x0 + x1) / 2, y_eave - 2.0, zc)
     # front slope (z > zc)
     top = [(xa, ye_f, zc + ze_f), (xb, ye_f, zc + ze_f), (xb, y_r, zc), (xa, y_r, zc)]
-    _slab(mb, mats["roof"], mats["trim"], mats["roof_cap"], top, th, [(xa / tile, 0), (xb / tile, 0), (xb / tile, slope_f / tile), (xa / tile, slope_f / tile)],
+    if "front" in slopes:
+      _slab(mb, mats["roof"], mats["trim"], mats["roof_cap"], top, th, [(xa / tile, 0), (xb / tile, 0), (xb / tile, slope_f / tile), (xa / tile, slope_f / tile)],
           [True, False, False, False], inside)
     # back slope (z < zc)
     top = [(xb, ye_b, zc - ze_b), (xa, ye_b, zc - ze_b), (xa, y_r, zc), (xb, y_r, zc)]
-    _slab(mb, mats["roof"], mats["trim"], mats["roof_cap"], top, th, [(-xb / tile, 0), (-xa / tile, 0), (-xa / tile, slope_b / tile), (-xb / tile, slope_b / tile)],
+    if "back" in slopes:
+      _slab(mb, mats["roof"], mats["trim"], mats["roof_cap"], top, th, [(-xb / tile, 0), (-xa / tile, 0), (-xa / tile, slope_b / tile), (-xb / tile, slope_b / tile)],
           [True, False, False, False], inside)
     # rake boards (verge) on both gable ends
     for xe, sgn in ((xa, -1), (xb, 1)):
@@ -533,6 +536,10 @@ def house_materials(palette: dict[str, str], wear: float, wall_kind: str = "stuc
         "flower": MaterialDef("flower", w("flower", "#D8574A"), None, 0.9, 0.0),
         "accent": MaterialDef("accent", w("accent"), "plaster", 0.7, 0.0, 2.0),
         "dark": MaterialDef("dark", "#3A2F2A", "timber", 0.9, 0.0, 1.5),
+        "framing": MaterialDef("framing", "#D9A25A", "timber", 0.75, 0.0, 1.5),
+        "soil": MaterialDef("soil", "#A06C3E", "concrete", 0.98, 0.0, 1.6),
+        "concrete": MaterialDef("concrete", "#B8B5AE", "concrete", 0.95, 0.0, 2.0),
+        "grass": MaterialDef("grass", "#5C8F3A", "stucco", 0.98, 0.0, 1.8),
     }
 
 
@@ -587,3 +594,97 @@ def shrub(mb: MeshBuilder, m: dict[str, str], x: float, z: float, r: float = 0.4
             mb.quad(mat, a, b, c, d, outward=ctr)
     for i in range(n):
         mb.tri_out(mat, pts[-1][i], pts[-1][(i + 1) % n], top, ctr)
+
+
+# ------------------------------------------------------------------------------------------------ construction stages
+def beam(mb: MeshBuilder, mat: str, p0: Vec, p1: Vec, w: float = 0.08, h: float = 0.14, up: Vec = (0, 1, 0)) -> None:
+    """Rectangular beam between two points (``w`` across, ``h`` along the ``up`` direction)."""
+    a, b = np.asarray(p0, dtype=float), np.asarray(p1, dtype=float)
+    d = b - a
+    ln = float(np.linalg.norm(d))
+    if ln < 1e-6:
+        return
+    d /= ln
+    side = np.cross(d, np.asarray(up, dtype=float))
+    if np.linalg.norm(side) < 1e-6:
+        side = np.cross(d, np.array([1.0, 0, 0]))
+    side /= np.linalg.norm(side)
+    nrm = np.cross(side, d)
+    ring = [(-1, -1), (1, -1), (1, 1), (-1, 1)]
+    pa = [a + sx * side * w / 2 + sy * nrm * h / 2 for sx, sy in ring]
+    pb = [b + sx * side * w / 2 + sy * nrm * h / 2 for sx, sy in ring]
+    ctr = tuple((a + b) / 2)
+    for i in range(4):
+        j = (i + 1) % 4
+        mb.quad(mat, tuple(pa[i]), tuple(pa[j]), tuple(pb[j]), tuple(pb[i]), outward=ctr)  # type: ignore[arg-type]
+    mb.quad(mat, *(tuple(p) for p in pa), outward=ctr)  # type: ignore[arg-type]
+    mb.quad(mat, *(tuple(p) for p in pb), outward=ctr)  # type: ignore[arg-type]
+
+
+def framing_wall(mb: MeshBuilder, mat: str, x0: float, x1: float, y0: float, y1: float, ops: Sequence[Opening], stud: float = 0.6,
+                 t: float = 0.09, d: float = 0.14) -> None:
+    """Timber wall frame (plates, studs, king/jack studs, headers, sills) in the facade frame, inside the wall plane."""
+    faces = ("+z", "+x", "-x", "+y", "-y")
+    bbox(mb, mat, (x0, y0, -d), (x1, y0 + t, 0), faces=faces)
+    bbox(mb, mat, (x0, y1 - 2 * t, -d), (x1, y1, 0), faces=faces)
+    lo, hi = y0 + t, y1 - 2 * t
+    n = max(1, int((x1 - x0) / stud))
+    xs = [x0 + (x1 - x0) * i / n for i in range(n + 1)]
+    for x in xs:
+        if any(o.x0 - 0.1 < x < o.x1 + 0.1 for o in ops):
+            continue
+        a, b = max(x0, x - t / 2), min(x1, x + t / 2)
+        bbox(mb, mat, (a, lo, -d), (b, hi, 0), faces=("+z", "+x", "-x"))
+    for o in ops:
+        top = o.y1
+        for x in (o.x0 - t, o.x1 + t):
+            if x0 <= x <= x1:
+                bbox(mb, mat, (x - t / 2, lo, -d), (x + t / 2, hi, 0), faces=("+z", "+x", "-x"))
+        bbox(mb, mat, (o.x0 - t, top, -d), (o.x1 + t, top + 0.16, 0), faces=faces)
+        if o.kind == "window":
+            bbox(mb, mat, (o.x0 - t, o.y0 - 0.07, -d), (o.x1 + t, o.y0, 0), faces=faces)
+            for x in xs:
+                if o.x0 < x < o.x1:
+                    bbox(mb, mat, (x - t / 2, lo, -d), (x + t / 2, o.y0 - 0.07, 0), faces=("+z", "+x", "-x"))
+        for x in xs:
+            if o.x0 < x < o.x1 and top + 0.16 < hi:
+                bbox(mb, mat, (x - t / 2, top + 0.16, -d), (x + t / 2, hi, 0), faces=("+z", "+x", "-x"))
+
+
+def gable_framing(mb: MeshBuilder, mat: str, x0: float, x1: float, z0: float, z1: float, y_eave: float, pitch_deg: float, ov_eave: float = 0.5,
+                  ov_rake: float = 0.35, spacing: float = 0.6, slopes: Sequence[str] = ("front", "back"), battens: bool = False) -> float:
+    """Rafters, ridge beam and ceiling ties of a gable roof (ridge along X), matching :func:`gable_roof`. Returns the ridge height."""
+    zc, hz = (z0 + z1) / 2, (z1 - z0) / 2
+    t = math.tan(math.radians(pitch_deg))
+    y_r = y_eave + hz * t
+    ze = hz + ov_eave
+    ye = y_r - ze * t
+    xa, xb = x0 - ov_rake, x1 + ov_rake
+    n = max(1, int((xb - xa) / spacing))
+    xs = [xa + (xb - xa) * i / n for i in range(n + 1)]
+    bbox(mb, mat, (xa, y_r - 0.12, zc - 0.05), (xb, y_r + 0.1, zc + 0.05), faces=("+x", "-x", "+y", "+z", "-z"))
+    for x in xs:
+        if "front" in slopes:
+            beam(mb, mat, (x, ye, zc + ze), (x, y_r, zc), 0.06, 0.16)
+        if "back" in slopes:
+            beam(mb, mat, (x, ye, zc - ze), (x, y_r, zc), 0.06, 0.16)
+        if x0 <= x <= x1:
+            beam(mb, mat, (x, y_eave - 0.04, z0), (x, y_eave - 0.04, z1), 0.06, 0.14)
+            beam(mb, mat, (x, y_eave + hz * t * 0.5, zc - hz * 0.5), (x, y_eave + hz * t * 0.5, zc + hz * 0.5), 0.05, 0.1)
+    if battens:
+        for sgn, name in ((1, "front"), (-1, "back")):
+            if name in slopes:
+                for k in range(1, 7):
+                    f = k / 7
+                    beam(mb, mat, (xa, ye + (y_r - ye) * f, zc + sgn * ze * (1 - f)), (xb, ye + (y_r - ye) * f, zc + sgn * ze * (1 - f)), 0.04, 0.05)
+    return y_r
+
+
+def bare_opening(mb: MeshBuilder, mat: str, o: Opening, reveal: float) -> None:
+    """Unglazed opening: just the wooden frame set in the reveal (construction stage)."""
+    t, z0 = 0.07, -reveal * 0.7
+    bbox(mb, mat, (o.x0, o.y0, z0), (o.x0 + t, o.y1, z0 + 0.1), faces=("+z", "+x", "-x"))
+    bbox(mb, mat, (o.x1 - t, o.y0, z0), (o.x1, o.y1, z0 + 0.1), faces=("+z", "+x", "-x"))
+    bbox(mb, mat, (o.x0, o.y1 - t, z0), (o.x1, o.y1, z0 + 0.1), faces=("+z", "-y", "+y"))
+    if o.kind == "window":
+        bbox(mb, mat, (o.x0, o.y0, z0), (o.x1, o.y0 + t, z0 + 0.1), faces=("+z", "+y"))

@@ -74,6 +74,7 @@ class WingSpec:
     no_windows: tuple[str, ...] = ()
     hide_end: str = ""  # 'a' / 'b': gable end (rake + triangle) buried in a neighbouring volume
     slab: str = "trim"  # flat roof slab material
+    pad: float = 0.0  # concrete pad height under the walls (construction-stage kit); replaces the stone plinth
 
 
 @dataclass
@@ -109,6 +110,8 @@ class HouseSpec:
     features: list[Feature] = field(default_factory=list)
     door_steps: bool = True
     wall2_kind: str = ""
+    ground: bool = False  # soil base block under the house (stage-kit assets)
+    ground_margin: float = 1.6
 
     # -------- (de)serialisation: the JSON form is what the panel edits and what the multimodal model will emit
     def to_dict(self) -> dict[str, Any]:
@@ -175,8 +178,11 @@ _IDENT: dict[str, str] = {}
 
 
 class HouseBuilder:
-    def __init__(self, spec: HouseSpec) -> None:
+    def __init__(self, spec: HouseSpec, stage: int = 6) -> None:
         spec.validate()
+        if not 1 <= stage <= 6:
+            raise ValueError("construction stage must be 1..6")
+        self.stage = stage
         self.s = spec
         self.rng = np.random.default_rng(spec.seed)
         self.mb = MeshBuilder()
@@ -214,8 +220,6 @@ class HouseBuilder:
         while n > 1 and span / n < st.w + 0.45:
             n -= 1
         centres = [-length / 2 + margin + span * (i + 0.5) / n for i in range(n)] if n > 1 or span > 0 else [0.0]
-        if side in w.no_windows:
-            centres = []
         skip = w.skip.get(side, [])
         ww = min(st.w, (span / n) * 0.62 if n else st.w)
         for f in range(w.floors):
@@ -233,6 +237,8 @@ class HouseBuilder:
                     continue
                 if has_door and w.garage and f == 0:
                     continue
+                if side in w.no_windows:
+                    continue
                 rise = st.arch * ww / 2
                 y0 = y_fl + st.sill
                 ops.append(Opening(cx, ww, y0, y0 + st.h + rise, "window", arch=st.arch, shutters=st.shutters,
@@ -242,17 +248,27 @@ class HouseBuilder:
 
     # ------------------------------------------------------------------ build
     def build(self) -> GeneratedBuilding:
+        st = self.stage
+        if self.s.ground:
+            self._ground()
+        if st >= 2:
+            self._pads()
+        if st >= 3:
+            for w in self.s.wings:
+                for side in w.sides:
+                    self._facade(w, side)
+            for w in self.s.wings:
+                self._roof(w)
+        if st >= 5:
+            for w in self.s.wings:  # gable-end attic windows need the ridge height
+                self._gable_windows(w)
+            for f in self.s.features:
+                if f.type != "shrubs" or st >= 6:
+                    getattr(self, f"_feat_{f.type}")(f)
+        if st >= 6 and self.s.ground:
+            self._landscape()
         for w in self.s.wings:
-            for side in w.sides:
-                self._facade(w, side)
-        for w in self.s.wings:
-            self._roof(w)
-        for w in self.s.wings:  # gable-end attic windows need the ridge height
-            self._gable_windows(w)
-        for f in self.s.features:
-            getattr(self, f"_feat_{f.type}")(f)
-        for w in self.s.wings:
-            if w.door_side and self.s.door_steps and not any(f.type in ("porch", "portico") and f.wing == w.name and f.side == w.door_side
+            if st >= 5 and w.door_side and self.s.door_steps and not any(f.type in ("porch", "portico") and f.wing == w.name and f.side == w.door_side
                                                              for f in self.s.features):
                 self._door_steps(w)
         spec = self.mb.build()
@@ -278,10 +294,18 @@ class HouseBuilder:
         top = self._top(w)
         ops = self._layout(w, side, L)
         reveal = 0.15
+        if self.stage == 3:
+            with mb.transform(yaw, off):
+                C.framing_wall(mb, "framing", -L / 2 + 0.05, L / 2 - 0.05, fnd, top - 0.1, ops)
+            return
         with mb.transform(yaw, off):
             C.wall_with_openings(mb, w.wall, -L / 2, L / 2, fnd - 0.02, top, ops, reveal, w.wall)
-            if w.foundation > 0:
+            if w.foundation > 0 and w.pad <= 0:
                 C.foundation(mb, "base", "trim", -L / 2, L / 2, w.foundation)
+            if self.stage == 4:
+                for o in ops:
+                    C.bare_opening(mb, "framing", o, reveal)
+                return
             for o in ops:
                 if o.kind == "door":
                     C.door_dressing(mb, m, o, reveal)
@@ -318,6 +342,9 @@ class HouseBuilder:
         mb, m = self.mb, self.m
         top = self._top(w)
         gw = "wall" if w.wall == "wall" else w.wall
+        if self.stage <= 4:
+            self._roof_stage(w)
+            return
         with mb.transform(0, (w.cx, 0, w.cz)):
             if w.roof == "gable":
                 if w.ridge == "x":
@@ -335,6 +362,65 @@ class HouseBuilder:
             elif w.roof == "flat":
                 C.flat_roof(mb, m, -w.w / 2, w.w / 2, -w.d / 2, w.d / 2, top, w.overhang, parapet=1, slab=w.slab)
                 self.ridge_y[w.name] = top + 0.3
+
+    def _roof_stage(self, w: WingSpec) -> None:
+        """Stage 3: bare rafters. Stage 4: one slope shingled, the other still showing rafters and battens. Gable roofs only."""
+        mb, m = self.mb, self.m
+        if w.roof != "gable":
+            return
+        top = self._top(w)
+        stage3 = self.stage == 3
+        with mb.transform(0, (w.cx, 0, w.cz)):
+            def go(x0, x1, z0, z1):  # noqa: ANN001, ANN202
+                y = C.gable_framing(mb, "framing", x0, x1, z0, z1, top, w.pitch, w.overhang, w.rake, slopes=("front", "back") if stage3 else ("front",),
+                                    battens=not stage3)
+                if not stage3:
+                    C.gable_roof(mb, m, x0, x1, z0, z1, top, w.pitch, w.overhang, w.rake, back_overhang=True, gable_wall=w.wall, slopes=("back",),
+                                 end_a=w.hide_end != "a", end_b=w.hide_end != "b", ridge_cap=False)
+                return y
+
+            if w.ridge == "x":
+                y = go(-w.w / 2, w.w / 2, -w.d / 2, w.d / 2)
+            else:
+                with mb.transform(90):
+                    y = go(-w.d / 2, w.d / 2, -w.w / 2, w.w / 2)
+        self.ridge_y[w.name] = y
+
+    # ------------------------------------------------------------------ ground / pads / landscaping
+    def _extent(self) -> tuple[float, float, float, float]:
+        xs0 = min(w.cx - w.w / 2 for w in self.s.wings)
+        xs1 = max(w.cx + w.w / 2 for w in self.s.wings)
+        zs0 = min(w.cz - w.d / 2 for w in self.s.wings)
+        zs1 = max(w.cz + w.d / 2 for w in self.s.wings)
+        return xs0, xs1, zs0, zs1
+
+    def _ground(self) -> None:
+        x0, x1, z0, z1 = self._extent()
+        mg = self.s.ground_margin
+        C.bbox(self.mb, "soil", (x0 - mg, -0.4, z0 - mg), (x1 + mg, 0.0, z1 + mg), 0.04, faces=("+x", "-x", "+z", "-z", "+y", "-y"))
+        if self.stage == 1:  # the marked plot of the house
+            t = 0.05
+            for a, b in (((x0 - 0.2, z1 + 0.15), (x1 + 0.2, z1 + 0.2)), ((x0 - 0.2, z0 - 0.2), (x1 + 0.2, z0 - 0.15)),
+                         ((x0 - 0.2, z0 - 0.15), (x0 - 0.15, z1 + 0.15)), ((x1 + 0.15, z0 - 0.15), (x1 + 0.2, z1 + 0.15))):
+                C.bbox(self.mb, "dark", (a[0], 0.0, a[1]), (b[0], t, b[1]), faces=("+y",))
+
+    def _pads(self) -> None:
+        for i, w in enumerate(self.s.wings):
+            if w.pad > 0:
+                top = w.y0 + w.pad - 0.004 * i  # later wings sit a hair lower so overlapping pads never z-fight
+                C.bbox(self.mb, "concrete", (w.cx - w.w / 2 - 0.22, w.y0, w.cz - w.d / 2 - 0.22 + 0.001 * i), (w.cx + w.w / 2 + 0.22, top, w.cz + w.d / 2 + 0.22),
+                       0.02, faces=("+x", "-x", "+z", "-z", "+y"))
+                if w.door_side == "front" and self.stage < 5:
+                    C.bbox(self.mb, "concrete", (w.cx - 0.8, 0, w.cz + w.d / 2 + 0.2), (w.cx + 0.8, w.pad * 0.5, w.cz + w.d / 2 + 0.7), 0.02, faces=("+x", "-x", "+z", "+y"))
+
+    def _landscape(self) -> None:
+        x0, x1, z0, z1 = self._extent()
+        mg = self.s.ground_margin
+        C.bbox(self.mb, "grass", (x0 - mg + 0.02, 0.0, z0 - mg + 0.02), (x1 + mg - 0.02, 0.07, z1 + mg - 0.02), 0.03, faces=("+x", "-x", "+z", "-z", "+y"))
+        for w in self.s.wings:
+            if w.door_side == "front":
+                zf = w.cz + w.d / 2
+                C.bbox(self.mb, "concrete", (w.cx - 0.55, 0.0, zf + 0.5), (w.cx + 0.55, 0.1, z1 + mg - 0.02), 0.02, faces=("+x", "-x", "+y", "+z"))
 
     # ------------------------------------------------------------------ features
     def _feat_porch(self, f: Feature) -> None:
@@ -428,7 +514,7 @@ class HouseBuilder:
         w = self.wings[f.wing]
         yaw, off, L = self._frame(w, f.side)
         y0 = w.y0 + w.foundation + f.y
-        y1 = y0 + (f.height or w.floors * w.fh)
+        y1 = y0 + (f.height or w.floors * w.fh - 0.14)  # stop just under the eave so it never pokes through the roof slab
         with self.mb.transform(yaw, off):
             C.bbox(self.mb, "wall2", (f.x - f.w / 2, y0, 0), (f.x + f.w / 2, y1, f.depth or 0.14), 0.025, faces=("+z", "+x", "-x", "+y", "-y"))
 
@@ -534,16 +620,34 @@ def archetype_modern(seed: int = 1) -> HouseSpec:
     return HouseSpec("Casa Moderna", "modern", seed, 0.08, "stucco", "plaster", "plaster", pal, [main, low], feats, wall2_kind="planks")
 
 
+def archetype_bungalow(seed: int = 1) -> HouseSpec:
+    """Single-storey stucco bungalow with a gabled entry bay, charcoal roof, black-framed windows and a wood-clad end bay (reference image)."""
+    win = WindowStyle(w=1.9, h=1.25, sill=0.9, mullions=(2, 1), casing=False, lit_prob=0.0)
+    main = WingSpec("main", 9.4, 6.0, 1, 2.9, 0, 0, foundation=0.15, pad=0.15, wall="wall", roof="gable", ridge="x", pitch=22, overhang=0.6, rake=0.45,
+                    bay=3.8, window=win, corner_posts=False, gable_window=False, skip={"front": [(-3.8, -0.1)]})
+    entry = WingSpec("entry", 3.4, 2.6, 1, 2.9, -2.0, 3.2, foundation=0.15, pad=0.15, wall="wall", roof="gable", ridge="z", pitch=22, overhang=0.5,
+                     rake=0.45, bay=3.0, window=WindowStyle(w=0.5, h=1.7, sill=0.5, mullions=(1, 3), casing=False, lit_prob=0.0),
+                     door_side="front", door_w=1.15, door_h=2.2, sides=("front", "left", "right"), corner_posts=False, gable_window=False,
+                     hide_end="b", no_windows=("front", "left", "right"))
+    pal = _pal(wall="#F3E6CC", wall2="#C99A55", trim="#E9E1D0", base="#B8B5AE", roof="#4B4D54", timber="#C99A55", door="#D9923F", frame="#1F2125",
+               shutter="#1F2125", brick="#8A6A55", deck="#C99A55", metal="#1F2125", accent="#D9923F", flower="#D8574A")
+    feats = [Feature("panel", "main", "front", x=3.6, w=1.9, depth=0.1),
+             Feature("shrubs", "entry", "front", x=-1.3, w=0.9, depth=0.6), Feature("shrubs", "entry", "front", x=1.3, w=0.9, depth=0.6)]
+    return HouseSpec("Bangalô Moderno", "bungalow", seed, 0.06, "stucco", "metal", "plaster", pal, [main, entry], feats, wall2_kind="planks", ground=True)
+
+
 ARCHETYPES = {
     "tudor_cottage": archetype_tudor_cottage,
     "colonial": archetype_colonial,
     "mediterranean": archetype_mediterranean,
     "nordic_cabin": archetype_nordic,
     "modern": archetype_modern,
+    "bungalow": archetype_bungalow,
 }
 
 
-def generate_house(spec: HouseSpec | dict[str, Any]) -> GeneratedBuilding:
+def generate_house(spec: HouseSpec | dict[str, Any], stage: int = 6) -> GeneratedBuilding:
+    """Build the house at a construction stage: 1 terrain, 2 slab, 3 framing, 4 walls + half roof, 5 finished, 6 landscaped."""
     if isinstance(spec, dict):
         spec = HouseSpec.from_dict(spec)
-    return HouseBuilder(spec).build()
+    return HouseBuilder(spec, stage).build()
