@@ -14,6 +14,8 @@ interface Props {
   wireframe: boolean;
   showBounds: boolean;
   autoRotate: boolean;
+  /** transparent background + shadow-catcher floor, for the studio stage (CSS paints the backdrop) */
+  studio?: boolean;
   onStats?: (s: ViewerStats) => void;
 }
 
@@ -22,7 +24,7 @@ function cssVar(name: string, fallback: string): string {
 }
 
 /** Interactive glTF viewer (orbit/zoom/pan). Everything shown is loaded from the real exported GLB. */
-export function Viewer3D({ url, wireframe, showBounds, autoRotate, onStats }: Props) {
+export function Viewer3D({ url, wireframe, showBounds, autoRotate, studio, onStats }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const state = useRef<{
     renderer: THREE.WebGLRenderer;
@@ -44,7 +46,7 @@ export function Viewer3D({ url, wireframe, showBounds, autoRotate, onStats }: Pr
     if (!el) return;
     let renderer: THREE.WebGLRenderer;
     try {
-      renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: false });
+      renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: false, alpha: !!studio });
     } catch {
       setError("WebGL indisponível neste navegador.");
       return;
@@ -56,8 +58,10 @@ export function Viewer3D({ url, wireframe, showBounds, autoRotate, onStats }: Pr
     el.appendChild(renderer.domElement);
     const scene = new THREE.Scene();
     const bg = cssVar("--viewer-bg", "#1b1e24");
-    scene.background = new THREE.Color(bg);
-    scene.fog = new THREE.Fog(bg, 120, 420);
+    if (!studio) {
+      scene.background = new THREE.Color(bg);
+      scene.fog = new THREE.Fog(bg, 120, 420);
+    }
     const camera = new THREE.PerspectiveCamera(40, 1, 0.1, 2000);
     camera.position.set(25, 18, 30);
     const controls = new OrbitControls(camera, renderer.domElement);
@@ -65,18 +69,19 @@ export function Viewer3D({ url, wireframe, showBounds, autoRotate, onStats }: Pr
     controls.maxPolarAngle = Math.PI * 0.495;
     scene.add(new THREE.HemisphereLight(0xdfe8ff, 0x556048, 1.1));
     const sun = new THREE.DirectionalLight(0xfff1dd, 2.4);
-    sun.position.set(40, 70, 30);
+    const ext = studio ? 12 : 60;
+    sun.position.set(ext * 0.66, ext * 1.16, ext * 0.5);
     sun.castShadow = true;
     sun.shadow.mapSize.set(2048, 2048);
-    Object.assign(sun.shadow.camera, { left: -60, right: 60, top: 60, bottom: -60, near: 1, far: 220 });
+    Object.assign(sun.shadow.camera, { left: -ext, right: ext, top: ext, bottom: -ext, near: 1, far: ext * 4 });
     sun.shadow.bias = -0.0004;
     scene.add(sun);
-    const ground = new THREE.Mesh(new THREE.CircleGeometry(400, 64), new THREE.MeshStandardMaterial({ color: cssVar("--viewer-ground", "#46543f"), roughness: 1 }));
+    const ground = new THREE.Mesh(new THREE.CircleGeometry(400, 64), studio ? new THREE.ShadowMaterial({ opacity: 0.35 }) : new THREE.MeshStandardMaterial({ color: cssVar("--viewer-ground", "#46543f"), roughness: 1 }));
     ground.rotation.x = -Math.PI / 2;
     ground.position.y = -0.02;
     ground.receiveShadow = true;
     scene.add(ground);
-    const grid = new THREE.GridHelper(200, 100, 0x888888, 0x666666);
+    const grid = new THREE.GridHelper(studio ? 30 : 200, studio ? 30 : 100, studio ? 0x666b75 : 0x888888, studio ? 0x3a3e46 : 0x666666);
     (grid.material as THREE.Material).opacity = 0.25;
     (grid.material as THREE.Material).transparent = true;
     scene.add(grid);
@@ -157,7 +162,7 @@ export function Viewer3D({ url, wireframe, showBounds, autoRotate, onStats }: Pr
         s.scene.add(helper);
         s.box = helper;
         const radius = size.length() / 2;
-        s.camera.position.copy(centre).add(new THREE.Vector3(0.9, 0.55, 1.1).normalize().multiplyScalar(radius * 2.6));
+        s.camera.position.copy(centre).add(new THREE.Vector3(0.9, 0.55, 1.1).normalize().multiplyScalar(radius * (studio ? 3.2 : 2.6)));
         s.controls.target.copy(centre);
         s.camera.near = Math.max(radius / 200, 0.05);
         s.camera.far = radius * 40;

@@ -5,7 +5,7 @@ test("login -> describe -> generate -> queue -> library -> 3D viewer -> download
   await page.goto("/");
   await page.getByLabel("Senha").fill("e2e-admin-password");
   await page.getByRole("button", { name: "Entrar" }).click();
-  await expect(page.getByText("Assets gerados")).toBeVisible();
+  await expect(page.getByText("Pronto para um novo modelo 3D?")).toBeVisible();
 
   // wait for the worker to register and heartbeat
   await page.goto("/workers");

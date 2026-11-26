@@ -1,11 +1,11 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Boxes, Cpu, Gauge, ImagePlus, Layers, ListChecks, LogOut, Moon, Pause, Play, Sparkles, Sun, Triangle } from "lucide-react";
 import { useEffect, useState } from "react";
-import { NavLink, Navigate, Route, Routes } from "react-router-dom";
+import { NavLink, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { api, getToken, setToken, useDownloadToken } from "./api";
 import { Dashboard } from "./pages/Dashboard";
 import { Generator } from "./pages/Generator";
-import { AiGenerator } from "./pages/AiGenerator";
+import { Studio } from "./pages/Studio";
 import { BatchStudio } from "./pages/BatchStudio";
 import { QueueManager } from "./pages/QueueManager";
 import { Library } from "./pages/Library";
@@ -67,18 +67,19 @@ function useLiveEvents(enabled: boolean) {
 }
 
 const NAV = [
-  { to: "/", label: "Dashboard", icon: Gauge, end: true },
-  { to: "/image3d", label: "Imagem → 3D", icon: ImagePlus },
+  { to: "/", label: "Imagem → 3D", icon: ImagePlus, end: true },
   { to: "/generator", label: "Procedural", icon: Sparkles },
-  { to: "/batch", label: "Batch Studio", icon: Layers },
-  { to: "/queue", label: "Queue Manager", icon: ListChecks },
-  { to: "/library", label: "Asset Library", icon: Boxes },
+  { to: "/library", label: "Biblioteca", icon: Boxes },
+  { to: "/queue", label: "Fila", icon: ListChecks },
+  { to: "/batch", label: "Lotes", icon: Layers },
   { to: "/workers", label: "Workers", icon: Cpu },
+  { to: "/dashboard", label: "Painel", icon: Gauge },
 ];
 
 export function App() {
   const [authed, setAuthed] = useState<boolean>(!!getToken());
   const [theme, toggleTheme] = useTheme();
+  const flush = useLocation().pathname === "/";
   const qc = useQueryClient();
   useEffect(() => {
     const off = () => setAuthed(false);
@@ -111,7 +112,6 @@ export function App() {
           <div className="brand-mark">
             <Triangle size={15} fill="currentColor" />
           </div>
-          <span className="name">AssetForge</span>
         </div>
         <nav className="nav">
           {NAV.map(({ to, label, icon: Icon, end }) => (
@@ -121,10 +121,11 @@ export function App() {
             </NavLink>
           ))}
         </nav>
-        <div className="sidebar-foot">v0.1.0 · Milestone 1</div>
+        <div className="sidebar-foot">v0.1</div>
       </aside>
       <div className="main">
         <header className="topbar">
+          <span className="topbrand">AssetForge</span>
           <span className="pill" title="Atualizações em tempo real (SSE)">
             <span className={`dot ${live ? "ok" : "warn"}`} />
             {live ? "ao vivo" : "reconectando"}
@@ -151,10 +152,11 @@ export function App() {
             <LogOut size={16} />
           </button>
         </header>
-        <main className="content">
+        <main className={`content ${flush ? "flush" : ""}`}>
           <Routes>
-            <Route path="/" element={<Dashboard />} />
-            <Route path="/image3d" element={<AiGenerator />} />
+            <Route path="/" element={<Studio />} />
+            <Route path="/image3d" element={<Navigate to="/" replace />} />
+            <Route path="/dashboard" element={<Dashboard />} />
             <Route path="/generator" element={<Generator />} />
             <Route path="/batch" element={<BatchStudio />} />
             <Route path="/queue" element={<QueueManager />} />

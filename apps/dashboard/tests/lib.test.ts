@@ -41,7 +41,7 @@ describe("batch import", () => {
   });
 });
 
-import { checkImageFile, parseLods } from "../src/pages/AiGenerator";
+import { checkImageFile, parseLods } from "../src/imageTo3d";
 
 describe("AI LOD ratios", () => {
   it("accepts descending values in [0.02, 1)", () => {
