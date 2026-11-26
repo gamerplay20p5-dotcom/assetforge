@@ -22,7 +22,7 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--model", required=True)
     ap.add_argument("--image", type=Path, required=True)
-    ap.add_argument("--mode", choices=["fp32", "bf16", "int8"], default="fp32")
+    ap.add_argument("--mode", choices=["fp32", "bf16", "int8", "int8lm"], default="fp32")
     ap.add_argument("--tokens", type=int, default=40)
     ap.add_argument("--threads", type=int, default=20)
     a = ap.parse_args()
@@ -37,6 +37,10 @@ def main() -> int:
     model = Qwen2_5_VLForConditionalGeneration.from_pretrained(a.model, torch_dtype=dtype, low_cpu_mem_usage=True).eval()
     if a.mode == "int8":
         model = torch.ao.quantization.quantize_dynamic(model, {torch.nn.Linear}, dtype=torch.qint8)
+    elif a.mode == "int8lm":  # only the decoder blocks of the language model; vision tower, embeddings and lm_head stay fp32
+        lm = model.model.layers if hasattr(model.model, "layers") else model.model.language_model.layers
+        for i, layer in enumerate(lm):
+            lm[i] = torch.ao.quantization.quantize_dynamic(layer, {torch.nn.Linear}, dtype=torch.qint8)
     load = time.monotonic() - t0
     img = Image.open(a.image).convert("RGB")
     msgs = [{"role": "system", "content": SYSTEM}, {"role": "user", "content": [{"type": "image", "image": img}, {"type": "text", "text": USER_ANALYSIS}]}]

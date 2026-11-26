@@ -27,9 +27,9 @@ Use only values from the lists. JSON only."""
 
 USER_ANALYSIS = f"""Look at the image and answer with ONE JSON object with exactly these keys:
 - "category": one of {list(CATEGORIES)} ("house" = a house or small building; "vehicle" = car, truck, bike, boat...; "character" = person, animal or creature;
-  "tree" = tree or plant; "prop" = any single object (furniture, tool, sign, barrel...); "other" = anything else, a scene, a map, a UI screenshot)
+  "tree" = tree or plant; "prop" = any single object (furniture, tool, sign, barrel...); "other" = anything else: flat ground or an empty building plot, terrain, landscapes, a scene with many objects, a map, a UI screenshot, text)
 - "subject": a short English noun phrase for the main thing (e.g. "red sports car", "wooden chair", "two-storey blue house")
-- "isolated_object": true if it is ONE object on a plain/empty background, else false
+- "isolated_object": true ONLY if it is ONE solid 3D object standing on a plain background (a chair, a car, a person, a house). False for flat ground, terrain, plots of land, landscapes, scenes and screenshots
 - "house": if category is "house", an object describing the FINISHED house, otherwise null. When it is a house use exactly these keys:
   "floors" integer 1-3; "roof_type" one of {list(ROOF_TYPES)}; "roof_color" one of {list(COLORS)};
   "wall_material" one of {list(WALL_MATERIALS)} ("siding" = horizontal boards); "wall_color" one of {list(COLORS)};
