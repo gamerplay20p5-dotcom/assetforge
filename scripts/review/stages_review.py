@@ -35,6 +35,8 @@ def main() -> int:
     out.mkdir(parents=True, exist_ok=True)
     blender = next((ROOT / ".tools" / "blender").rglob("blender.exe"), None)
     info = []
+    full = generate_house(ARCHETYPES[args.archetype](1), 6)
+    frame_h = float(full.dimensions[1])
     for st in range(1, 7):
         gen = generate_house(ARCHETYPES[args.archetype](1), st)
         spec, _ = clean_mesh(gen.mesh, normalize_pivot=False)
@@ -47,7 +49,7 @@ def main() -> int:
         print(info[-1], flush=True)
         if not args.no_render and blender:
             subprocess.run([str(blender), "-b", "-P", str(Path(__file__).with_name("blender_views.py")), "--", str(d / "model.glb"), str(d / "view"),
-                            str(args.samples), str(args.size), args.view, "plain"], check=True, stdout=subprocess.DEVNULL)
+                            str(args.samples), str(args.size), args.view, "plain", f"{frame_h:.3f}"], check=True, stdout=subprocess.DEVNULL)
     (out / "report.json").write_text(json.dumps(info, indent=2), encoding="utf-8")
     imgs = [out / f"stage{st}" / f"view_{args.view}.png" for st in range(1, 7)]
     if all(p.is_file() for p in imgs):

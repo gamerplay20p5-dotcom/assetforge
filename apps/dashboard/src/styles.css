@@ -1458,3 +1458,81 @@ tr.selected td {
     grid-column: 1 / -1;
   }
 }
+
+/* ---------- modo "Casas do kit" ---------- */
+.mode-seg {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  background: var(--panel-2);
+  border-radius: 12px;
+  padding: 4px;
+  gap: 4px;
+}
+.mode-seg button {
+  border: 0;
+  background: transparent;
+  justify-content: center;
+  border-radius: 9px;
+  padding: 8px 6px;
+  color: var(--muted);
+  font-weight: 500;
+}
+.mode-seg button.on {
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-weight: 700;
+}
+.kit-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+.kit-card {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  padding: 6px;
+  background: var(--panel-2);
+  border: 2px solid transparent;
+  border-radius: 12px;
+  text-align: left;
+  white-space: normal;
+}
+.kit-card img {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+  border-radius: 8px;
+  background: var(--panel-3);
+}
+.kit-card span {
+  font-size: 12px;
+  line-height: 1.25;
+}
+.kit-card.on {
+  border-color: var(--accent);
+}
+.stage-seg {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+.stage-seg button {
+  flex-direction: column;
+  gap: 0;
+  padding: 6px 4px;
+  justify-content: center;
+  background: var(--panel-2);
+  white-space: normal;
+  text-align: center;
+}
+.stage-seg button small {
+  color: var(--muted);
+  font-size: 10.5px;
+  line-height: 1.15;
+}
+.stage-seg button.on {
+  border-color: var(--accent);
+  color: var(--accent);
+}

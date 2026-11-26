@@ -116,3 +116,18 @@ def test_stage_out_of_range_is_rejected():
 
     with pytest.raises(ValueError, match="stage"):
         generate_house(archetype_bungalow(1), 7)
+
+
+@pytest.mark.parametrize("name", sorted(n for n, fn in ARCHETYPES.items() if fn(1).ground))
+def test_all_six_stages_of_every_stage_kit_archetype_build_with_one_footprint(name):
+    foot = set()
+    for st in range(1, 7):
+        g = generate_house(ARCHETYPES[name](1), st)
+        assert g.mesh.triangle_count > 0
+        foot.add(tuple(np.round(g.dimensions[0::2], 2)))
+    assert len(foot) == 1
+
+
+def test_unknown_archetype_is_a_clear_error():
+    with pytest.raises(ValueError, match="unknown archetype"):
+        generate_building(BuildingParams(category="house", archetype="castelo"))

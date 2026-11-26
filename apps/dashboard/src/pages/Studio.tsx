@@ -6,6 +6,7 @@ import { api, fileUrl, getToken, packageUrl, useDownloadToken } from "../api";
 import { GenAnimation } from "../components/GenAnimation";
 import { Viewer3D, type ViewerStats } from "../components/Viewer3D";
 import { ErrorNote, Thumb } from "../components/ui";
+import { KitGenerator } from "./KitGenerator";
 import { MAX_IMAGE_MB, PRESETS, PROVIDERS, STAGE_LABEL, checkImageFile, parseLods, type PresetKey } from "../imageTo3d";
 import { formatDuration, timeAgo } from "../lib";
 import type { Asset, Job, Worker } from "../types";
@@ -25,6 +26,7 @@ export function Studio() {
   const input = useRef<HTMLInputElement>(null);
 
   // ---- generate form
+  const [mode, setMode] = useState<"kit" | "image">("kit");
   const [items, setItems] = useState<Item[]>([]);
   const [over, setOver] = useState(false);
   const [preset, setPreset] = useState<PresetKey>("mid");
@@ -181,7 +183,16 @@ export function Studio() {
     <div className="studio">
       {/* ------------------------------------------------ generate panel */}
       <aside className="st-left">
+        <div className="mode-seg" role="tablist" aria-label="Como gerar">
+          <button role="tab" aria-selected={mode === "kit"} className={mode === "kit" ? "on" : ""} onClick={() => setMode("kit")}>Casas do kit</button>
+          <button role="tab" aria-selected={mode === "image"} className={mode === "image" ? "on" : ""} onClick={() => setMode("image")}>Imagem → 3D (IA)</button>
+        </div>
+        {mode === "kit" ? (
+          <KitGenerator onCreated={(ids) => { setAssetId(null); setJobId(ids[0] ?? null); }} />
+        ) : (
+          <>
         <div className="st-title"><Sparkles size={16} /> Gerar modelo 3D</div>
+        <div className="st-warn">Experimental: a IA de malha (TripoSR) funciona melhor com um único objeto em fundo liso e dá resultado ruim em casas. Para casas, use "Casas do kit".</div>
 
         <div className="seg" role="radiogroup" aria-label="Nível de polígonos">
           {(Object.keys(PRESETS) as PresetKey[]).map((k) => (
@@ -306,6 +317,8 @@ export function Studio() {
             <span className="st-cost">~{tris.toLocaleString("pt-BR")} △</span>
           </button>
         </div>
+          </>
+        )}
       </aside>
 
       {/* ------------------------------------------------ stage */}

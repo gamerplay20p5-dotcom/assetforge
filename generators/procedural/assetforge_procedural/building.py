@@ -885,7 +885,9 @@ def generate_building(params: BuildingParams) -> GeneratedBuilding:
         if params.house_spec:
             spec = HouseSpec.from_dict(params.house_spec)
         else:
-            spec = ARCHETYPES[params.archetype](params.seed)  # type: ignore[index]
+            if params.archetype not in ARCHETYPES:
+                raise ValueError(f"unknown archetype {params.archetype!r}; available: {sorted(ARCHETYPES)}")
+            spec = ARCHETYPES[params.archetype](params.seed)
             spec.wear = params.wear
         return generate_house(spec, params.construction_stage or 6)
     return BuildingGenerator(params).generate()

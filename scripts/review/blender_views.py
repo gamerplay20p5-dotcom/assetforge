@@ -25,6 +25,7 @@ VIEWS = {  # name: (azimuth deg from front (+Z of the glTF), elevation deg, dist
 }
 wanted = argv[4].split(",") if len(argv) > 4 else list(VIEWS)
 plain = len(argv) > 5 and argv[5] == "plain"  # neutral backdrop, fixed framing (stage sheets)
+frame_h = float(argv[6]) if len(argv) > 6 else 0.0  # full-house height so every stage uses the same camera
 
 bpy.ops.wm.read_factory_settings(use_empty=True)
 bpy.ops.import_scene.gltf(filepath=glb)
@@ -35,7 +36,7 @@ hi = Vector((max(p.x for p in pts), max(p.y for p in pts), max(p.z for p in pts)
 centre = (lo + hi) / 2
 radius = (hi - lo).length / 2
 if plain:
-    radius = max(hi.x - lo.x, hi.y - lo.y) * 0.62
+    radius = max(max(hi.x - lo.x, hi.y - lo.y) * 0.62, frame_h * 1.25)
 
 # ground
 if not plain:
@@ -139,7 +140,7 @@ cam.lens = 42
 cam_obj = bpy.data.objects.new("cam", cam)
 scene.collection.objects.link(cam_obj)
 scene.camera = cam_obj
-target = Vector((centre.x, centre.y, lo.z + (2.0 if plain else (hi.z - lo.z) * 0.42)))
+target = Vector((centre.x, centre.y, lo.z + (max(2.0, frame_h * 0.4) if plain else (hi.z - lo.z) * 0.42)))
 for name in wanted:
     az, el, k = VIEWS[name]
     a, e = math.radians(az), math.radians(el)

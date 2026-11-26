@@ -362,12 +362,12 @@ def gable_roof(mb: MeshBuilder, mats: dict[str, str], x0: float, x1: float, z0: 
     # front slope (z > zc)
     top = [(xa, ye_f, zc + ze_f), (xb, ye_f, zc + ze_f), (xb, y_r, zc), (xa, y_r, zc)]
     if "front" in slopes:
-      _slab(mb, mats["roof"], mats["trim"], mats["roof_cap"], top, th, [(xa / tile, 0), (xb / tile, 0), (xb / tile, slope_f / tile), (xa / tile, slope_f / tile)],
+      _slab(mb, mats["roof"], mats["trim"], mats["trim"], top, th, [(xa / tile, 0), (xb / tile, 0), (xb / tile, slope_f / tile), (xa / tile, slope_f / tile)],
           [True, False, False, False], inside)
     # back slope (z < zc)
     top = [(xb, ye_b, zc - ze_b), (xa, ye_b, zc - ze_b), (xa, y_r, zc), (xb, y_r, zc)]
     if "back" in slopes:
-      _slab(mb, mats["roof"], mats["trim"], mats["roof_cap"], top, th, [(-xb / tile, 0), (-xa / tile, 0), (-xa / tile, slope_b / tile), (-xb / tile, slope_b / tile)],
+      _slab(mb, mats["roof"], mats["trim"], mats["trim"], top, th, [(-xb / tile, 0), (-xa / tile, 0), (-xa / tile, slope_b / tile), (-xb / tile, slope_b / tile)],
           [True, False, False, False], inside)
     # rake boards (verge) on both gable ends
     for xe, sgn in ((xa, -1), (xb, 1)):
@@ -389,7 +389,7 @@ def gable_roof(mb: MeshBuilder, mats: dict[str, str], x0: float, x1: float, z0: 
 
 
 def hip_roof(mb: MeshBuilder, mats: dict[str, str], x0: float, x1: float, z0: float, z1: float, y_eave: float, pitch_deg: float,
-             ov: float = 0.5, th: float = 0.14, tile: float = 1.6) -> float:
+             ov: float = 0.5, th: float = 0.14, tile: float = 1.6, skip: Sequence[str] = ()) -> float:
     """Hip roof (ridge along the longer side). Returns ridge height."""
     t = math.tan(math.radians(pitch_deg))
     cx, cz = (x0 + x1) / 2, (z0 + z1) / 2
@@ -407,20 +407,24 @@ def hip_roof(mb: MeshBuilder, mats: dict[str, str], x0: float, x1: float, z0: fl
     A, Bh = (hx, hz) if along_x else (hz, hx)
     # long sides
     for s in (1, -1):
+        if ("front" if s > 0 else "back") in skip:
+            continue
         top = [P(-A, s * Bh, y_eave), P(A, s * Bh, y_eave), P(rl, 0, y_r), P(-rl, 0, y_r)]
         if s < 0:
             top = [P(A, s * Bh, y_eave), P(-A, s * Bh, y_eave), P(-rl, 0, y_r), P(rl, 0, y_r)]
         uv = [(-A / tile, 0), (A / tile, 0), (rl / tile, slope / tile), (-rl / tile, slope / tile)]
-        _slab(mb, mats["roof"], mats["trim"], mats["roof_cap"], top, th, uv, [True, False, False, False], inside)
+        _slab(mb, mats["roof"], mats["trim"], mats["trim"], top, th, uv, [True, False, False, False], inside)
     # hip ends (triangles)
     for s in (1, -1):
+        if ("endp" if s > 0 else "endn") in skip:
+            continue
         a, b = P(s * A, -Bh, y_eave), P(s * A, Bh, y_eave)
         c = P(s * rl, 0, y_r)
         tri = [a, b, c] if s > 0 else [b, a, c]
         if not along_x:
             tri = [b, a, c] if s > 0 else [a, b, c]
         uv = [(-Bh / tile, 0), (Bh / tile, 0), (0, slope / tile)]
-        _slab(mb, mats["roof"], mats["trim"], mats["roof_cap"], tri, th, uv, [True, False, False], inside)
+        _slab(mb, mats["roof"], mats["trim"], mats["trim"], tri, th, uv, [True, False, False], inside)
     if rl > 0.05:
         if along_x:
             bbox(mb, mats["roof_cap"], (cx - rl - 0.1, y_r - 0.07, cz - 0.15), (cx + rl + 0.1, y_r + 0.1, cz + 0.15), 0.03, faces=("+x", "-x", "+y", "+z", "-z"))
@@ -445,7 +449,7 @@ def shed_roof(mb: MeshBuilder, mats: dict[str, str], x0: float, x1: float, z0: f
         top = [(xa, y_low, zb), (xb, y_low, zb), (xb, y_hi, za), (xa, y_hi, za)]
     else:
         top = [(xb, y_low, za), (xa, y_low, za), (xa, y_hi, zb), (xb, y_hi, zb)]
-    _slab(mb, mats["roof"], mats["trim"], mats["roof_cap"], top, th, [(xa / tile, 0), (xb / tile, 0), (xb / tile, slope / tile), (xa / tile, slope / tile)],
+    _slab(mb, mats["roof"], mats["trim"], mats["trim"], top, th, [(xa / tile, 0), (xb / tile, 0), (xb / tile, slope / tile), (xa / tile, slope / tile)],
           [True, True, True, True], inside)
     return y_hi
 
@@ -688,3 +692,56 @@ def bare_opening(mb: MeshBuilder, mat: str, o: Opening, reveal: float) -> None:
     bbox(mb, mat, (o.x0, o.y1 - t, z0), (o.x1, o.y1, z0 + 0.1), faces=("+z", "-y", "+y"))
     if o.kind == "window":
         bbox(mb, mat, (o.x0, o.y0, z0), (o.x1, o.y0 + t, z0 + 0.1), faces=("+z", "+y"))
+
+
+def hip_framing(mb: MeshBuilder, mat: str, x0: float, x1: float, z0: float, z1: float, y_eave: float, pitch_deg: float, ov: float = 0.5,
+                spacing: float = 0.6, skip: Sequence[str] = ()) -> float:
+    """Ridge, common rafters, hip rafters and jack rafters of a hip roof matching :func:`hip_roof`. Returns the ridge height."""
+    t = math.tan(math.radians(pitch_deg))
+    cx, cz = (x0 + x1) / 2, (z0 + z1) / 2
+    hx, hz = (x1 - x0) / 2 + ov, (z1 - z0) / 2 + ov
+    short = min(hx, hz)
+    rl = max(hx, hz) - short
+    along_x = hx >= hz
+    y_r = y_eave + short * t
+    A, Bh = (hx, hz) if along_x else (hz, hx)
+
+    def P(a: float, b: float, y: float) -> Vec:
+        return (cx + a, y, cz + b) if along_x else (cx + b, y, cz + a)
+
+    if rl > 0.05:
+        beam(mb, mat, P(-rl, 0, y_r), P(rl, 0, y_r), 0.07, 0.18)
+    n = max(1, int(2 * rl / spacing)) if rl > 0.05 else 0
+    for i in range(n + 1 if n else 0):
+        a = -rl + 2 * rl * i / n
+        for s in (1, -1):
+            if ("front" if s > 0 else "back") not in skip:
+                beam(mb, mat, P(a, s * Bh, y_eave), P(a, 0, y_r), 0.06, 0.16)
+        beam(mb, mat, P(a, -(Bh - ov), y_eave - 0.05), P(a, Bh - ov, y_eave - 0.05), 0.06, 0.14)
+    for sa in (1, -1):
+        for sb in (1, -1):
+            beam(mb, mat, P(sa * A, sb * Bh, y_eave), P(sa * rl, 0, y_r), 0.07, 0.17)
+        k = max(1, int(Bh / spacing))
+        for j in range(1, k):
+            b = Bh * j / k
+            for sb in (1, -1):
+                tt = 1 - b / Bh
+                beam(mb, mat, P(sa * A, sb * b, y_eave), P(sa * (A + tt * (rl - A)), sb * Bh * (1 - tt), y_eave + tt * (y_r - y_eave)), 0.05, 0.14)
+    return y_r
+
+
+def shed_framing(mb: MeshBuilder, mat: str, x0: float, x1: float, z0: float, z1: float, y_low: float, pitch_deg: float, ov: float = 0.4,
+                 spacing: float = 0.6, high_side: str = "-z") -> float:
+    t = math.tan(math.radians(pitch_deg))
+    depth = (z1 - z0) + 2 * ov
+    y_hi = y_low + depth * t
+    xa, xb = x0 - ov, x1 + ov
+    za, zb = z0 - ov, z1 + ov
+    n = max(1, int((xb - xa) / spacing))
+    for i in range(n + 1):
+        x = xa + (xb - xa) * i / n
+        if high_side == "-z":
+            beam(mb, mat, (x, y_low, zb), (x, y_hi, za), 0.06, 0.16)
+        else:
+            beam(mb, mat, (x, y_low, za), (x, y_hi, zb), 0.06, 0.16)
+    return y_hi
