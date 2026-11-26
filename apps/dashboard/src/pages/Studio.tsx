@@ -50,8 +50,18 @@ export function Studio() {
 
   const workers = useQuery({ queryKey: ["workers"], queryFn: () => api<Worker[]>("/workers"), refetchInterval: 8000 });
   const online = (workers.data ?? []).filter((w) => w.online && w.state === "enabled");
-  const providerUp = online.some((w) => w.capabilities.features?.includes(`provider.${provider}`));
-  const providerWhy = (workers.data ?? []).map((w) => w.capabilities.cpu3d?.providers?.[provider]?.reason).find(Boolean);
+  const upFor = (p: string) => online.some((w) => w.capabilities.features?.includes(`provider.${p}`));
+  const providerUp = upFor(provider);
+  const reasonFor = (p: string) => (workers.data ?? []).map((w) => w.capabilities.cpu3d?.providers?.[p]?.reason).find(Boolean);
+  const providerWhy = reasonFor(provider);
+  // never leave an unavailable model selected: jump to one that a worker can actually run
+  const triUp = upFor("triposr");
+  const sfUp = upFor("sf3d");
+  useEffect(() => {
+    if (!workers.data) return;
+    if (provider === "sf3d" && !sfUp && triUp) setProvider("triposr");
+    if (provider === "triposr" && !triUp && sfUp) setProvider("sf3d");
+  }, [workers.data, provider, sfUp, triUp]);
   const lodList = parseLods(lods);
 
   const jobs = useQuery({ queryKey: ["jobs", "studio"], queryFn: () => api<{ items: Job[] }>("/jobs?limit=30"), refetchInterval: 4000 });
@@ -138,7 +148,9 @@ export function Studio() {
   const glb = a && token ? fileUrl(a.id, lodFile, token, ver) : null;
   const generating = !!j && ACTIVE.has(j.status);
   const failed = !!j && (j.status === "failed" || j.status === "cancelled");
-  const stageName = j?.current_stage ? (STAGE_LABEL[j.current_stage] ?? j.current_stage) : j?.status === "queued" ? "Na fila, aguardando um worker livre" : "Iniciando";
+  const needed = (j?.requirements?.features ?? []).find((f) => f.startsWith("provider."))?.slice(9);
+  const stuck = j?.status === "queued" && !!needed && !upFor(needed);
+  const stageName = j?.current_stage ? (STAGE_LABEL[j.current_stage] ?? j.current_stage) : stuck ? `Nenhum worker oferece o modelo ${PROVIDERS[needed as keyof typeof PROVIDERS]?.title ?? needed} agora` : j?.status === "queued" ? "Na fila, aguardando um worker livre" : "Iniciando";
   const elapsed = useMemo(() => (j?.started_at ? Math.max(0, (Date.now() - new Date(j.started_at).getTime()) / 1000) : null), [j?.started_at, j?.progress]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
@@ -234,7 +246,7 @@ export function Studio() {
             </label>
             <label className="field" style={{ gridColumn: "1 / -1" }}>Modelo de IA
               <select value={provider} onChange={(e) => setProvider(e.target.value as "triposr" | "sf3d")}>
-                {Object.entries(PROVIDERS).map(([k, p]) => <option key={k} value={k}>{p.title} — {p.note}</option>)}
+                {Object.entries(PROVIDERS).map(([k, p]) => <option key={k} value={k} disabled={!upFor(k)}>{p.title} — {upFor(k) ? p.note : "indisponível agora"}</option>)}
               </select>
             </label>
             <label className="field">Categoria
@@ -286,6 +298,7 @@ export function Studio() {
                 {elapsed != null && ` · ${formatDuration(elapsed)}`}
                 {j.eta_seconds ? ` · restam ~${formatDuration(j.eta_seconds)}` : ""}
               </div>
+              {stuck && <div className="st-warn" style={{ maxWidth: 420 }}>Este pedido não vai andar: {reasonFor(needed!) ?? "o modelo não está pronto em nenhum worker"}. Cancele e gere de novo com {triUp ? "o TripoSR" : "outro modelo"}.</div>}
               <button onClick={() => cancel.mutate(j.id)} disabled={cancel.isPending}>Cancelar</button>
               <div className="st-sub dim">A animação é ilustrativa; o percentual e a etapa vêm do job real.</div>
             </div>

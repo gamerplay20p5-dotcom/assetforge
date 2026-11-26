@@ -28,6 +28,7 @@ export interface Job {
   seed: number | null;
   eta_seconds: number | null;
   params?: Record<string, unknown>;
+  requirements?: { features?: string[]; ram_mb?: number; cpu_cores?: number };
   plan?: { name: string; weight: number }[];
   stages?: Record<string, { status: string; started_at?: string; finished_at?: string; detail?: string }>;
   attempt_history?: { attempt: number; worker_id: string | null; started_at: string; finished_at: string | null; outcome: string; error: string | null }[];
