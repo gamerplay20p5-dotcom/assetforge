@@ -125,3 +125,46 @@ def parse_description(data: dict[str, Any] | str) -> HouseDescription:
         if d["garage_side"] not in ("left", "right", "none"):
             raise DescriptionError("garage_side must be left/right/none")
     return HouseDescription(**d)
+
+
+# ---------------------------------------------------------------------------------------------------------------- any asset
+CATEGORIES = ("house", "vehicle", "character", "tree", "prop", "other")
+_CATEGORY_ALIASES = {"building": "house", "home": "house", "car": "vehicle", "truck": "vehicle", "person": "character", "human": "character", "people": "character",
+                     "animal": "character", "creature": "character", "plant": "tree", "object": "prop", "item": "prop", "furniture": "prop"}
+
+
+@dataclass
+class AssetAnalysis:
+    """What the vision model says about ANY image: what it is, and (only for houses) the structured house description."""
+
+    category: str = "other"
+    subject: str = ""  # short noun phrase, e.g. "red sports car"
+    isolated_object: bool = False  # one object on a plain background (the case where image-to-mesh models behave)
+    house: HouseDescription | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        d = {"category": self.category, "subject": self.subject, "isolated_object": self.isolated_object}
+        d["house"] = self.house.to_dict() if self.house else None
+        return d
+
+
+def parse_analysis(data: dict[str, Any] | str) -> AssetAnalysis:
+    """Validate a model answer. A legacy house-only answer (no ``category`` key) is accepted as a house."""
+    if isinstance(data, str):
+        data = extract_json(data)
+    if "category" not in data and "floors" in data:
+        return AssetAnalysis("house", "house", False, parse_description(data))
+    cat = _norm(data.get("category", ""))
+    cat = _CATEGORY_ALIASES.get(cat, cat)
+    if cat not in CATEGORIES:
+        raise DescriptionError(f"category={cat!r} not in {CATEGORIES}")
+    subject = str(data.get("subject", ""))[:80].strip()
+    iso = data.get("isolated_object", False)
+    if not isinstance(iso, bool):
+        raise DescriptionError("isolated_object must be true/false")
+    house = None
+    if cat == "house":
+        if not isinstance(data.get("house"), dict):
+            raise DescriptionError("category is house but the house description is missing")
+        house = parse_description(data["house"])
+    return AssetAnalysis(cat, subject, iso, house)

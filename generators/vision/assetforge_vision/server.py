@@ -19,7 +19,7 @@ import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 
-from .prompt import SYSTEM, USER
+from .prompt import SYSTEM, USER, USER_ANALYSIS
 
 MAX_IMAGE_BYTES = 12 * 1024 * 1024
 MAX_PENDING = 8
@@ -59,7 +59,7 @@ class Engine:
             self._model = self._processor = None
             gc.collect()
 
-    def describe(self, png: bytes) -> dict[str, Any]:
+    def describe(self, png: bytes, task: str = "house") -> dict[str, Any]:
         import torch
         from PIL import Image
 
@@ -69,7 +69,7 @@ class Engine:
                 self._load()
             load_s = time.monotonic() - t0
             img = Image.open(io.BytesIO(png)).convert("RGB")
-            messages = [{"role": "system", "content": SYSTEM}, {"role": "user", "content": [{"type": "image", "image": img}, {"type": "text", "text": USER}]}]
+            messages = [{"role": "system", "content": SYSTEM}, {"role": "user", "content": [{"type": "image", "image": img}, {"type": "text", "text": USER_ANALYSIS if task == "analysis" else USER}]}]
             text = self._processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
             inputs = self._processor(text=[text], images=[img], return_tensors="pt")
             n_in = int(inputs["input_ids"].shape[1])
@@ -86,28 +86,28 @@ class Service:
     def __init__(self, engine: Engine) -> None:
         self.engine = engine
         self.jobs: dict[str, dict[str, Any]] = {}
-        self.q: queue.Queue[tuple[str, bytes]] = queue.Queue()
+        self.q: queue.Queue[tuple[str, bytes, str]] = queue.Queue()
         self.guard = threading.Lock()
         threading.Thread(target=self._worker, daemon=True).start()
         threading.Thread(target=self._reaper, daemon=True).start()
 
-    def submit(self, png: bytes) -> str:
+    def submit(self, png: bytes, task: str = "house") -> str:
         with self.guard:
             pending = sum(1 for j in self.jobs.values() if j["status"] in ("queued", "running"))
             if pending >= MAX_PENDING:
                 raise RuntimeError("too many pending analyses")
             jid = f"vis_{uuid.uuid4().hex[:12]}"
             self.jobs[jid] = dict(id=jid, status="queued", created=time.time(), started=None, finished=None, result=None, error=None)
-        self.q.put((jid, png))
+        self.q.put((jid, png, task))
         return jid
 
     def _worker(self) -> None:
         while True:
-            jid, png = self.q.get()
+            jid, png, task = self.q.get()
             j = self.jobs[jid]
             j.update(status="running", started=time.time())
             try:
-                j["result"] = self.engine.describe(png)
+                j["result"] = self.engine.describe(png, task)
                 j["status"] = "succeeded"
             except Exception as exc:  # noqa: BLE001
                 j.update(status="failed", error=f"{type(exc).__name__}: {str(exc)[:300]}")
@@ -155,8 +155,10 @@ def make_handler(svc: Service):  # noqa: ANN201
             self._send(404, {"error": "not found"})
 
         def do_POST(self) -> None:  # noqa: N802
-            if self.path != "/describe":
+            path, _, query = self.path.partition("?")
+            if path != "/describe":
                 return self._send(404, {"error": "not found"})
+            task = "analysis" if "task=analysis" in query else "house"
             n = int(self.headers.get("Content-Length") or 0)
             if not 0 < n <= MAX_IMAGE_BYTES:
                 return self._send(413, {"error": "image must be 1 byte .. 12 MB"})
@@ -164,7 +166,7 @@ def make_handler(svc: Service):  # noqa: ANN201
             if body[:8] != b"\x89PNG\r\n\x1a\n" and body[:3] != b"\xff\xd8\xff" and body[:4] != b"RIFF":
                 return self._send(415, {"error": "body must be a PNG/JPEG/WEBP image"})
             try:
-                self._send(202, {"id": svc.submit(body)})
+                self._send(202, {"id": svc.submit(body, task)})
             except RuntimeError as exc:
                 self._send(429, {"error": str(exc)})
 

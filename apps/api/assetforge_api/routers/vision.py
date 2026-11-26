@@ -10,8 +10,9 @@ import logging
 from typing import Any
 
 import httpx
+from assetforge_vision.kits import route
 from assetforge_vision.mapper import description_to_spec, pick_base
-from assetforge_vision.schema import DescriptionError, HouseDescription, extract_json, parse_description
+from assetforge_vision.schema import DescriptionError, HouseDescription, extract_json, parse_analysis, parse_description
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
@@ -39,9 +40,15 @@ def _describe_result(answer: str) -> dict[str, Any]:
     """Validate the raw model answer; on failure keep the answer so the person can still start from defaults."""
     try:
         raw = extract_json(answer)
-        desc = parse_description(raw)
-        return dict(valid=True, description=desc.to_dict(), base=pick_base(desc), base_label=BASE_LABELS.get(pick_base(desc), pick_base(desc)),
-                    fields_missing=[k for k in HouseDescription().to_dict() if k not in raw])
+        analysis = parse_analysis(raw)
+        out: dict[str, Any] = dict(valid=True, category=analysis.category, subject=analysis.subject, isolated_object=analysis.isolated_object,
+                                   route=route(analysis))
+        if analysis.house is not None:
+            house_raw = raw.get("house") if isinstance(raw.get("house"), dict) else raw
+            base = pick_base(analysis.house)
+            out.update(description=analysis.house.to_dict(), base=base, base_label=BASE_LABELS.get(base, base),
+                       fields_missing=[k for k in HouseDescription().to_dict() if k not in house_raw])
+        return out
     except DescriptionError as exc:
         return dict(valid=False, error=str(exc))
 
@@ -74,7 +81,7 @@ def describe(body: DescribeIn, request: Request, user: User = Depends(require_op
     url = _url(request)
     png = reference_path(request, body.reference_id).read_bytes()
     try:
-        r = httpx.post(f"{url}/describe", content=png, headers={"Content-Type": "application/octet-stream"}, timeout=30)
+        r = httpx.post(f"{url}/describe?task=analysis", content=png, headers={"Content-Type": "application/octet-stream"}, timeout=30)
     except httpx.HTTPError as exc:
         raise HTTPException(503, f"vision service unreachable: {type(exc).__name__}") from exc
     if r.status_code != 202:

@@ -25,8 +25,8 @@ sys.path.insert(0, str(ROOT / "generators" / "vision"))
 import psutil  # noqa: E402
 from assetforge_vision import TRUTH  # noqa: E402
 from assetforge_vision.evaluate import compare, score  # noqa: E402
-from assetforge_vision.prompt import SYSTEM, USER  # noqa: E402
-from assetforge_vision.schema import DescriptionError, extract_json, parse_description  # noqa: E402
+from assetforge_vision.prompt import SYSTEM, USER, USER_ANALYSIS  # noqa: E402
+from assetforge_vision.schema import DescriptionError, extract_json, parse_analysis, parse_description  # noqa: E402
 
 
 class Sampler:
@@ -61,6 +61,9 @@ def main() -> int:
     ap.add_argument("--max-side", type=int, default=640)
     ap.add_argument("--max-new-tokens", type=int, default=420)
     ap.add_argument("--only", nargs="*")
+    ap.add_argument("--task", choices=["house", "analysis"], default="house")
+    ap.add_argument("--extra", type=Path, default=None, help="folder of <category>__name.png images: only the category is checked")
+    ap.add_argument("--tag", default="")
     args = ap.parse_args()
 
     import torch
@@ -77,14 +80,15 @@ def main() -> int:
 
     args.out.mkdir(parents=True, exist_ok=True)
     rows = []
-    for key in sorted(TRUTH):
-        if args.only and key not in args.only:
-            continue
-        img_path = args.images / key / "06_casa_finalizada.png"
+    jobs = [(key, args.images / key / "06_casa_finalizada.png", "house") for key in sorted(TRUTH) if not args.only or key in args.only]
+    if args.extra:
+        jobs += [(p.stem, p, p.stem.split("__")[0]) for p in sorted(args.extra.glob("*.png"))]
+    for key, img_path, expect_cat in jobs:
         img = Image.open(img_path).convert("RGB")
-        img = img.crop((int(img.width * 0.06), int(img.height * 0.09), int(img.width * 0.94), int(img.height * 0.88)))  # drop the empty margins
+        if key in TRUTH:  # the pack images have empty margins
+            img = img.crop((int(img.width * 0.06), int(img.height * 0.09), int(img.width * 0.94), int(img.height * 0.88)))
         messages = [{"role": "system", "content": SYSTEM},
-                    {"role": "user", "content": [{"type": "image", "image": img}, {"type": "text", "text": USER}]}]
+                    {"role": "user", "content": [{"type": "image", "image": img}, {"type": "text", "text": USER_ANALYSIS if args.task == "analysis" else USER}]}]
         text = processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
         inputs = processor(text=[text], images=[img], return_tensors="pt")
         n_in = int(inputs["input_ids"].shape[1])
@@ -98,15 +102,28 @@ def main() -> int:
                    cpu_mean_percent=round(sum(smp.cpu) / max(1, len(smp.cpu))), cpu_peak_percent=round(max(smp.cpu or [0])), answer=answer)
         try:
             raw = extract_json(answer)
-            pred = parse_description(raw)
-            res = compare(pred, TRUTH[key], present=set(raw))
-            hit, tot = score(res)
-            row.update(valid=True, parsed=pred.to_dict(), hits=hit, total=tot, fields=res)
+            if args.task == "analysis":
+                an = parse_analysis(raw)
+                cat_ok = an.category == expect_cat
+                row.update(category=an.category, subject=an.subject, isolated_object=an.isolated_object)
+                if key in TRUTH and an.house is not None:
+                    pred = an.house
+                    res = compare(pred, TRUTH[key], present=set(raw.get("house") or {}))
+                else:
+                    pred, res = None, {}
+                res = {"category": dict(ok=cat_ok, pred=an.category, truth=expect_cat), **res}
+                hit, tot = score(res)
+                row.update(valid=True, parsed=pred.to_dict() if pred else None, hits=hit, total=tot, fields=res)
+            else:
+                pred = parse_description(raw)
+                res = compare(pred, TRUTH[key], present=set(raw))
+                hit, tot = score(res)
+                row.update(valid=True, parsed=pred.to_dict(), hits=hit, total=tot, fields=res)
         except DescriptionError as exc:
             row.update(valid=False, error=str(exc), hits=0, total=0)
         rows.append(row)
         print(f"{key}: {row['seconds']}s tokens={row['new_tokens']} valid={row['valid']} hits={row.get('hits')}/{row.get('total')}", flush=True)
-        (args.out / f"{Path(args.model).name}.json").write_text(json.dumps(dict(model=args.model, host=platform.node(), threads=args.threads, max_side=args.max_side,
+        (args.out / f"{Path(args.model).name}{args.tag}.json").write_text(json.dumps(dict(model=args.model, host=platform.node(), threads=args.threads, max_side=args.max_side,
                                                                               load_seconds=round(load_s_total), load_peak_rss_gb=round(load_s.peak_rss / 2**30, 1),
                                                                               torch=torch.__version__, rows=rows), indent=2, ensure_ascii=False), encoding="utf-8")
     return 0
