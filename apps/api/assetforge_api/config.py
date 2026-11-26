@@ -34,6 +34,8 @@ class Settings(BaseSettings):
     enrollment_token_hours: int = 24
     login_max_failures: int = 8
 
+    ai_vram_mb: int = 7000  # VRAM reserved per generative job (A750 8 GB: calibrate after validation)
+    max_reference_mb: int = 20
     llm_url: str = ""  # optional local Ollama-compatible server used by the text planner (never a cloud API)
     llm_model: str = ""
 

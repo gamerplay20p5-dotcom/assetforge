@@ -32,6 +32,10 @@ def create_job(db: Session, spec: JobCreate, user: User, settings, batch_id: str
         asset_id = spec.asset_id
     else:
         asset_id = new_asset_id()
+    if spec.job_type == "ai.image_to_3d":
+        ref = spec.params.get("reference_id")
+        if not (settings.storage_root / "references" / f"{ref}.png").is_file():
+            raise HTTPException(404, f"reference image {ref} not found (upload it first)")
     if spec.worker_id and db.get(Worker, spec.worker_id) is None:
         raise HTTPException(404, f"worker {spec.worker_id} not found")
     if spec.depends_on:
@@ -41,10 +45,10 @@ def create_job(db: Session, spec: JobCreate, user: User, settings, batch_id: str
             raise HTTPException(404, f"dependency jobs not found: {sorted(missing)}")
     job = Job(
         batch_id=batch_id, asset_id=asset_id, name=spec.name, job_type=spec.job_type,
-        params=spec.params.model_dump(mode="json"), quality_profile=spec.quality_profile.value,
+        params=spec.params, quality_profile=spec.quality_profile.value,
         triangle_limit=spec.triangle_limit, formats=list(spec.formats), tags=list(spec.tags),
-        art_profile_id=spec.art_profile_id, category=spec.params.category, priority=spec.priority,
-        requirements=requirements_for(spec.job_type, list(spec.formats)), pinned_worker_id=spec.worker_id,
+        art_profile_id=spec.art_profile_id, category=spec.category, priority=spec.priority,
+        requirements=requirements_for(spec.job_type, list(spec.formats), vram_mb=settings.ai_vram_mb), pinned_worker_id=spec.worker_id,
         not_before=spec.scheduled_at, depends_on=list(spec.depends_on), has_deps=bool(spec.depends_on),
         idempotency_key=spec.idempotency_key, max_attempts=settings.default_max_attempts, created_by=user.username,
         retry_of=retry_of,

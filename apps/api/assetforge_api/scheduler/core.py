@@ -30,7 +30,10 @@ TERMINAL = ("succeeded", "failed", "cancelled")
 
 
 # ------------------------------------------------------------------------------ requirements
-def requirements_for(job_type: str, formats: list[str]) -> dict:
+def requirements_for(job_type: str, formats: list[str], vram_mb: int = 7000) -> dict:
+    if job_type.startswith("ai."):
+        # generative jobs need a ComfyUI/Intel-GPU node, Blender for post-processing, and reserve VRAM
+        return {"features": [job_type, "comfyui", "blender"], "cpu_cores": 2, "ram_mb": 8192, "vram_mb": vram_mb}
     features = [job_type]
     cpu_cores = 1
     if "blend" in formats or "fbx" in formats:
