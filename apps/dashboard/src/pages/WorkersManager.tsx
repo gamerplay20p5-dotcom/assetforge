@@ -128,6 +128,15 @@ function WorkerDetail({ w, onSave }: { w: Worker; onSave: (l: Record<string, num
           </div>
         ))}
         {!(t.gpus ?? []).length && <Meter label="GPU" value={null} na="sem GPU declarada neste node" />}
+        {Object.entries(w.capabilities.cpu3d?.providers ?? {}).map(([n, p]) => {
+          const tel = t.cpu3d?.[n];
+          return (
+            <div key={n} style={{ marginBottom: 10 }}>
+              <Meter label={`Provider ${n}${p.ready ? "" : " — indisponível"}`} value={tel?.container_mem_mb ?? null} max={tel?.container_mem_limit_mb ?? undefined} unit="MB" na={p.reason ?? "sem dados"} />
+              <span className="muted" style={{ fontSize: 11 }}>{p.ready ? `${p.active_jobs ?? 0} job(s) ativo(s) · ${p.threads} threads · concorrência ${p.concurrency}` : p.reason}</span>
+            </div>
+          );
+        })}
         {t.gate && <div className="note" style={{ margin: "8px 0" }}>Despacho em espera neste node: {t.gate}</div>}
         <dl className="kv">
           <dt>Temperatura</dt>

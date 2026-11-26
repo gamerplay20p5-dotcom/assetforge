@@ -174,7 +174,7 @@ export function Generator() {
         Procedural (principal)
       </button>
       <button role="tab" aria-selected={mode === "ai"} className={mode === "ai" ? "primary" : ""} onClick={() => setMode("ai")}>
-        IA generativa (Intel)
+        Imagem → 3D (IA, CPU)
       </button>
     </div>
   );

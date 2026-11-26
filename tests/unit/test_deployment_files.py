@@ -16,7 +16,7 @@ ENV_FILES = {n: (DEP / f"{n}.env.example").read_text(encoding="utf-8") for n in 
 
 
 def test_expected_services_and_profiles():
-    assert set(SERVICES) == {"postgres", "api", "worker-cpu", "comfyui", "worker-gpu", "ai-tools"}
+    assert set(SERVICES) == {"postgres", "api", "worker-cpu", "comfyui", "worker-gpu", "ai-tools", "triposr", "sf3d", "worker-ai", "triposr-setup", "sf3d-setup"}
     assert SERVICES["postgres"]["profiles"] == ["standalone"]
     assert SERVICES["comfyui"]["profiles"] == ["ai"] and SERVICES["worker-gpu"]["profiles"] == ["ai"] and SERVICES["ai-tools"]["profiles"] == ["tools"]
     assert "profiles" not in SERVICES["api"] and "profiles" not in SERVICES["worker-cpu"]  # work with either DB profile and without AI
@@ -29,10 +29,25 @@ def test_only_the_api_publishes_a_port():
     assert SERVICES["comfyui"]["expose"] == ["8188"]  # ComfyUI has no authentication: internal network only
 
 
+def test_cpu3d_providers_are_cpu_only_internal_and_resource_limited():
+    for name in ("triposr", "sf3d"):
+        svc = SERVICES[name]
+        assert svc["profiles"] == ["cpu3d"] and "devices" not in svc and "ports" not in svc and "expose" not in svc
+        assert "cpu3d-models:/models" in svc["volumes"] and svc["cap_drop"] == ["ALL"]
+        assert str(svc["cpus"]).startswith("${") and str(svc["mem_limit"]).startswith("${")
+        assert "HF_TOKEN" not in svc["environment"]  # the gated-weights token never reaches the long-running services
+    assert "HF_TOKEN" in SERVICES["sf3d-setup"]["environment"] and SERVICES["sf3d-setup"]["profiles"] == ["tools"]
+    w = SERVICES["worker-ai"]["environment"]
+    assert w["ASSETFORGE_CPU3D_PROVIDERS"] == "sf3d=http://sf3d:8080,triposr=http://triposr:8080" and "devices" not in SERVICES["worker-ai"]
+    assert SERVICES["worker-gpu"]["environment"]["ASSETFORGE_ENABLE_INTEL_AI"] == "${ASSETFORGE_ENABLE_INTEL_AI:-0}"  # Intel stays opt-in
+
+
 def test_gpu_via_dri_without_privileged_or_nvidia():
     text = (DEP / "docker-compose.yml").read_text(encoding="utf-8").lower()
     for name in ("comfyui", "worker-gpu", "ai-tools"):
         assert "/dev/dri:/dev/dri" in SERVICES[name]["devices"], name
+    for name in ("triposr", "sf3d", "worker-ai", "worker-cpu"):
+        assert "devices" not in SERVICES[name], name  # CPU services never touch /dev/dri
     for name, svc in SERVICES.items():
         assert not svc.get("privileged"), name
         assert svc.get("security_opt") == ["no-new-privileges:true"], name
@@ -56,11 +71,11 @@ def test_postgres_keeps_only_the_capabilities_its_entrypoint_needs():
 
 
 def test_persistent_volumes_cover_models_assets_db_and_state():
-    assert {"pgdata", "assets", "ai-models", "worker-cpu-state", "worker-gpu-state"} <= set(COMPOSE["volumes"])
+    assert {"pgdata", "assets", "ai-models", "cpu3d-models", "worker-cpu-state", "worker-gpu-state", "worker-ai-state"} <= set(COMPOSE["volumes"])
 
 
 def test_resource_limits_are_configurable():
-    for name in ("api", "worker-cpu", "comfyui", "worker-gpu"):
+    for name in ("api", "worker-cpu", "comfyui", "worker-gpu", "worker-ai", "triposr", "sf3d"):
         assert str(SERVICES[name]["cpus"]).startswith("${") and str(SERVICES[name]["mem_limit"]).startswith("${"), name
 
 

@@ -89,6 +89,7 @@ export interface Worker {
     models?: { name: string }[];
     ai_runtimes?: { openvino?: string | null; torch?: string | null; validated?: string[] };
     ai?: { enabled?: boolean; reason?: string | null; validated?: string[] };
+    cpu3d?: { enabled?: boolean; providers?: Record<string, { ready: boolean; reason: string | null; threads?: number; concurrency?: number; active_jobs?: number; commercial?: string }> };
     schedule?: { active_hours?: string; max_host_cpu_percent?: number; yield_to?: string[] };
   };
   limits: { max_concurrent_jobs?: number; cpu_cores?: number; ram_mb?: number; vram_mb?: number };
@@ -99,6 +100,7 @@ export interface Worker {
     temperature_c?: number | null;
     gpus?: Gpu[];
     gate?: string | null;
+    cpu3d?: Record<string, { container_mem_mb?: number | null; container_mem_limit_mb?: number | null; host_cpu_percent?: number | null }>;
   };
   active_jobs: number;
   jobs_succeeded: number;
