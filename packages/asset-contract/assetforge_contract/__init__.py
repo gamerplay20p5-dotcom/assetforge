@@ -7,7 +7,9 @@ from .budgets import (
     triangle_budget,
 )
 from .models import (
+    AI_JOB_TYPES,
     CONTRACT_VERSION,
+    AiParams,
     AssetManifest,
     BuildingParams,
     ColliderInfo,
@@ -21,6 +23,8 @@ from .models import (
 )
 
 __all__ = [
+    "AI_JOB_TYPES",
+    "AiParams",
     "CATEGORY_BUDGETS",
     "CONTRACT_VERSION",
     "QUALITY_PROFILES",

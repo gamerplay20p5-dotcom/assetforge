@@ -5,7 +5,9 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from typing import Any
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from .budgets import QualityProfile
 
@@ -55,12 +57,49 @@ class BuildingParams(StrictModel):
     texture_resolution: Literal[128, 256, 512, 1024, 2048] = 512
 
 
+JobType = Literal["procedural.building", "ai.text_to_3d", "ai.image_to_3d"]
+AI_JOB_TYPES = ("ai.text_to_3d", "ai.image_to_3d")
+
+
+class AiParams(StrictModel):
+    """Parameters of the generative (Intel AI / ComfyUI) pipeline. Complements, never replaces, the procedural generators."""
+
+    category: str = Field(default="prop", max_length=48)
+    prompt: str | None = Field(default=None, max_length=1200, description="text -> image -> 3D")
+    negative_prompt: str = Field(default="", max_length=600)
+    reference_id: str | None = Field(default=None, pattern=r"^ref_[0-9a-f]{12}$", description="uploaded reference image")
+    seed: int = Field(default=1, ge=0, le=2**31 - 1)
+    target_size_m: float = Field(default=8.0, ge=0.2, le=300, description="real-world size used to normalise the mesh")
+    size_axis: Literal["height", "max"] = "height"
+    art_style: Literal["premium_stylized", "none"] = "premium_stylized"
+    use_trellis2: bool = False
+    remove_background: bool = True
+    lod_ratios: list[float] = Field(default_factory=lambda: [0.5, 0.25, 0.1], max_length=5)
+    image_size: Literal[768, 1024] = 1024
+
+    @field_validator("lod_ratios")
+    @classmethod
+    def _ratios(cls, v: list[float]) -> list[float]:
+        if any(not 0.02 <= r < 1.0 for r in v) or v != sorted(v, reverse=True):
+            raise ValueError("lod_ratios must be descending values in [0.02, 1.0)")
+        return v
+
+    @field_validator("category")
+    @classmethod
+    def _cat(cls, v: str) -> str:
+        from .budgets import CATEGORY_BUDGETS
+
+        if v not in CATEGORY_BUDGETS:
+            raise ValueError(f"unknown category {v!r}")
+        return v
+
+
 class JobCreate(StrictModel):
-    """Request to generate one asset."""
+    """Request to generate one asset. ``params`` is validated against the model of ``job_type``."""
 
     name: str = Field(min_length=1, max_length=120)
-    job_type: Literal["procedural.building"] = "procedural.building"
-    params: BuildingParams = Field(default_factory=BuildingParams)
+    job_type: JobType = "procedural.building"
+    params: dict[str, Any] = Field(default_factory=dict)
     quality_profile: QualityProfile = QualityProfile.stylized_standard
     triangle_limit: int | None = Field(default=None, ge=50, le=2_000_000)
     formats: list[ExportFormat] = Field(default_factory=lambda: ["glb"])
@@ -72,6 +111,23 @@ class JobCreate(StrictModel):
     art_profile_id: str | None = None
     idempotency_key: str | None = Field(default=None, max_length=120)
     asset_id: str | None = Field(default=None, description="Existing asset id: generate a new version of it")
+
+    @model_validator(mode="after")
+    def _validate_params(self) -> "JobCreate":
+        if self.job_type == "procedural.building":
+            self.params = BuildingParams.model_validate(self.params).model_dump(mode="json")
+        else:
+            ai = AiParams.model_validate(self.params)
+            if self.job_type == "ai.text_to_3d" and not ai.prompt:
+                raise ValueError("ai.text_to_3d requires 'prompt'")
+            if self.job_type == "ai.image_to_3d" and not ai.reference_id:
+                raise ValueError("ai.image_to_3d requires 'reference_id' (upload a reference image first)")
+            self.params = ai.model_dump(mode="json")
+        return self
+
+    @property
+    def category(self) -> str:
+        return str(self.params.get("category", ""))
 
     @field_validator("formats")
     @classmethod
