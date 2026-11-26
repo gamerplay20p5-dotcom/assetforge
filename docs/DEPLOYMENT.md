@@ -29,6 +29,11 @@ máquina, ex.: a 201, ou mais containers) — veja “Expansão”. **Nada exige
 Ambos aceitam `--no-ai` (só CPU: sem ComfyUI nem worker Intel). O perfil é o `COMPOSE_PROFILES` do `.env`
 (`standalone,ai` / `external-db,ai`). Modelos de `.env`: `deployment/standalone.env.example`, `deployment/external-db.env.example`.
 
+## Situação real da 206 (diagnóstico de 2026‑11‑26)
+Docker 29.8.1/Compose v5.5.1 presentes; GPU A750 com `i915`; render gid **993**, video gid 44; portas 8000/5432 livres; workers do Stream Clipper **não usam** `/dev/dri`.
+**Bloqueios a resolver pelo Hank:** (1) quem executar o `install_single_node.sh` precisa de **acesso ao Docker** (o usuário `asc` não tem); (2) *opcional, recomendado*: ativar **Resizable BAR** no BIOS (hoje a janela é de 256 MB).
+Use um projeto Compose próprio (`assetforge`) — **nunca** o `asc-ctl compose up/down` do Stream Clipper.
+
 ## 0. Pré‑requisitos (somente verifique; mudanças de root são do administrador)
 * Ubuntu com **Docker + Compose v2**, `openssl`, `git`; GPU Intel com `/dev/dri/renderD*` e driver do kernel (`i915`/`xe`) já carregado.
 * Rode antes, só leitura: `bash scripts/intel_ai/diagnose_node.sh` (cola o `diagnostico_<host>.txt` na conversa). Se faltar driver do host, **não** é
