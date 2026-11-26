@@ -7,7 +7,7 @@ Ambiente de desenvolvimento: Windows 11, CPU Intel (12 threads), 16 GB RAM, Pyth
 
 | Suíte | Comando | Resultado |
 |---|---|---|
-| Python (unitários + integração + Blender real + IA com ComfyUI simulado) | `pytest` | **109 passed** (~2 min) |
+| Python (unitários + integração + Blender real + IA com ComfyUI simulado) | `pytest` | **121 passed** (~2 min) |
 | Frontend unitário | `cd apps/dashboard && npm test` | **9 passed** (Vitest) |
 | Typecheck + build do dashboard | `npm run build` | ok (1643 módulos) |
 | **E2E no Chromium contra pilha real** (API + dashboard + worker + Blender) | `npx playwright test` | **2 passed** (5,0 min) |
@@ -32,6 +32,7 @@ O que os testes cobrem de verdade:
   com campo extra/valor fora da faixa é rejeitada e cai nas regras.
 
 ## Limitações conhecidas do que foi testado
+* **Implantação Docker em uma máquina (`deployment/docker-compose.yml`, `Dockerfile.comfyui`, `install_single_node.sh`, `docker_tasks.sh`, backup/restore)**: só verificação estática (YAML, `bash -n`, testes de política); **nada foi construído ou executado**; sem acesso remoto à 206.
 * **PostgreSQL não foi testado.** Tentativa de subir binários oficiais do PostgreSQL 16 foi bloqueada pela política do
   ambiente (diretório fora do projeto) e o caminho com acentos do repositório quebra o `initdb`. Rode no servidor:
   `ASSETFORGE_TEST_PG_URL=postgresql://assetforge:...@host:5432/assetforge_test pytest tests/integration`

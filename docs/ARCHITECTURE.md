@@ -55,6 +55,11 @@ ComfyUI local (127.0.0.1) que executa os workflows **da Intel** (vendorizados). 
 **validado**; VRAM é recurso do scheduler (reserva lógica) e checada de verdade antes de iniciar (outros serviços dividem a Arc).
 Pós‑processamento (escala, LODs, export) é do Blender, no mesmo contrato de manifesto. Detalhes: INTEL_AI.md.
 
+**ADR‑009 — Implantação inicial em uma máquina.** Um `deployment/docker-compose.yml` com perfis (`standalone` | `external-db`, `ai`, `tools`)
+roda API+dashboard+scheduler, worker CPU, worker híbrido Intel, ComfyUI/XPU e (opcional) PostgreSQL local; só a API publica porta; GPU por `/dev/dri`
+(sem privileged/CUDA). A distribuição continua: a fila não depende do número de workers, e outros nós se registram na mesma API depois.
+Tokens de registro vêm do ambiente (`ASSETFORGE_BOOTSTRAP_ENROLLMENT_TOKENS`) para subir sem passo manual. Detalhes: DEPLOYMENT.md.
+
 ## Desvios da estrutura de pastas pedida
 * `services/scheduler` vive em `apps/api/assetforge_api/scheduler` (compartilha modelos ORM e transações; separar criaria
   dependência circular). A pasta `services/` fica reservada.

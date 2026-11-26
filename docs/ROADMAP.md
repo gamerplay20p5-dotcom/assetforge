@@ -9,6 +9,7 @@ validação, biblioteca com viewer 3D, lotes, logs, recuperação, limites/ocios
 opcional), Docker/scripts (não executados). Pendências conhecidas em TESTING.md (PostgreSQL, Docker, Linux).
 
 ## Milestone 2 — Intel GPU e IA local
+> **Objetivo imediato:** validar geração 3D real em UMA Arc A750 (206, Docker, uma máquina) antes de qualquer expansão ou nova funcionalidade. Nenhum item abaixo avança antes de **um asset real** gerado e registrado em HARDWARE_COMPATIBILITY.md.
 > **Andamento (2026‑11‑26):** integração com o Intel AI Playground implementada e testada com backend simulado — ver [INTEL_AI.md](INTEL_AI.md). **Falta executar nos nodes Arc** (validação, calibração de perfis/VRAM, comparação visual). Itens 2 e 4 abaixo passam a ser: validar Pixel3D‑Trellis (Pixal3D/TRELLIS.2) e Z‑Image‑Turbo na A750; SD/SDXL‑OpenVINO e TripoSR/Hunyuan ficam como alternativas se a A750 não comportar o workflow.
 1. Executar `diagnose_hardware`/`validate_intel_gpu` nos nós Intel Arc; registrar evidências em HARDWARE_COMPATIBILITY.md.
 2. Worker `intel`/`hybrid` com **providers** (interface `Provider.run(job)`): SD 1.5/SDXL via OpenVINO (optimum‑intel) para

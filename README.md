@@ -20,11 +20,17 @@ vários servidores Linux. Estilo inicial: *Premium Stylized Low/Mid Poly*.
 | Worker CPU com limites, janelas de ociosidade e “ceder” a outros serviços | ✅ testado (lógica); ⚠ não em contêiner |
 | Dashboard React (Dashboard, Generator, Batch Studio, Queue, Library + viewer 3D, Workers) | ✅ testado (Vitest + Playwright) |
 | Planner texto→parâmetros (regras PT/EN; LLM local opcional) | ✅ regras testadas; ⚠ LLM só com servidor simulado |
-| Docker Compose (central, worker CPU, worker Intel/híbrido) | ⚠ **escrito, não executado** (sem Docker no ambiente de desenvolvimento) |
+| **Implantação em uma máquina** (Docker: API, dashboard, scheduler, worker CPU, worker Intel, ComfyUI/XPU, Blender, PostgreSQL local ou externo) | ⚠ **escrita e verificada estaticamente; nunca construída/executada** (sem Docker/Arc aqui) — [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) |
 | PostgreSQL | ⚠ **não testado** (testes rodaram em SQLite); suíte aceita `ASSETFORGE_TEST_PG_URL` |
 | Provider **Intel AI** (workflows do Intel AI Playground via ComfyUI headless): texto→imagem→3D, imagem→3D, perfis, LODs, FBX/GLB/BLEND, VRAM, cache de modelos, gate de validação | ✅ integração testada com ComfyUI **simulado** + Blender real; ❌ **nenhum modelo foi executado**, Arc A750 **não validada** — [docs/INTEL_AI.md](docs/INTEL_AI.md) |
 
 Resultados reais dos testes: [docs/TESTING.md](docs/TESTING.md).
+
+## Implantar em uma máquina (ex.: a 206)
+```bash
+./scripts/install_single_node.sh standalone      # ou external-db   (veja docs/DEPLOYMENT.md)
+./scripts/intel_ai/docker_tasks.sh validate --repeat 3   # só depois: IA validada de verdade
+```
 
 ## Início rápido (desenvolvimento, sem Docker)
 
@@ -35,7 +41,7 @@ BLENDER_BIN=/caminho/blender python tests/e2e/stack.py --port 8130      # API + 
 # abra http://127.0.0.1:8130  (senha admin impressa no console)
 ```
 
-Testes: `pytest` (109 testes), `cd apps/dashboard && npm test && npx playwright test`.
+Testes: `pytest` (121 testes), `cd apps/dashboard && npm test && npx playwright test`.
 Implantação em servidores: [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md). Arquitetura: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## Estrutura

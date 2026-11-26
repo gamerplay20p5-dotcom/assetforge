@@ -76,7 +76,10 @@ Parte dos defaults do preset da Intel (12 passos, 4096, 7000 faces). “Premium 
 Os pesos **não são redistribuídos** pelo AssetForge: cada node baixa direto do Hugging Face por ação explícita (`--accept-licenses`), com a tabela acima exibida antes. Os assets gerados registram modelos e licenças no manifesto.
 Direitos sobre a **saída** de IA e eventuais restrições de uso (ex.: OpenRAIL) devem ser revistos por quem responde pelo jogo.
 
-## 5. Procedimento manual nos nodes (você/Hank executa; eu não instalei nada)
+## 5. Procedimento nos nodes
+> **Caminho recomendado agora: Docker em uma máquina — [DEPLOYMENT.md](DEPLOYMENT.md) §2–4** (`install_single_node.sh` + `docker_tasks.sh`). O procedimento sem Docker abaixo continua válido para um node isolado.
+
+### 5b. Sem Docker (você/Hank executa; eu não instalei nada)
 Em cada node candidato (comece pelo 206), **como usuário comum**:
 ```bash
 git clone https://github.com/gamerplay20p5-dotcom/assetforge.git && cd assetforge

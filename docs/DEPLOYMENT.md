@@ -1,72 +1,93 @@
-# Implantação manual (sem SSH do desenvolvedor)
+# Implantação em uma única máquina (Docker)
 
-> Os Dockerfiles e Composes foram escritos com cuidado mas **não foram executados** no ambiente de desenvolvimento
-> (sem Docker). Faça a primeira implantação em um nó de teste. Nada aqui altera serviços, drivers ou containers existentes:
-> tudo vive em projetos Compose próprios (`assetforge-central`, `assetforge-worker-*`) e em arquivos dentro da pasta do repositório.
+**Alvo imediato:** tudo na **192.168.1.206** (Intel Arc A750 8 GB), validando a geração 3D em UMA placa antes de expandir.
+Os endereços aparecem só aqui, na documentação; nenhum IP é fixado no código ou nos arquivos de implantação.
 
-## Pré‑requisitos
-Linux com Docker + Compose v2, `openssl`, `git`. Rede entre workers e o servidor central (porta da API, padrão 8000).
-Nenhum IP é fixado no código: use `ASSETFORGE_SERVER_URL` (DNS ou IP da sua rede).
+> **Nada aqui foi executado.** Os Dockerfiles/Compose foram escritos e verificados estaticamente (YAML, sintaxe de shell e testes de
+> política em `tests/unit/test_deployment_files.py`), mas **nunca construídos nem iniciados**: o ambiente de desenvolvimento não tem
+> Docker nem Intel Arc, e **nenhuma ação remota foi feita** (o acesso SSH à 206 deu timeout). A compatibilidade com a A750 **não está
+> validada** até o passo 4 abaixo rodar de verdade.
 
-## 1. Servidor central
+## Visão
+
+```
+                     ┌──────────────────────── máquina única (Docker Compose, projeto "assetforge") ───────────────────────┐
+ navegador ─8000──▶  │ api (API + dashboard + scheduler)  ──▶ postgres (perfil standalone)  OU  PostgreSQL externo (ex.: 212) │
+                     │   ▲ worker-cpu  (procedural + Blender headless)                                                      │
+                     │   ▲ worker-gpu  (híbrido, 1 job por vez) ──http──▶ comfyui (PyTorch XPU, workflows da Intel)           │
+                     │ volumes: assets · ai-models · pgdata · estado dos workers · outputs do ComfyUI                       │
+                     └ GPU: /dev/dri (sem privileged, sem CUDA) · só a porta da API é publicada ────────────────────────────┘
+```
+Continua sendo a arquitetura distribuída: a API/fila não sabem quantos workers existem. Para crescer, registre outro worker (outra
+máquina, ex.: a 201, ou mais containers) — veja “Expansão”. **Nada exige mais de um servidor.**
+
+## Perfis
+| Perfil | Banco | Como |
+|---|---|---|
+| **Standalone** | PostgreSQL local em Docker | `./scripts/install_single_node.sh standalone` |
+| **External Database** | PostgreSQL em outro servidor, banco+usuário **exclusivos** | `./scripts/install_single_node.sh external-db` |
+Ambos aceitam `--no-ai` (só CPU: sem ComfyUI nem worker Intel). O perfil é o `COMPOSE_PROFILES` do `.env`
+(`standalone,ai` / `external-db,ai`). Modelos de `.env`: `deployment/standalone.env.example`, `deployment/external-db.env.example`.
+
+## 0. Pré‑requisitos (somente verifique; mudanças de root são do administrador)
+* Ubuntu com **Docker + Compose v2**, `openssl`, `git`; GPU Intel com `/dev/dri/renderD*` e driver do kernel (`i915`/`xe`) já carregado.
+* Rode antes, só leitura: `bash scripts/intel_ai/diagnose_node.sh` (cola o `diagnostico_<host>.txt` na conversa). Se faltar driver do host, **não** é
+  instalado por nenhum script daqui — o administrador decide.
+* O usuário que roda o Compose precisa poder usar Docker. Os containers usam os **gids dos grupos `render`/`video` do host** (detectados pelo instalador).
+
+## 1. Banco externo (só no perfil External Database)
+No servidor de banco, **quem o administra** executa uma vez `scripts/db/create_assetforge_db.sql` (cria role e banco exclusivos; não toca
+em outros). Depois, no `.env` da máquina do AssetForge: `ASSETFORGE_DATABASE_URL=postgresql://assetforge:SENHA@<host-do-banco>:5432/assetforge`.
+
+## 2. Subir
 ```bash
-git clone <repo> assetforge && cd assetforge
-./scripts/install.sh central        # cria .env com segredos gerados (mostra a senha admin) e sobe postgres + api
-curl -fsS http://localhost:8000/api/v1/health/ready
+git clone https://github.com/gamerplay20p5-dotcom/assetforge.git && cd assetforge
+./scripts/install_single_node.sh standalone          # ou external-db ; adicione --no-start para só preparar/validar o .env
 ```
-* Banco **não** é publicado. A API publica `${ASSETFORGE_BIND}:${ASSETFORGE_PORT}`; fora de rede confiável coloque um proxy TLS
-  (nginx/Caddy) à frente (SSE precisa de `proxy_buffering off`).
-* Entre no painel, troque a senha (`POST /api/v1/auth/users` para criar usuários; senha do admin só via recriação por ora).
+O instalador: gera `.env` (600) com segredos, **tokens de registro dos workers** (criados na subida da API — sem passo manual no painel), detecta os gids
+da GPU, valida `docker compose config` e executa `up -d --build`. A senha inicial do admin é impressa uma vez. Health checks: API
+`/api/v1/health/ready`, Postgres `pg_isready`, ComfyUI `/system_stats`, workers por processo; os workers só iniciam com API (e ComfyUI) saudáveis.
+O build da imagem do ComfyUI baixa vários GB (torch XPU); a primeira subida demora.
 
-## 2. Workers
-No painel: **Workers → Novo token de registro** (uso único, 24 h). No servidor do worker:
+## 3. Liberar VRAM (se necessário)
+Pelo seu guia, a Arc da 206 **não tem worker de visão**; em tese não há o que suspender. Se `diagnose_node.sh` mostrar processos usando `/dev/dri`, o
+Stream Clipper pode ser suspenso **por você**, de forma que preserve os dados: `sudo -n /usr/local/sbin/asc-ctl compose stop …` (somente `stop`, **nunca**
+`compose up/down`, `--remove-orphans` ou remover volumes). Este projeto não faz isso por conta própria. Retome depois pelo mesmo caminho do Hank.
+
+## 4. Validar a IA de verdade (nenhuma IA é oferecida antes disso)
 ```bash
-git clone <repo> assetforge && cd assetforge
-./scripts/install.sh worker-cpu     # cria .env.worker; edite: SERVER_URL, WORKER_NAME, ENROLLMENT_TOKEN, limites
-./scripts/install.sh worker-cpu     # sobe o worker
+./scripts/intel_ai/docker_tasks.sh comfy-check          # torch XPU enxerga a A750? (não gera nada)
+./scripts/intel_ai/docker_tasks.sh models-list          # tamanhos e licenças
+./scripts/intel_ai/docker_tasks.sh models-download      # confirma licenças; SHA-256 conferido; ~dezenas de GB
+./scripts/intel_ai/docker_tasks.sh validate --repeat 3  # texto→imagem→3D reais, 3 vezes: tempo, pico VRAM/RAM/temperatura, estabilidade, LODs, FBX
+docker compose --env-file .env -f deployment/docker-compose.yml restart worker-gpu    # só se VALIDADO
+./scripts/intel_ai/docker_tasks.sh benchmark ./minhas_referencias stylized_standard prototype   # SUAS imagens → folha “referência | IA”
+./scripts/intel_ai/docker_tasks.sh export-reports       # relatórios/benchmarks para ./reports_out (cole aqui)
 ```
-Após o primeiro registro o token fica em `/state/worker.json` (volume); o `ASSETFORGE_ENROLLMENT_TOKEN` não é mais necessário.
-Intel (híbrido): `./scripts/install.sh worker-intel` (acrescenta `/dev/dri` e `group_add: render`; **sem `privileged`**).
-Os workers de IA (OpenVINO) chegam no Milestone 2; hoje um worker `hybrid` roda jobs de CPU e *publica* a GPU detectada.
+O `validate` só grava `ai_validated.json` (que libera `ai.*`) se TODAS as execuções passarem com GLB texturizado, LODs e FBX; falha grava o relatório e **não libera nada**.
+**Pixal3D em 8 GB**: o preset da Intel é `high-vram`. Se falhar por memória, ajuste no `.env` e repita o `validate`: `COMFY_MEMORY_ARGS=--novram` (offload para RAM; a máquina
+tem muita), `COMFY_RESERVE_VRAM`, perfil `prototype`, textura menor. Se ainda assim não couber, o plano é investigar alternativas (CPU/híbrido) — **sem declarar compatibilidade**.
 
-### Não prejudicar outros serviços (ex.: AI Stream Clipper)
-Configure no `.env.worker`:
-```
-ASSETFORGE_WORKER_ACTIVE_HOURS=22:00-07:00        # só inicia jobs à noite
-ASSETFORGE_WORKER_MAX_HOST_CPU_PERCENT=40         # não inicia se o host passa de 40% de CPU (média)
-ASSETFORGE_WORKER_YIELD_TO=ai-stream-clipper      # não inicia enquanto esse processo rodar
-ASSETFORGE_WORKER_CPU_CORES=4  ASSETFORGE_WORKER_RAM_MB=6144   # reserva lógica
-ASSETFORGE_WORKER_DOCKER_CPUS=4 ASSETFORGE_WORKER_DOCKER_MEM=6g # teto rígido do Docker
-```
-`YIELD_TO` dentro de container só vê processos do host se você ativar `pid: host` (linha comentada no compose). O painel mostra
-“Despacho em espera neste node: <motivo>” quando o portão está fechado, e os limites podem ser alterados em **Workers →
-Limites** sem reiniciar. O worker roda com prioridade reduzida.
+## 5. Limites, monitoramento e coexistência
+* **Limites**: `.env` (`CPU_WORKER_*`, `GPU_WORKER_*`, `COMFY_DOCKER_*`, `ASSETFORGE_*_MEM/CPUS`) aplicados pelo Docker **e** pela reserva lógica do scheduler (editável no painel → Workers).
+* **Monitoramento** (painel Dashboard/Workers): CPU, RAM, temperatura (hwmon, quando exposta), VRAM total/usada **medida pelo ComfyUI**; utilização da GPU Intel e temperatura da GPU
+  podem não estar disponíveis sem `xpu-smi` (aparecem como “não medida”, nunca inventadas). `validate` registra picos de VRAM/RAM/temperatura.
+* **Offload para RAM**: `COMFY_MEMORY_ARGS` (`--lowvram`/`--novram`); `comfyui` tem teto de RAM alto (`COMFY_DOCKER_MEM`) para isso.
+* **Idle/ceder a outros serviços**: `ASSETFORGE_WORKER_ACTIVE_HOURS`, `…_MAX_HOST_CPU_PERCENT`, `…_YIELD_TO`.
+* **Filas persistentes**: no banco (sobrevivem a reinício); jobs órfãos voltam à fila após o lease.
 
-### Worker com IA (Intel Arc) — opcional, só após validar
-Veja o procedimento completo em [INTEL_AI.md §5](INTEL_AI.md) (`scripts/intel_ai/*`). Resumo: ComfyUI headless em loopback no node,
-`validate_node.py` (execução real), e então `ASSETFORGE_COMFYUI_URL`/`ASSETFORGE_AI_MODELS_DIR` no worker. Nada disso é instalado pelo `install.sh`.
+## 6. Backup e recuperação
+`./scripts/backup.sh [--with-models]` → `backups/<data>/` com dump do banco (local **ou** externo, só leitura), volume de assets, estado dos workers, `.env` (cópia 600) e SHA256SUMS; mantém 14.
+`./scripts/restore.sh backups/<data>` (pede confirmação). No banco externo restaura **somente** o banco dedicado do AssetForge. Modelos não entram por padrão (baixáveis de novo, verificados por SHA‑256).
+Atualizar: `git pull && ./scripts/update.sh` (faz backup antes; **sem Alembic ainda** — leia o changelog).
+Falhas: API/Postgres reiniciam sozinhos (`restart: unless-stopped`); worker perdido → lease expira → job volta à fila (até 3 tentativas); disco cheio → `health/ready` 503.
 
-## 3. Diagnóstico e benchmark (antes de definir limites)
-```bash
-python3 scripts/diagnose_hardware.py            # CPU/RAM/GPU Intel/Blender/OpenVINO detectados
-python3 scripts/benchmark.py --count 14 --json bench.json      # mede de verdade neste nó
-python3 scripts/validate_intel_gpu.py           # (nó Intel) enumera dispositivos OpenVINO — não valida modelos
-```
+## 7. Expansão futura (sem mudar a arquitetura)
+* **Mais workers na mesma máquina**: duplique o serviço `worker-cpu` (nome e volume de estado próprios) e gere outro token em Workers → *Novo token*.
+* **Outra máquina (ex.: a 201)**: `deployment/docker-compose.worker-cpu.yml` (+ `docker-compose.worker-intel.yml`) apontando `ASSETFORGE_SERVER_URL` para a API da 206; mesmo gate de validação (rode
+  `diagnose_node.sh`/`validate` lá antes). Não instalar nada em outras máquinas sem sua autorização.
+* Os arquivos `docker-compose.central.yml` e `docker-compose.worker-*.yml` são o modo **multi‑servidor** (legado, igualmente não testado).
 
-## 4. Atualização
-`./scripts/update.sh central` (faz backup antes) · `./scripts/update.sh worker-cpu`. **Atenção:** o esquema é criado por
-`create_all`; mudanças de esquema entre versões exigirão migrações (Alembic — pendente). Leia o changelog antes de atualizar.
-
-## 5. Backup e recuperação
-* `./scripts/backup.sh` → `backups/<data>/{assetforge.dump,assets.tar.gz,SHA256SUMS}` (mantém 14). Agende no `cron` do servidor.
-* Restaurar: `./scripts/restore.sh backups/<data>` (confirma digitando `restore`; para a API, recria o banco, restaura assets).
-* **Queda do servidor central**: o worker continua o job atual e tenta enviar/concluir por alguns segundos (backoff curto);
-  se o servidor ficar fora por mais tempo o resultado é descartado e o job será refeito. Ao voltar, a API espera `lease_seconds`
-  (60 s) antes de abandonar jobs, para dar tempo aos heartbeats dos workers vivos. **Queda de um worker**: o lease expira e o job volta à fila
-  (até 3 tentativas; histórico no painel). **Disco cheio**: `/api/v1/health/ready` fica 503 se o storage não for gravável.
-* Segredos: só em `.env`/`.env.worker` (permissão 600), nunca no repositório.
-
-## 6. Checklist de aceitação do Milestone 1 no servidor
-1. `docker compose … up` ok e `health/ready` 200. 2. Worker aparece online com Blender detectado. 3. Criar job no painel.
-4. Blender processa. 5. Edifício gerado. 6. GLB válido (aba Validação). 7. Miniatura. 8. Asset na biblioteca. 9. Viewer 3D.
-10. Download. 11. Lote de 10 variações. 12. Reiniciar `api` durante o lote e ver a recuperação. 13. Forçar falha e ler logs.
+## Checklist de aceitação (na 206)
+1 `install_single_node.sh` ok e `health/ready` 200 · 2 workers `…-cpu` e `…-gpu` online no painel · 3 job procedural gera GLB · 4 `comfy-check` mostra `xpu: True` · 5 `validate --repeat 3` VALIDADO ·
+6 job de IA pelo painel (texto e imagem) conclui · 7 `backup.sh` + `restore.sh` em ambiente de teste · 8 reiniciar `api` durante um lote e ver recuperação.
