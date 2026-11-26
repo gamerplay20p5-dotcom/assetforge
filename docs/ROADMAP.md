@@ -9,12 +9,12 @@ validação, biblioteca com viewer 3D, lotes, logs, recuperação, limites/ocios
 opcional), Docker/scripts (não executados). Pendências conhecidas em TESTING.md (PostgreSQL, Docker, Linux).
 
 ## Milestone 2 — Intel GPU e IA local
+> **Andamento (2026‑11‑26):** integração com o Intel AI Playground implementada e testada com backend simulado — ver [INTEL_AI.md](INTEL_AI.md). **Falta executar nos nodes Arc** (validação, calibração de perfis/VRAM, comparação visual). Itens 2 e 4 abaixo passam a ser: validar Pixel3D‑Trellis (Pixal3D/TRELLIS.2) e Z‑Image‑Turbo na A750; SD/SDXL‑OpenVINO e TripoSR/Hunyuan ficam como alternativas se a A750 não comportar o workflow.
 1. Executar `diagnose_hardware`/`validate_intel_gpu` nos nós Intel Arc; registrar evidências em HARDWARE_COMPATIBILITY.md.
 2. Worker `intel`/`hybrid` com **providers** (interface `Provider.run(job)`): SD 1.5/SDXL via OpenVINO (optimum‑intel) para
    imagens e **texturas/materiais**; gerenciador de modelos local (download autorizado, SHA‑256, cache, offline).
 3. **Planner com LLM local** (ver avaliação abaixo) integrado ao Asset Generator.
-4. Pesquisa/teste de image‑to‑3D em CPU/XPU (TripoSR, TRELLIS v1, Hunyuan3D‑2.1 respeitando território). TRELLIS.2 descartado
-   (exige NVIDIA ≥ 24 GB). Aceite: só entra se rodar no hardware real com tempo/memória aceitáveis.
+4. Pesquisa/teste de image‑to‑3D em CPU/XPU (TripoSR, TRELLIS v1, Hunyuan3D‑2.1 respeitando território). TRELLIS.2 passa a ser um interruptor do workflow da Intel (int8, ComfyUI/XPU): **viabilidade na A750 a validar** (o upstream exige NVIDIA grande). Aceite: só entra se rodar no hardware real com tempo/memória aceitáveis.
 5. Geradores procedurais: veículos, infraestrutura urbana (estradas modulares, postes, semáforos, placas, bancos, hidrantes,
    vegetação, redes), pontes.
 6. Migrações Alembic; testes em PostgreSQL; CI.

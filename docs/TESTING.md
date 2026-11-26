@@ -7,8 +7,8 @@ Ambiente de desenvolvimento: Windows 11, CPU Intel (12 threads), 16 GB RAM, Pyth
 
 | Suíte | Comando | Resultado |
 |---|---|---|
-| Python (unitários + integração + Blender real) | `pytest` | **89 passed** (~70 s) |
-| Frontend unitário | `cd apps/dashboard && npm test` | **7 passed** (Vitest) |
+| Python (unitários + integração + Blender real + IA com ComfyUI simulado) | `pytest` | **109 passed** (~2 min) |
+| Frontend unitário | `cd apps/dashboard && npm test` | **9 passed** (Vitest) |
 | Typecheck + build do dashboard | `npm run build` | ok (1643 módulos) |
 | **E2E no Chromium contra pilha real** (API + dashboard + worker + Blender) | `npx playwright test` | **2 passed** (5,0 min) |
 | Benchmark CPU, motor `trimesh` (14 assets, 7 categorias, 512 px) | `python scripts/benchmark.py` | mediana 2,9 s/asset, p95 4,0 s, 20,9 assets/min, **14/14 válidos** (12 threads, esta máquina) |

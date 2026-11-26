@@ -10,7 +10,8 @@ A infraestrutura-alvo é Intel (CPUs, muita RAM, GPUs Intel Arc). **Sem CUDA, se
 | Geração procedural (Python) | ✅ | n/a (CPU) | testes automatizados, Windows 11, CPU Intel família 6 modelo 154 (12 threads) |
 | Blender 4.5.17 headless — export GLB/BLEND/FBX + miniatura **Cycles CPU** | ✅ | n/a | testado no Windows; **Linux/contêiner não testado** |
 | Blender com GPU Intel (oneAPI/Cycles) | — | ❓ **não testado** | Cycles aqui usa CPU de propósito (funciona em servidor sem GL) |
-| Stable Diffusion / SDXL via OpenVINO (imagens/texturas) | ❓ | ❓ **não testado** | Milestone 2 |
+| Pixel3D‑Trellis (Pixal3D/TRELLIS.2) e Z‑Image‑Turbo via ComfyUI XPU (Intel AI Playground) | ❓ | ❓ **não validado** — preset marcado `high-vram`; 8 GB da A750 pode não caber | integração testada só com ComfyUI simulado; ver INTEL_AI.md §5 |
+| Stable Diffusion / SDXL via OpenVINO (imagens/texturas) | ❓ | ❓ **não testado** | alternativa, Milestone 2 |
 | Image‑to‑3D (TripoSR etc.) | ❓ | ❓ **não testado** | Milestone 2 |
 | LLM local (planner) | ❓ | ❓ | adaptador testado só com servidor HTTP simulado |
 
@@ -26,7 +27,7 @@ OpenVINO/PyTorch não instalados → nenhuma capacidade de IA declarada.
 
 ## Modelos image‑to‑3D: o que a pesquisa nas fontes mostrou (2026‑11)
 * **TRELLIS.2** — README oficial: “An NVIDIA GPU with at least 24GB … verified on A100/H100 … CUDA Toolkit needed”, testado
-  só em Linux. **Inviável** em CPU/Intel Arc; fora do escopo.
+  só em Linux. O código upstream **não roda em Intel**; porém o preset da Intel (AI Playground) reempacota Pixal3D/TRELLIS.2 em int8 para ComfyUI/XPU — **viabilidade na A750 de 8 GB: a validar** (INTEL_AI.md).
 * **TRELLIS (v1)**, **Hunyuan3D‑2.1**, **TripoSR**: requisitos de VRAM e suporte a CPU/XPU **a medir** no Milestone 2 (clonar,
   rodar em CPU e, se instalável, em PyTorch XPU/OpenVINO; registrar tempo, memória, saída). Até lá: “não validado”.
 * Estratégia preferida (ver ROADMAP): geração **procedural parametrizada por LLM/regras** como caminho principal; IA 3D

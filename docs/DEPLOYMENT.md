@@ -42,6 +42,10 @@ ASSETFORGE_WORKER_DOCKER_CPUS=4 ASSETFORGE_WORKER_DOCKER_MEM=6g # teto rígido d
 “Despacho em espera neste node: <motivo>” quando o portão está fechado, e os limites podem ser alterados em **Workers →
 Limites** sem reiniciar. O worker roda com prioridade reduzida.
 
+### Worker com IA (Intel Arc) — opcional, só após validar
+Veja o procedimento completo em [INTEL_AI.md §5](INTEL_AI.md) (`scripts/intel_ai/*`). Resumo: ComfyUI headless em loopback no node,
+`validate_node.py` (execução real), e então `ASSETFORGE_COMFYUI_URL`/`ASSETFORGE_AI_MODELS_DIR` no worker. Nada disso é instalado pelo `install.sh`.
+
 ## 3. Diagnóstico e benchmark (antes de definir limites)
 ```bash
 python3 scripts/diagnose_hardware.py            # CPU/RAM/GPU Intel/Blender/OpenVINO detectados

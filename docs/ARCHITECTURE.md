@@ -50,6 +50,11 @@ disponíveis) + adaptador opcional para LLM **local** (Ollama‑compatível, `AS
 schema `BuildingParams` (`extra=forbid`): o modelo só escolhe parâmetros conhecidos; qualquer resposta inválida cai nas
 regras. O LLM nunca gera geometria nem código. Ver avaliação em ROADMAP.md.
 
+**ADR‑008 — IA generativa como complemento, via ComfyUI headless.** `generators/intel_ai` (provider) conversa por HTTP com um
+ComfyUI local (127.0.0.1) que executa os workflows **da Intel** (vendorizados). O worker só anuncia `ai.*` com GPU + modelos + nó
+**validado**; VRAM é recurso do scheduler (reserva lógica) e checada de verdade antes de iniciar (outros serviços dividem a Arc).
+Pós‑processamento (escala, LODs, export) é do Blender, no mesmo contrato de manifesto. Detalhes: INTEL_AI.md.
+
 ## Desvios da estrutura de pastas pedida
 * `services/scheduler` vive em `apps/api/assetforge_api/scheduler` (compartilha modelos ORM e transações; separar criaria
   dependência circular). A pasta `services/` fica reservada.
