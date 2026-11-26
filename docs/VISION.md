@@ -58,3 +58,8 @@ como terreno/chão/mapa. **Só 2 imagens fora de casas foram testadas**: a class
 | int8 em tudo | 4,2 palavras/s | 39 GB | o modelo deixou de seguir o prompt |
 | int8 só nas camadas de texto (`VLM_QUANT=int8lm`) | 2,7 palavras/s, metade da RAM | 16 GB | **6 de 8 respostas inválidas**: não usar como padrão |
 Conclusão: fica em fp32. Para ganhar velocidade de verdade a opção é GPU (o Spark 252 está reservado para depois, sem uso por enquanto).
+
+## Ordem de execução
+Não há prioridade por categoria: a fila ordena por prioridade e depois pelo horário do pedido (`priority desc, created_at asc`), e tudo criado pelo painel usa a mesma prioridade (0).
+O primeiro pedido é atendido primeiro, seja casa, veículo ou outra coisa. O serviço de visão também processa as análises em ordem de chegada (fila FIFO).
+Garantido por teste: `test_equal_priority_jobs_run_in_the_order_they_were_requested_whatever_their_category`.

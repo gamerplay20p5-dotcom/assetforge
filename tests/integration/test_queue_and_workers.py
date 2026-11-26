@@ -349,3 +349,21 @@ def test_bootstrap_enrollment_tokens_allow_hands_off_worker_registration(tmp_pat
     app2.state.db.dispose()
     with pytest.raises(RuntimeError, match="at least 24"):
         create_app(make_settings(tmp_path / "x", bootstrap_enrollment_tokens="short"), start_reaper=False)
+
+
+def test_equal_priority_jobs_run_in_the_order_they_were_requested_whatever_their_category(client, admin, make_worker):
+    """The product rule: no category goes before another; the first request is served first."""
+    w = make_worker()
+    kinds = [dict(category="warehouse"), dict(category="house", archetype="colonial", construction_stage=3), dict(category="apartment"),
+             dict(category="house", archetype="modern", construction_stage=6), dict(category="school")]
+    ids = []
+    for i, params in enumerate(kinds):
+        r = client.post("/api/v1/jobs", headers=admin, json={"name": f"pedido {i}", "params": params, "formats": ["glb"]})
+        assert r.status_code == 201, r.text
+        ids.append(r.json()["id"])
+    order = []
+    for _ in kinds:
+        lease = w.lease()
+        order.append(lease["job_id"])
+        w.fail(lease, retryable=False)
+    assert order == ids
