@@ -124,3 +124,13 @@ def test_dockerfiles_have_no_literal_backslash_n_continuations():
     for p in DEP.glob("Dockerfile.*"):
         for i, line in enumerate(p.read_text(encoding="utf-8").splitlines(), 1):
             assert not (line.startswith(("ENV ", "RUN ")) and "\n" in line and not line.lstrip().startswith("#") and "printf" not in line and "echo" not in line), f"{p.name}:{i}"
+
+
+def test_gpu_box_compose_runs_only_inference_with_small_cpu_ram_and_a_token():
+    g = yaml.safe_load((DEP / "docker-compose.gpu.yml").read_text(encoding="utf-8"))
+    assert set(g["services"]) == {"vlm-gpu"}  # nothing else: API/DB/Blender/CPU-heavy work stays on the main node
+    v = g["services"]["vlm-gpu"]
+    assert v["deploy"]["resources"]["reservations"]["devices"][0]["driver"] == "nvidia"
+    assert "cpus" in v and "mem_limit" in v and v["cap_drop"] == ["ALL"]
+    assert v["environment"]["VLM_TOKEN"].startswith("${VLM_TOKEN:?")  # refuses to start without a shared secret
+    assert len(v["ports"]) == 1

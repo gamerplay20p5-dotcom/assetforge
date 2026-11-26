@@ -1,0 +1,16 @@
+# Vision service (Qwen2.5-VL 7B) on an NVIDIA GPU, for the box that only provides GPU. Weights in bf16 go straight to VRAM; host CPU/RAM stay small.
+# Needs the NVIDIA driver + NVIDIA Container Toolkit on the host (docker run --gpus all). Nothing here touches host drivers.
+FROM python:3.11-slim-bookworm
+ENV PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1 HF_HOME=/models/hf VLM_DEVICE=cuda \
+    PYTHONPATH=/app/generators/vision:/app/generators/procedural:/app/packages/asset-contract
+RUN useradd -m -u 10001 vlm && mkdir -p /models && chown vlm /models
+RUN pip install "torch==2.5.1" --index-url https://download.pytorch.org/whl/cu124 \
+    && pip install "transformers==4.49.0" "accelerate==1.2.1" "qwen-vl-utils==0.0.10" "pillow<11" "numpy<2" psutil "pydantic>=2.6"
+WORKDIR /app
+COPY generators/vision /app/generators/vision
+COPY generators/procedural /app/generators/procedural
+COPY packages/asset-contract /app/packages/asset-contract
+COPY scripts/vlm /app/scripts/vlm
+USER vlm
+EXPOSE 8080
+ENTRYPOINT ["python", "-m", "assetforge_vision.server"]

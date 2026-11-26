@@ -40,7 +40,8 @@ class Settings(BaseSettings):
     max_reference_mb: int = 10
     # comma-separated one-time worker enrollment tokens created at startup (single-node installs: no manual dashboard step)
     bootstrap_enrollment_tokens: str = ""
-    vlm_url: str = ""  # internal URL of the vision service (Qwen2.5-VL, CPU). Empty = image analysis disabled
+    vlm_url: str = ""  # vision service URL(s), comma separated in order of preference (e.g. GPU box first, CPU container as fallback). Empty = disabled
+    vlm_token: str = ""  # shared secret sent to the vision service(s)
     llm_url: str = ""  # optional local Ollama-compatible server used by the text planner (never a cloud API)
     llm_model: str = ""
 

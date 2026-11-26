@@ -65,6 +65,7 @@ def main() -> int:
     ap.add_argument("--extra", type=Path, default=None, help="folder of <category>__name.png images: only the category is checked")
     ap.add_argument("--tag", default="")
     ap.add_argument("--quant", default="fp32", choices=["fp32", "int8lm"])
+    ap.add_argument("--device", default="cpu", choices=["cpu", "cuda"])
     args = ap.parse_args()
 
     import torch
@@ -77,7 +78,10 @@ def main() -> int:
         processor = AutoProcessor.from_pretrained(args.model, min_pixels=128 * 28 * 28, max_pixels=args.max_side * args.max_side)
         from assetforge_vision.quant import apply_quant
 
-        model = apply_quant(Qwen2_5_VLForConditionalGeneration.from_pretrained(args.model, torch_dtype=torch.float32, low_cpu_mem_usage=True).eval(), args.quant)
+        if args.device == "cuda":
+            model = Qwen2_5_VLForConditionalGeneration.from_pretrained(args.model, torch_dtype=torch.bfloat16, device_map="cuda").eval()
+        else:
+            model = apply_quant(Qwen2_5_VLForConditionalGeneration.from_pretrained(args.model, torch_dtype=torch.float32, low_cpu_mem_usage=True).eval(), args.quant)
     load_s_total = time.monotonic() - t0
     print(f"loaded {args.model} in {load_s_total:.0f}s, peak RSS {load_s.peak_rss / 2**30:.1f} GB", flush=True)
 
@@ -94,6 +98,8 @@ def main() -> int:
                     {"role": "user", "content": [{"type": "image", "image": img}, {"type": "text", "text": USER_ANALYSIS if args.task == "analysis" else USER}]}]
         text = processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
         inputs = processor(text=[text], images=[img], return_tensors="pt")
+        if args.device == "cuda":
+            inputs = inputs.to("cuda")
         n_in = int(inputs["input_ids"].shape[1])
         t1 = time.monotonic()
         with Sampler() as smp, torch.inference_mode():

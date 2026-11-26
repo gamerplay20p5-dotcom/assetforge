@@ -24,11 +24,11 @@ class StubVlm(BaseHTTPRequestHandler):
     def do_GET(self):  # noqa: N802
         if self.path == "/health":
             body = {"ready": True, "loaded": False, "model": "stub", "pending": 0}
-        elif self.path.startswith("/jobs/vis_ok"):
-            body = {"id": "vis_ok", "status": "succeeded", "started": 1, "finished": 2, "error": None,
+        elif self.path.startswith("/jobs/vis_aaaaaaaaaaaa"):
+            body = {"id": "vis_aaaaaaaaaaaa", "status": "succeeded", "started": 1, "finished": 2, "error": None,
                     "result": {"answer": self.answer, "seconds": 1.5, "new_tokens": 90}}
-        elif self.path.startswith("/jobs/vis_run"):
-            body = {"id": "vis_run", "status": "running", "started": 1, "finished": None, "error": None, "result": None}
+        elif self.path.startswith("/jobs/vis_bbbbbbbbbbbb"):
+            body = {"id": "vis_bbbbbbbbbbbb", "status": "running", "started": 1, "finished": None, "error": None, "result": None}
         else:
             self.send_response(404)
             self.end_headers()
@@ -42,7 +42,7 @@ class StubVlm(BaseHTTPRequestHandler):
     def do_POST(self):  # noqa: N802
         n = int(self.headers["Content-Length"])
         assert self.rfile.read(n)[:4] == b"\x89PNG"
-        data = json.dumps({"id": "vis_ok"}).encode()
+        data = json.dumps({"id": "vis_aaaaaaaaaaaa"}).encode()
         self.send_response(202)
         self.send_header("Content-Length", str(len(data)))
         self.end_headers()
@@ -85,10 +85,10 @@ def test_describe_validates_the_model_answer_and_picks_a_base_house(vlm_client):
     h = _login(vlm_client)
     ref = _ref(vlm_client, h)
     start = vlm_client.post(f"{API}/vision/describe", headers=h, json={"reference_id": ref})
-    assert start.status_code == 202 and start.json()["id"] == "vis_ok"
-    r = vlm_client.get(f"{API}/vision/describe/vis_ok", headers=h).json()
+    assert start.status_code == 202 and start.json()["id"] == "0.vis_aaaaaaaaaaaa"
+    r = vlm_client.get(f"{API}/vision/describe/0.vis_aaaaaaaaaaaa", headers=h).json()
     assert r["status"] == "succeeded" and r["valid"] and r["description"]["roof_type"] == "hip" and r["base"] == "ref05"
-    assert vlm_client.get(f"{API}/vision/describe/vis_run", headers=h).json()["status"] == "running"
+    assert vlm_client.get(f"{API}/vision/describe/0.vis_bbbbbbbbbbbb", headers=h).json()["status"] == "running"
     assert vlm_client.get(f"{API}/vision/describe/not_an_id", headers=h).status_code == 422
     assert vlm_client.post(f"{API}/vision/describe", headers=h, json={"reference_id": "../etc"}).status_code == 422
 
@@ -96,7 +96,7 @@ def test_describe_validates_the_model_answer_and_picks_a_base_house(vlm_client):
 def test_invalid_model_answer_is_reported_not_trusted(vlm_client, monkeypatch):
     h = _login(vlm_client)
     monkeypatch.setattr(StubVlm, "answer", '{"floors": 9, "roof_type": "dome"}')
-    r = vlm_client.get(f"{API}/vision/describe/vis_ok", headers=h).json()
+    r = vlm_client.get(f"{API}/vision/describe/0.vis_aaaaaaaaaaaa", headers=h).json()
     assert r["status"] == "succeeded" and r["valid"] is False and r["error"]
     assert "description" not in r  # nothing from an invalid answer is trusted
 
@@ -117,7 +117,32 @@ def test_preview_and_job_creation_validate_the_description(vlm_client):
 def test_describe_reports_category_and_route_for_non_houses(vlm_client, monkeypatch):
     h = _login(vlm_client)
     monkeypatch.setattr(StubVlm, "answer", '{"category": "vehicle", "subject": "red car", "isolated_object": true, "house": null}')
-    r = vlm_client.get(f"{API}/vision/describe/vis_ok", headers=h).json()
+    r = vlm_client.get(f"{API}/vision/describe/0.vis_aaaaaaaaaaaa", headers=h).json()
     assert r["valid"] and r["category"] == "vehicle" and r["route"]["mode"] == "fallback" and "description" not in r
     monkeypatch.setattr(StubVlm, "answer", '{"category": "other", "subject": "a map", "isolated_object": false, "house": null}')
-    assert vlm_client.get(f"{API}/vision/describe/vis_ok", headers=h).json()["route"]["mode"] == "none"
+    assert vlm_client.get(f"{API}/vision/describe/0.vis_aaaaaaaaaaaa", headers=h).json()["route"]["mode"] == "none"
+
+
+def test_gpu_first_with_cpu_fallback_and_shared_token(tmp_path):
+    """Two services in order of preference: the first one down -> the second answers; the token travels in the Authorization header."""
+    seen = {}
+
+    class Guarded(StubVlm):
+        def do_POST(self):  # noqa: N802
+            seen["auth"] = self.headers.get("Authorization")
+            super().do_POST()
+
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), Guarded)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    dead = "http://127.0.0.1:9"  # nothing listens here
+    app = create_app(make_settings(tmp_path, vlm_url=f"{dead},http://127.0.0.1:{srv.server_port}", vlm_token="s3cret"), start_reaper=False)
+    with TestClient(app) as c:
+        h = _login(c)
+        st = c.get(f"{API}/vision/status", headers=h).json()
+        assert st["ready"] and [x["ready"] for x in st["services"]] == [False, True]
+        started = c.post(f"{API}/vision/describe", headers=h, json={"reference_id": _ref(c, h)}).json()
+        assert started["id"].startswith("1.")  # served by the second one
+        assert seen["auth"] == "Bearer s3cret"
+        assert c.get(f"{API}/vision/describe/{started['id']}", headers=h).json()["status"] == "succeeded"
+        assert c.get(f"{API}/vision/describe/7.vis_aaaaaaaaaaaa", headers=h).status_code == 404
+    srv.shutdown()
