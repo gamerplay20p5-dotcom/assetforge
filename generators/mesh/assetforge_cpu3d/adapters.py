@@ -82,6 +82,16 @@ def can_fallback(provider: str, params: dict) -> bool:
     return provider == "triposr" and bool(validate_params(provider, params)["bake_texture"])
 
 
+def to_gradio_3d_orientation(mesh) -> None:
+    """Same two rotations as tsr.utils.to_gradio_3d_orientation (TripoSR's own app applies them before export): the raw
+    mesh has +Z up, this makes it +Y up (glTF)."""
+    import numpy as np
+    import trimesh
+
+    mesh.apply_transform(trimesh.transformations.rotation_matrix(-np.pi / 2, [1, 0, 0]))
+    mesh.apply_transform(trimesh.transformations.rotation_matrix(np.pi / 2, [0, 1, 0]))
+
+
 def collect_result(provider: str, out_dir: Path, dest: Path) -> dict:
     """Place the final textured GLB at ``dest`` and describe how the colour is stored."""
     d = out_dir / "0"
@@ -101,10 +111,15 @@ def collect_result(provider: str, out_dir: Path, dest: Path) -> dict:
         if uv is None:
             raise RuntimeError("baked OBJ has no UV coordinates")
         mesh.visual = trimesh.visual.TextureVisuals(uv=uv, material=trimesh.visual.material.PBRMaterial(baseColorTexture=Image.open(tex).convert("RGB")))
+        to_gradio_3d_orientation(mesh)
         mesh.export(str(dest))
         return {"color": "baked_texture"}
     if glb.is_file():
-        shutil.copyfile(glb, dest)
+        import trimesh
+
+        scene = trimesh.load(str(glb), force="mesh", process=False)
+        to_gradio_3d_orientation(scene)
+        scene.export(str(dest))
         return {"color": "vertex_color"}
     raise FileNotFoundError("TripoSR produced no mesh output")
 

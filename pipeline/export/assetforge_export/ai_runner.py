@@ -12,6 +12,7 @@ No user-provided script is evaluated; the config comes from the worker.
 from __future__ import annotations
 
 import json
+import math
 import sys
 import traceback
 from pathlib import Path
@@ -83,6 +84,115 @@ def decimate(obj, ratio: float) -> None:
     bpy.ops.object.modifier_apply(modifier=mod.name)
 
 
+def clean_loose(obj) -> None:
+    """Drop vertices/edges not used by any face (they would inflate the bounding box but are not exported)."""
+    select_only(obj)
+    bpy.ops.object.mode_set(mode="EDIT")
+    bpy.ops.mesh.select_all(action="SELECT")
+    bpy.ops.mesh.delete_loose(use_verts=True, use_edges=True, use_faces=False)
+    bpy.ops.object.mode_set(mode="OBJECT")
+
+
+def weld_copy(src, name: str):
+    """Copy without UVs and with vertices merged by distance: AI meshes come with one vertex per UV-seam side (xatlas), which makes
+    a straight Decimate tear the surface apart. Merging first restores a connected surface that decimates cleanly."""
+    dup = src.copy()
+    dup.data = src.data.copy()
+    dup.name = name
+    bpy.context.collection.objects.link(dup)
+    me = dup.data
+    while me.uv_layers:
+        me.uv_layers.remove(me.uv_layers[0])
+    select_only(dup)
+    bpy.ops.object.mode_set(mode="EDIT")
+    bpy.ops.mesh.select_all(action="SELECT")
+    bpy.ops.mesh.remove_doubles(threshold=1e-5)
+    bpy.ops.mesh.dissolve_degenerate()
+    bpy.ops.object.mode_set(mode="OBJECT")
+    clean_loose(dup)
+    me.materials.clear()
+    return dup
+
+
+def smart_uv(obj) -> None:
+    select_only(obj)
+    bpy.ops.object.mode_set(mode="EDIT")
+    bpy.ops.mesh.select_all(action="SELECT")
+    bpy.ops.uv.smart_project(angle_limit=math.radians(66), island_margin=0.004)
+    bpy.ops.object.mode_set(mode="OBJECT")
+
+
+def source_pbr(high) -> tuple[float, float]:
+    """Roughness / metallic of the high-poly material (kept as constants; the base color and the normal detail are baked)."""
+    for slot in high.material_slots:
+        nt = slot.material.node_tree if slot.material and slot.material.use_nodes else None
+        bsdf = next((n for n in nt.nodes if n.type == "BSDF_PRINCIPLED"), None) if nt else None
+        if bsdf:
+            return float(bsdf.inputs["Roughness"].default_value), float(bsdf.inputs["Metallic"].default_value)
+    return 0.8, 0.0
+
+
+def bake_pass(high, low, kind: str, res: int, label: str, extrusion: float):
+    img = bpy.data.images.new(label, res, res, alpha=False)
+    if kind == "NORMAL":
+        img.colorspace_settings.name = "Non-Color"
+    nt = low.data.materials[0].node_tree
+    node = nt.nodes.new("ShaderNodeTexImage")
+    node.image = img
+    nt.nodes.active = node
+    sc = bpy.context.scene
+    sc.render.engine = "CYCLES"
+    sc.cycles.device = "CPU"
+    sc.cycles.samples = 1
+    sc.cycles.use_denoising = False
+    bk = sc.render.bake
+    bk.use_selected_to_active = True
+    bk.cage_extrusion = extrusion
+    bk.max_ray_distance = extrusion * 4
+    bk.margin = 8
+    bk.margin_type = "EXTEND"
+    bk.use_clear = True
+    bk.target = "IMAGE_TEXTURES"
+    bk.use_pass_direct = False
+    bk.use_pass_indirect = False
+    bk.use_pass_color = True
+    bk.normal_space = "TANGENT"
+    bpy.ops.object.select_all(action="DESELECT")
+    high.select_set(True)
+    low.select_set(True)
+    bpy.context.view_layer.objects.active = low
+    bpy.ops.object.bake(type=kind)
+    img.pack()
+    return node
+
+
+def reduce_with_bake(high, target_tris: int, res: int, name: str):
+    """Retopology-by-reduction with detail/material preservation: weld -> decimate (no UV constraints) -> new UV ->
+    bake base color + tangent normal from the high-poly onto the low-poly (Cycles, CPU)."""
+    low = weld_copy(high, name)
+    welded = tri_count(low)
+    if welded > target_tris:
+        decimate(low, target_tris / welded)
+        clean_loose(low)
+    smart_uv(low)
+    rough, metal = source_pbr(high)
+    mat = bpy.data.materials.new(name + "_mat")
+    mat.use_nodes = True
+    low.data.materials.append(mat)
+    nt = mat.node_tree
+    bsdf = next(n for n in nt.nodes if n.type == "BSDF_PRINCIPLED")
+    bsdf.inputs["Roughness"].default_value = rough
+    bsdf.inputs["Metallic"].default_value = metal
+    extrusion = 0.02 * max(high.dimensions)
+    color_node = bake_pass(high, low, "DIFFUSE", res, name + "_color", extrusion)
+    normal_node = bake_pass(high, low, "NORMAL", res, name + "_normal", extrusion)
+    nt.links.new(color_node.outputs["Color"], bsdf.inputs["Base Color"])
+    nmap = nt.nodes.new("ShaderNodeNormalMap")
+    nt.links.new(normal_node.outputs["Color"], nmap.inputs["Color"])
+    nt.links.new(nmap.outputs["Normal"], bsdf.inputs["Normal"])
+    return low
+
+
 def main() -> None:
     cfg = br.load_config()
     out = Path(cfg["out_dir"])
@@ -98,21 +208,45 @@ def main() -> None:
         br.render_thumbnail({**cfg, "thumbnail_name": "preview_raw.png"}, [obj])
     br.event("lods", "start")
     limit = int(cfg["triangle_limit"])
+    res = int(cfg.get("bake_resolution", 1024))
+    textured = bool(obj.data.materials)
+    method = "none"
+    high = obj
     if tri_count(obj) > limit:  # cap LOD0 to the category/profile budget
-        decimate(obj, limit / tri_count(obj))
+        if textured and cfg.get("reduction", "bake") == "bake":
+            obj = reduce_with_bake(high, limit, res, f"{name}_LOD0")
+            method = "bake"
+        else:
+            decimate(obj, limit / tri_count(obj))
+            method = "collapse"
     obj.name = f"{name}_LOD0"
     lod_objs = [obj]
     base = tri_count(obj)
     for i, ratio in enumerate(cfg["lod_ratios"], start=1):
-        dup = obj.copy()
-        dup.data = obj.data.copy()
-        dup.name = f"{name}_LOD{i}"
-        bpy.context.collection.objects.link(dup)
-        decimate(dup, ratio)
-        lod_objs.append(dup)
+        if textured and cfg.get("reduction", "bake") == "bake":
+            lod = reduce_with_bake(high, max(50, int(base * ratio)), max(256, res // (2**i)), f"{name}_LOD{i}")
+        else:
+            lod = obj.copy()
+            lod.data = obj.data.copy()
+            bpy.context.collection.objects.link(lod)
+            decimate(lod, ratio)
+            lod.name = f"{name}_LOD{i}"
+        lod_objs.append(lod)
+    if high not in lod_objs:  # the high-poly was only the bake source
+        bpy.data.objects.remove(high, do_unlink=True)
+    # Reduction changes the silhouette slightly: re-centre every LOD on the FINAL LOD0 (pivot = bottom center) and report ITS size.
+    pts = [lod_objs[0].matrix_world @ Vector(c) for c in lod_objs[0].bound_box]
+    lo = Vector((min(p.x for p in pts), min(p.y for p in pts), min(p.z for p in pts)))
+    hi = Vector((max(p.x for p in pts), max(p.y for p in pts), max(p.z for p in pts)))
+    shift = Vector(((lo.x + hi.x) / 2, (lo.y + hi.y) / 2, lo.z))
+    for o in lod_objs:
+        o.location -= shift
+        select_only(o)
+        bpy.ops.object.transform_apply(location=True, rotation=False, scale=False)
+    dims = (hi.x - lo.x, hi.z - lo.z, hi.y - lo.y)  # glTF-style (x, height, depth)
     report = {"raw_triangles": raw_tris, "scale_applied": scale, "dimensions_m": list(dims),
               "lods": [{"level": i, "triangles": tri_count(o), "target_ratio": ([1.0] + cfg["lod_ratios"])[i]} for i, o in enumerate(lod_objs)],
-              "lod0_triangles": base}
+              "lod0_triangles": base, "reduction": {"method": method, "bake_resolution": res, "textured_source": textured}}
     br.event("lods", "done")
 
     br.event("export", "start")

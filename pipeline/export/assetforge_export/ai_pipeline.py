@@ -122,7 +122,8 @@ def run_ai_job(job: dict, workdir: Path, emit: Emit, provider, *, blender_bin: s
     b_lo, b_hi = triangle_budget(params.category, profile, limit_override)
     cfg = {"glb_in": str(raw_glb), "out_dir": str(out), "asset_name": job["name"], "formats": formats, "target_size_m": params.target_size_m,
            "size_axis": params.size_axis, "triangle_limit": b_hi, "lod_ratios": params.lod_ratios, "thumbnail_size": job.get("thumbnail_size", 512),
-           "thumbnail_samples": job.get("thumbnail_samples", 24), "compare_preview": is_cpu}
+           "thumbnail_samples": job.get("thumbnail_samples", 24), "compare_preview": is_cpu, "reduction": "bake",
+           "bake_resolution": (params.texture_resolution or CPU_PROFILES[profile]["texture"]) if is_cpu else 1024}
     cfg_path = workdir / "ai_blender_config.json"
     cfg_path.write_text(json.dumps(cfg), encoding="utf-8")
 
@@ -159,6 +160,11 @@ def run_ai_job(job: dict, workdir: Path, emit: Emit, provider, *, blender_bin: s
                                   detail="textured material" if has_tex else "vertex colors" if has_vc else "LOD0 has neither a base-color texture nor vertex colors"))
     mono = all(report["lods"][i]["triangles"] >= report["lods"][i + 1]["triangles"] for i in range(len(report["lods"]) - 1))
     checks.append(ValidationCheck(name="lods_monotonic", status="pass" if mono else "fail", detail=str([x["triangles"] for x in report["lods"]])))
+    for lv in report["lods"][1:]:
+        want = lod0 * lv["target_ratio"]
+        if lv["triangles"] > want * 1.25 + 20:
+            checks.append(ValidationCheck(name=f"lod{lv['level']}_ratio_reached", status="warn",
+                                          detail=f"LOD{lv['level']} has {lv['triangles']} triangles, requested ~{int(want)} (mesh could not be reduced further)"))
     thin = lod0 < max(200, int(b_lo * 0.2))
     checks.append(ValidationCheck(name="not_prototype_like", status="warn" if thin else "pass",
                                   detail=f"LOD0 has {lod0} triangles; below 20% of the category minimum ({b_lo})" if thin else "geometric density ok"))
@@ -214,7 +220,7 @@ def run_ai_job(job: dict, workdir: Path, emit: Emit, provider, *, blender_bin: s
         license=f"Saída de modelos de IA (sem assets de terceiros no input). Licenças dos modelos — {licenses}",
         provenance={**provider.provenance(), "job_id": str(job.get("job_id", "")), "inputs": "text prompt" if job["job_type"] == "ai.text_to_3d" else "reference image",
                     "models": ", ".join(sorted(s.key for s in uniq))[:1500]},
-        engine=engine_name, generation_params={**params.model_dump(mode="json"), "ai": ai_meta, "raw_triangles": report["raw_triangles"]},
+        engine=engine_name, generation_params={**params.model_dump(mode="json"), "ai": ai_meta, "raw_triangles": report["raw_triangles"], "reduction": report.get("reduction")},
         files=files, created_at=datetime.now(UTC))
     manifest_path = out / "manifest.json"
     manifest_path.write_text(manifest.model_dump_json(indent=2), encoding="utf-8")

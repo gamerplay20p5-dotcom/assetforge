@@ -82,6 +82,15 @@ def test_triposr_baked_obj_becomes_textured_glb(tmp_path):
     assert info["color"] == "baked_texture" and "baseColorTexture" in doc["materials"][0]["pbrMetallicRoughness"]
 
 
+def test_triposr_orientation_puts_raw_z_up_on_y_up():
+    import numpy as np
+    import trimesh
+
+    m = trimesh.Trimesh(vertices=[[0, 0, 1], [1, 0, 0], [0, 1, 0]], faces=[[0, 1, 2]], process=False)
+    adapters.to_gradio_3d_orientation(m)
+    assert np.allclose(m.vertices[0], [0, 1, 0], atol=1e-9)  # raw +Z (up) -> +Y (up)
+
+
 def test_weights_readiness_detects_cached_snapshot(tmp_path):
     assert adapters.weights_ready("sf3d", tmp_path)[0] is False
     snap = tmp_path / "hub" / "models--stabilityai--stable-fast-3d" / "snapshots" / "abc"
