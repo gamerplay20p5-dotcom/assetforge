@@ -118,3 +118,9 @@ def test_vision_service_is_internal_limited_and_offline_by_default():
     assert "HF_HUB_OFFLINE: ${VLM_OFFLINE:-1}" in str(v["environment"]).replace("'", "") or v["environment"]["HF_HUB_OFFLINE"] == "${VLM_OFFLINE:-1}"
     assert "vlm-models" in COMPOSE["volumes"] and v["networks"] == ["internal"]
     assert "ASSETFORGE_VLM_URL" in SERVICES["api"]["environment"]
+
+
+def test_dockerfiles_have_no_literal_backslash_n_continuations():
+    for p in DEP.glob("Dockerfile.*"):
+        for i, line in enumerate(p.read_text(encoding="utf-8").splitlines(), 1):
+            assert not (line.startswith(("ENV ", "RUN ")) and "\n" in line and not line.lstrip().startswith("#") and "printf" not in line and "echo" not in line), f"{p.name}:{i}"

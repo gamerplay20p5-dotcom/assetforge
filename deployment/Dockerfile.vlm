@@ -1,6 +1,7 @@
 # Vision front-end (Qwen2.5-VL) on CPU only. Benchmark / extraction tool; no GPU, no host drivers touched.
 FROM python:3.11-slim-bookworm
-ENV PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1 HF_HOME=/models/hf \n    PYTHONPATH=/app/generators/vision:/app/generators/procedural:/app/packages/asset-contract
+ENV PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1 HF_HOME=/models/hf \
+    PYTHONPATH=/app/generators/vision:/app/generators/procedural:/app/packages/asset-contract
 RUN apt-get update && apt-get install -y --no-install-recommends libgomp1 && rm -rf /var/lib/apt/lists/* \
     && useradd -m -u 10001 vlm && mkdir -p /models /out && chown vlm /models /out
 RUN pip install --extra-index-url https://download.pytorch.org/whl/cpu "torch==2.4.1+cpu" \
