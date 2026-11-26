@@ -30,7 +30,11 @@ TERMINAL = ("succeeded", "failed", "cancelled")
 
 
 # ------------------------------------------------------------------------------ requirements
-def requirements_for(job_type: str, formats: list[str], vram_mb: int = 7000) -> dict:
+def requirements_for(job_type: str, formats: list[str], vram_mb: int = 7000, provider: str | None = None, cpu3d_cores: int = 12,
+                     cpu3d_ram_mb: int = 16384) -> dict:
+    if job_type == "ai.image_to_3d" and provider in ("sf3d", "triposr"):
+        # CPU-only providers: no VRAM; reserve cores/RAM of the node. Needs Blender (post-processing) and that provider's container.
+        return {"features": ["ai.image_to_3d", f"provider.{provider}", "blender"], "cpu_cores": cpu3d_cores, "ram_mb": cpu3d_ram_mb, "vram_mb": 0}
     if job_type.startswith("ai."):
         # generative jobs need a ComfyUI/Intel-GPU node, Blender for post-processing, and reserve VRAM
         return {"features": [job_type, "comfyui", "blender"], "cpu_cores": 2, "ram_mb": 8192, "vram_mb": vram_mb}

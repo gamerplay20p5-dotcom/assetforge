@@ -5,7 +5,7 @@ ARG TRIPOSR_COMMIT=107cefdc244c39106fa830359024f6a2f1c78871
 ARG TORCHMCUBES_COMMIT=a9ac95aa329957ba646e7bb057f825f5dfa77f38
 ENV PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1 HF_HOME=/models/hf U2NET_HOME=/models/u2net PROVIDER_NAME=triposr PROVIDER_WORK_DIR=/work     TRIPOSR_DIR=/opt/TripoSR PYTHONPATH=/app/generators/mesh
 RUN apt-get update && apt-get install -y --no-install-recommends git build-essential cmake ninja-build libgl1 libegl1 libglib2.0-0 libgomp1 libgl1-mesa-dri libxext6     && rm -rf /var/lib/apt/lists/*
-RUN pip install torch==2.4.1 torchvision==0.19.1 --index-url https://download.pytorch.org/whl/cpu     && pip install numpy==1.26.4 setuptools wheel psutil onnxruntime
+RUN pip install "torch==2.4.1+cpu" "torchvision==0.19.1+cpu" --extra-index-url https://download.pytorch.org/whl/cpu     && pip install numpy==1.26.4 setuptools wheel psutil onnxruntime
 RUN git clone --quiet https://github.com/VAST-AI-Research/TripoSR.git /opt/TripoSR && git -C /opt/TripoSR checkout --quiet ${TRIPOSR_COMMIT}     && grep -v -E "^(gradio|git\+https://github.com/tatsy/torchmcubes)" /opt/TripoSR/requirements.txt > /tmp/req.txt && pip install -r /tmp/req.txt     && pip install --no-build-isolation "git+https://github.com/tatsy/torchmcubes.git@${TORCHMCUBES_COMMIT}"
 COPY generators/mesh /app/generators/mesh
 RUN useradd --system --uid 10004 --create-home c3d && mkdir -p /models /work && chown c3d /models /work

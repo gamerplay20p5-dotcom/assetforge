@@ -76,6 +76,12 @@ class AiParams(StrictModel):
     remove_background: bool = True
     lod_ratios: list[float] = Field(default_factory=lambda: [0.5, 0.25, 0.1], max_length=5)
     image_size: Literal[768, 1024] = 1024
+    # --- image-to-3D provider selection (CPU providers are the default; "intel" = ComfyUI/XPU, disabled unless explicitly enabled) ---
+    provider: Literal["sf3d", "triposr", "intel"] = "sf3d"
+    texture_resolution: int | None = Field(default=None, ge=256, le=4096, description="default comes from the quality profile")
+    mc_resolution: int | None = Field(default=None, ge=64, le=512, description="TripoSR marching-cubes grid")
+    remesh: Literal["none", "triangle", "quad"] = "none"  # Stable Fast 3D
+    max_triangles: int | None = Field(default=None, ge=200, le=2_000_000, description="overrides the category/profile budget for LOD0")
 
     @field_validator("lod_ratios")
     @classmethod
@@ -118,6 +124,8 @@ class JobCreate(StrictModel):
             self.params = BuildingParams.model_validate(self.params).model_dump(mode="json")
         else:
             ai = AiParams.model_validate(self.params)
+            if self.job_type == "ai.text_to_3d" and ai.provider != "intel":
+                raise ValueError("text-to-3D needs a text-to-image model: only the (currently disabled) Intel provider has one; use ai.image_to_3d with a reference image")
             if self.job_type == "ai.text_to_3d" and not ai.prompt:
                 raise ValueError("ai.text_to_3d requires 'prompt'")
             if self.job_type == "ai.image_to_3d" and not ai.reference_id:

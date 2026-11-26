@@ -5,7 +5,7 @@ FROM python:3.10-slim
 ARG SF3D_COMMIT=ff21fc491b4dc5314bf6734c7c0dabd86b5f5bb2
 ENV PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1 HF_HOME=/models/hf U2NET_HOME=/models/u2net PROVIDER_NAME=sf3d PROVIDER_WORK_DIR=/work     SF3D_DIR=/opt/sf3d SF3D_USE_CPU=1 PYTHONPATH=/app/generators/mesh
 RUN apt-get update && apt-get install -y --no-install-recommends git build-essential cmake ninja-build libgl1 libegl1 libglib2.0-0 libgomp1 libxext6     && rm -rf /var/lib/apt/lists/*
-RUN pip install torch==2.4.1 torchvision==0.19.1 --index-url https://download.pytorch.org/whl/cpu     && pip install setuptools==69.5.1 wheel psutil onnxruntime
+RUN pip install "torch==2.4.1+cpu" "torchvision==0.19.1+cpu" --extra-index-url https://download.pytorch.org/whl/cpu     && pip install setuptools==69.5.1 wheel psutil onnxruntime
 RUN git clone --quiet https://github.com/Stability-AI/stable-fast-3d.git /opt/sf3d && git -C /opt/sf3d checkout --quiet ${SF3D_COMMIT}     && sed -e 's/^rembg\[gpu\].*/rembg==2.0.57/' -e '/^\.\/texture_baker/d' -e '/^\.\/uv_unwrapper/d' /opt/sf3d/requirements.txt > /tmp/req.txt     && pip install -r /tmp/req.txt     && cd /opt/sf3d && pip install --no-build-isolation ./texture_baker ./uv_unwrapper
 COPY generators/mesh /app/generators/mesh
 RUN useradd --system --uid 10005 --create-home c3d && mkdir -p /models /work && chown c3d /models /work

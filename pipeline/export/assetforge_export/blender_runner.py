@@ -164,7 +164,7 @@ def render_thumbnail(cfg: dict, objects) -> None:
     scene.cycles.use_denoising = False
     scene.view_settings.view_transform = "Standard"
     scene.render.image_settings.file_format = "PNG"
-    scene.render.filepath = str(Path(cfg["out_dir"]) / "thumbnail.png")
+    scene.render.filepath = str(Path(cfg["out_dir"]) / cfg.get("thumbnail_name", "thumbnail.png"))
     bpy.ops.render.render(write_still=True)
     # remove helper objects so they do not reach exports (exports run before; kept for safety)
     for o in (ground, sun_obj, cam_obj):

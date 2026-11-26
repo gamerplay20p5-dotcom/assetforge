@@ -22,11 +22,12 @@ from assetforge_contract import (
     ValidationReport,
     triangle_budget,
 )
-from assetforge_intel_ai import IntelAIProvider, ModelSpec, required_specs, target_faces
+from assetforge_intel_ai import ModelSpec, required_specs, target_faces
 from assetforge_validation import read_glb_json, validate_glb
 from PIL import Image
 
 from .blender_runner_path import RUNNER_PATH
+from .cpu3d_profiles import CPU_PROFILES
 from .pipeline import STAGE_PLAN, PipelineError, _file_entry, find_blender
 from .proc import run_supervised
 
@@ -49,7 +50,7 @@ def _hex(rgb: list[float]) -> str:
     return "#" + "".join(f"{round(max(0, min(1, to_srgb(c))) * 255):02X}" for c in rgb[:3])
 
 
-def run_ai_job(job: dict, workdir: Path, emit: Emit, provider: IntelAIProvider, *, blender_bin: str | None = None,
+def run_ai_job(job: dict, workdir: Path, emit: Emit, provider, *, blender_bin: str | None = None,
                threads: int = 2, blender_timeout: float = 900.0, should_cancel: Callable[[], bool] | None = None) -> dict:
     cancel = should_cancel or (lambda: False)
 
@@ -68,6 +69,8 @@ def run_ai_job(job: dict, workdir: Path, emit: Emit, provider: IntelAIProvider, 
     out = workdir / "out"
     out.mkdir(parents=True, exist_ok=True)
     ai_meta: dict = {"stages": {}}
+    is_cpu = params.provider in ("sf3d", "triposr")
+    limit_override = params.max_triangles or job.get("triangle_limit")
     used_models: list[ModelSpec] = []
 
     # 1. concept image -------------------------------------------------------------------------------
@@ -94,22 +97,32 @@ def run_ai_job(job: dict, workdir: Path, emit: Emit, provider: IntelAIProvider, 
 
     # 2. image -> 3D ----------------------------------------------------------------------------------
     stage("image_to_3d", "start")
-    faces = target_faces(params.category, profile, job.get("triangle_limit"))
+    faces = target_faces(params.category, profile, limit_override)
     raw_glb = workdir / "raw" / "ai_raw.glb"
-    g3 = provider.image_to_3d(image, raw_glb, profile=profile, target_faces=faces, seed=params.seed,
-                              use_trellis2=params.use_trellis2, remove_background=params.remove_background, should_cancel=cancel)
-    ai_meta["stages"]["image_to_3d"] = {"seconds": round(g3.seconds, 1), "peak_vram_mb": g3.peak_vram_mb, "vram_total_mb": g3.vram_total_mb,
-                                        "workflow_sha": g3.workflow_sha, "target_faces": faces, "use_trellis2": params.use_trellis2}
-    log(f"image-to-3D ok in {g3.seconds:.0f}s (peak VRAM {g3.peak_vram_mb}/{g3.vram_total_mb} MB, target {faces} faces)")
-    used_models += required_specs(("image_to_3d",))
+    if is_cpu:
+        prof = CPU_PROFILES[profile]
+        cp = {"texture_resolution": params.texture_resolution or prof["texture"], "mc_resolution": params.mc_resolution or prof["mc"],
+              "remesh": params.remesh, "target_vertex_count": faces // 2 if params.remesh != "none" else -1}
+        g3 = provider.image_to_3d(image, raw_glb, params=cp, tag=str(job.get("job_id", "")), should_cancel=cancel)
+        ai_meta["stages"]["image_to_3d"] = {"seconds": round(g3.seconds, 1), "provider": params.provider, "peak_ram_mb": g3.peak_ram_mb,
+                                            "peak_cpu_percent": g3.peak_cpu_percent, "color": g3.info.get("color"), "provider_params": cp,
+                                            "target_faces": faces, "bake_fallback": g3.info.get("bake_fallback", False)}
+        log(f"{params.provider} ok in {g3.seconds:.0f}s (peak RAM {g3.peak_ram_mb} MB, peak CPU {g3.peak_cpu_percent:.0f}%, color={g3.info.get('color')})")
+    else:
+        g3 = provider.image_to_3d(image, raw_glb, profile=profile, target_faces=faces, seed=params.seed,
+                                  use_trellis2=params.use_trellis2, remove_background=params.remove_background, should_cancel=cancel)
+        ai_meta["stages"]["image_to_3d"] = {"seconds": round(g3.seconds, 1), "peak_vram_mb": g3.peak_vram_mb, "vram_total_mb": g3.vram_total_mb,
+                                            "workflow_sha": g3.workflow_sha, "target_faces": faces, "use_trellis2": params.use_trellis2}
+        log(f"image-to-3D ok in {g3.seconds:.0f}s (peak VRAM {g3.peak_vram_mb}/{g3.vram_total_mb} MB, target {faces} faces)")
+        used_models += required_specs(("image_to_3d",))
     stage("image_to_3d", "done", detail=f"{g3.seconds:.0f}s")
 
     # 3. Blender post-processing: normalise, cap to budget, LODs, exports, thumbnail -------------------------
     stage("postprocess", "start")
-    b_lo, b_hi = triangle_budget(params.category, profile, job.get("triangle_limit"))
+    b_lo, b_hi = triangle_budget(params.category, profile, limit_override)
     cfg = {"glb_in": str(raw_glb), "out_dir": str(out), "asset_name": job["name"], "formats": formats, "target_size_m": params.target_size_m,
            "size_axis": params.size_axis, "triangle_limit": b_hi, "lod_ratios": params.lod_ratios, "thumbnail_size": job.get("thumbnail_size", 512),
-           "thumbnail_samples": job.get("thumbnail_samples", 24)}
+           "thumbnail_samples": job.get("thumbnail_samples", 24), "compare_preview": is_cpu}
     cfg_path = workdir / "ai_blender_config.json"
     cfg_path.write_text(json.dumps(cfg), encoding="utf-8")
 
@@ -139,13 +152,18 @@ def run_ai_job(job: dict, workdir: Path, emit: Emit, provider: IntelAIProvider, 
     checks.append(ValidationCheck(name="files_exist", status="fail" if missing else "pass", detail=f"missing: {missing}" if missing else "all outputs present"))
     over = lod0 > b_hi
     checks.append(ValidationCheck(name="triangle_budget", status="warn" if over else "pass", detail=f"{lod0} triangles (budget {b_lo}-{b_hi})"))
+    gdoc, _ = read_glb_json(out / "model.glb")
+    has_tex = any("baseColorTexture" in m.get("pbrMetallicRoughness", {}) for m in gdoc.get("materials", []))
+    has_vc = any("COLOR_0" in pr.get("attributes", {}) for me in gdoc.get("meshes", []) for pr in me.get("primitives", []))
+    checks.append(ValidationCheck(name="material_preserved", status="pass" if (has_tex or has_vc) else "warn",
+                                  detail="textured material" if has_tex else "vertex colors" if has_vc else "LOD0 has neither a base-color texture nor vertex colors"))
     mono = all(report["lods"][i]["triangles"] >= report["lods"][i + 1]["triangles"] for i in range(len(report["lods"]) - 1))
     checks.append(ValidationCheck(name="lods_monotonic", status="pass" if mono else "fail", detail=str([x["triangles"] for x in report["lods"]])))
     thin = lod0 < max(200, int(b_lo * 0.2))
     checks.append(ValidationCheck(name="not_prototype_like", status="warn" if thin else "pass",
                                   detail=f"LOD0 has {lod0} triangles; below 20% of the category minimum ({b_lo})" if thin else "geometric density ok"))
     vr = ValidationReport(passed=not any(c.status == "fail" for c in checks), checks=checks,
-                          metrics={**glb_report.metrics, "triangles": lod0, "engine": "blender+comfyui", "raw_triangles": report["raw_triangles"]})
+                          metrics={**glb_report.metrics, "triangles": lod0, "engine": "blender+" + ("cpu3d" if is_cpu else "comfyui"), "raw_triangles": report["raw_triangles"]})
     for c in checks:
         if c.status != "pass":
             log(f"validation {c.status}: {c.name} - {c.detail}", "warning" if c.status == "warn" else "error")
@@ -165,6 +183,8 @@ def run_ai_job(job: dict, workdir: Path, emit: Emit, provider: IntelAIProvider, 
     files = [_file_entry(out / "model.glb", out, "interchange", "glb"), _file_entry(out / "thumbnail.png", out, "preview", "png")]
     if (out / "concept.png").is_file():
         files.append(_file_entry(out / "concept.png", out, "preview", "png"))
+    if (out / "preview_raw.png").is_file():
+        files.append(_file_entry(out / "preview_raw.png", out, "preview", "png"))  # before optimisation
     files += [_file_entry(p, out, "interchange", "glb") for p in lod_files[1:]]
     if "blend" in formats:
         files.append(_file_entry(out / "model.blend", out, "editable", "blend"))
@@ -173,8 +193,14 @@ def run_ai_job(job: dict, workdir: Path, emit: Emit, provider: IntelAIProvider, 
     (out / "validation.json").write_text(vr.model_dump_json(indent=2), encoding="utf-8")
     files.append(_file_entry(out / "validation.json", out, "report", "json"))
     uniq = {s.key: s for s in used_models}.values()
-    licenses = "; ".join(sorted({f"{s.repo}: {s.license_info['license']}" for s in uniq}))
-    ai_name = ("trellis2" if params.use_trellis2 else "pixal3d") + ("+z-image-turbo" if job["job_type"] == "ai.text_to_3d" else "")
+    if is_cpu:
+        licenses = provider.license_summary()
+        ai_name = provider.model_name()
+        engine_name = f"blender+{params.provider}-cpu"
+    else:
+        licenses = "; ".join(sorted({f"{s.repo}: {s.license_info['license']}" for s in uniq}))
+        ai_name = ("trellis2" if params.use_trellis2 else "pixal3d") + ("+z-image-turbo" if job["job_type"] == "ai.text_to_3d" else "")
+        engine_name = "blender+comfyui"
     size = tuple(round(x, 4) for x in dims)
     manifest = AssetManifest(
         asset_id=job["asset_id"], name=job["name"], category=params.category, version=int(job.get("version", 1)),
@@ -188,7 +214,7 @@ def run_ai_job(job: dict, workdir: Path, emit: Emit, provider: IntelAIProvider, 
         license=f"Saída de modelos de IA (sem assets de terceiros no input). Licenças dos modelos — {licenses}",
         provenance={**provider.provenance(), "job_id": str(job.get("job_id", "")), "inputs": "text prompt" if job["job_type"] == "ai.text_to_3d" else "reference image",
                     "models": ", ".join(sorted(s.key for s in uniq))[:1500]},
-        engine="blender+comfyui", generation_params={**params.model_dump(mode="json"), "ai": ai_meta, "raw_triangles": report["raw_triangles"]},
+        engine=engine_name, generation_params={**params.model_dump(mode="json"), "ai": ai_meta, "raw_triangles": report["raw_triangles"]},
         files=files, created_at=datetime.now(UTC))
     manifest_path = out / "manifest.json"
     manifest_path.write_text(manifest.model_dump_json(indent=2), encoding="utf-8")
@@ -203,4 +229,4 @@ def run_ai_job(job: dict, workdir: Path, emit: Emit, provider: IntelAIProvider, 
     files.append(_file_entry(pkg, out, "package", "zip"))
     stage("package", "done")
     return {"files": [f.model_dump() for f in files], "manifest": json.loads(manifest_path.read_text(encoding="utf-8")),
-            "validation": json.loads(vr.model_dump_json()), "engine": "blender+comfyui", "triangle_count": lod0}
+            "validation": json.loads(vr.model_dump_json()), "engine": engine_name, "triangle_count": lod0}

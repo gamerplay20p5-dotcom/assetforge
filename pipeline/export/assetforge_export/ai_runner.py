@@ -94,6 +94,8 @@ def main() -> None:
     scale, dims = normalise(obj, float(cfg["target_size_m"]), cfg.get("size_axis", "height"))
     br.event("import", "done")
 
+    if cfg.get("compare_preview"):  # render the provider output BEFORE any polygon reduction, for the before/after comparison
+        br.render_thumbnail({**cfg, "thumbnail_name": "preview_raw.png"}, [obj])
     br.event("lods", "start")
     limit = int(cfg["triangle_limit"])
     if tri_count(obj) > limit:  # cap LOD0 to the category/profile budget
