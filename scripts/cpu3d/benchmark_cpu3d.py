@@ -96,7 +96,7 @@ def main() -> int:
                             shutil.copyfile(wd / "out" / f["name"], keep / f["name"])
                     row.update(ok=True, total_seconds=round(time.monotonic() - t0, 1), provider_seconds=st["seconds"],
                                provider_peak_ram_mb=st["peak_ram_mb"], provider_peak_cpu_percent=st["peak_cpu_percent"],
-                               host_peak_ram_mb=host.peak_ram_mb, host_peak_temp_c=host.peak_temp_c, color=st["color"],
+                               host_peak_ram_mb=host.peak_ram_mb, host_peak_cpu_temp_c=host.peak_temp_c, host_peak_temps=host.peak_temps, color=st["color"],
                                bake_fallback=st.get("bake_fallback"), raw_triangles=m["generation_params"]["raw_triangles"],
                                lod_triangles=[x["triangles"] for x in m["lods"]], materials=len(m["materials"]),
                                warnings=[c["name"] for c in res["validation"]["checks"] if c["status"] == "warn"])

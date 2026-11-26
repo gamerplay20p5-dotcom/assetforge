@@ -90,6 +90,9 @@ def to_gradio_3d_orientation(mesh) -> None:
 
     mesh.apply_transform(trimesh.transformations.rotation_matrix(-np.pi / 2, [1, 0, 0]))
     mesh.apply_transform(trimesh.transformations.rotation_matrix(np.pi / 2, [0, 1, 0]))
+    # Measured on the real node (chair, 2026-11-26): after the two rotations above the object's FRONT points to -Z (its backrest
+    # sat on the +Z side). AssetForge convention is front = +Z, so turn it 180 degrees about Y.
+    mesh.apply_transform(trimesh.transformations.rotation_matrix(np.pi, [0, 1, 0]))
 
 
 def collect_result(provider: str, out_dir: Path, dest: Path) -> dict:
