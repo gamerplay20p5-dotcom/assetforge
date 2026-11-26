@@ -12,6 +12,7 @@ from assetforge_procedural import MeshPart, MeshSpec
 class CleanStats:
     degenerate_removed: int = 0
     duplicate_vertices_merged: int = 0
+    duplicate_faces_removed: int = 0
     normals_fixed: int = 0
     pivot_shift: tuple[float, float, float] = (0.0, 0.0, 0.0)
     notes: list[str] = field(default_factory=list)
@@ -43,6 +44,13 @@ def clean_mesh(spec: MeshSpec, normalize_pivot: bool = True, area_eps: float = 1
         remap[used] = np.arange(len(used))
         vi = first[used]
         nf = remap[inverse[f]]
+        # identical triangles (same three vertices, e.g. two overlapping beams sharing a face) are redundant: exporters/Blender drop them silently,
+        # so drop them here and the reported count always matches the exported file
+        _, keep = np.unique(np.sort(nf, axis=1), axis=0, return_index=True)
+        if len(keep) < len(nf):
+            keep.sort()
+            stats.duplicate_faces_removed += int(len(nf) - len(keep))
+            nf, cross = nf[keep], cross[keep]
         nv, nn, nuv = part.vertices[vi], n[vi], uv[vi]
         # make stored normals agree with face winding
         fn = cross / np.linalg.norm(cross, axis=1, keepdims=True)

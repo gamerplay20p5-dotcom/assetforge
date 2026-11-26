@@ -131,3 +131,16 @@ def test_all_six_stages_of_every_stage_kit_archetype_build_with_one_footprint(na
 def test_unknown_archetype_is_a_clear_error():
     with pytest.raises(ValueError, match="unknown archetype"):
         generate_building(BuildingParams(category="house", archetype="castelo"))
+
+
+@pytest.mark.parametrize("name", sorted(ARCHETYPES))
+def test_clean_mesh_leaves_no_duplicate_triangles_at_any_stage(name):
+    """Overlapping beams share faces; Blender silently drops duplicate triangles, so the cleaner must drop them first (regression: stage 3 failed
+    validation with 'exported 2286, expected 2322')."""
+    from assetforge_optimization import clean_mesh
+
+    for st in (3, 4, 6):
+        spec, _ = clean_mesh(generate_house(ARCHETYPES[name](1), st).mesh)
+        for part in spec.parts.values():
+            keys = np.sort(part.faces, axis=1)
+            assert len(np.unique(keys, axis=0)) == len(keys)

@@ -75,3 +75,15 @@ def test_vision_description_runs_the_full_blender_pipeline(blender, tmp_path):
     result = run_building_job(job, tmp_path, lambda e: None, engine="blender", blender_bin=blender, threads=2)
     assert result["validation"]["passed"], result["validation"]
     assert (tmp_path / "out" / "model.fbx").stat().st_size > 10_000
+
+
+@pytest.mark.parametrize("stage", [3, 4])
+def test_framing_stages_pass_validation_after_blender_export(blender, tmp_path, stage):
+    """Regression: the framing stage (overlapping beams) exported fewer triangles than reported."""
+    desc = dict(floors=2, roof_type="gable", roof_color="dark_gray", wall_material="siding", wall_color="sage_green", lower_wall_material="siding",
+                lower_wall_color="sage_green", trim_color="white", door_color="brown", door_position="center", windows_front_per_floor=[2, 2],
+                porch="covered_porch", garage=True, garage_side="right", chimney=False, volumes="single", bay_window=False)
+    job = dict(asset_id="ast_fr01", name="Framing", version=1, job_id="j", quality_profile="stylized_detailed", formats=["glb"],
+               params=dict(category="house", house_description=desc, construction_stage=stage, texture_resolution=256), thumbnail_size=128, thumbnail_samples=4)
+    result = run_building_job(job, tmp_path, lambda e: None, engine="blender", blender_bin=blender, threads=2)
+    assert result["validation"]["passed"], result["validation"]
