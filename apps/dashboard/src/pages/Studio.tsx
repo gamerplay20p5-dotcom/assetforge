@@ -97,6 +97,30 @@ export function Studio() {
   };
   const valid = items.filter((i) => !i.error);
 
+  // Ctrl+V anywhere on the page: screenshots / copied images become references
+  useEffect(() => {
+    const onPaste = (e: ClipboardEvent) => {
+      const files: File[] = [];
+      for (const it of Array.from(e.clipboardData?.items ?? [])) {
+        if (it.kind === "file" && it.type.startsWith("image/")) {
+          const f = it.getAsFile();
+          if (f) {
+            const ext = f.type.split("/")[1] || "png";
+            const stamp = new Date().toTimeString().slice(0, 8).replace(/:/g, "");
+            files.push(new File([f], f.name && f.name !== "image.png" ? f.name : `print-${stamp}-${files.length + 1}.${ext}`, { type: f.type }));
+          }
+        }
+      }
+      if (files.length) {
+        e.preventDefault();
+        add(files);
+      }
+    };
+    window.addEventListener("paste", onPaste);
+    return () => window.removeEventListener("paste", onPaste);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const upload = async (file: File): Promise<string> => {
     const fd = new FormData();
     fd.append("file", file);
@@ -192,7 +216,7 @@ export function Studio() {
             <>
               <ImagePlus size={30} />
               <strong>Enviar imagem</strong>
-              <span>Arraste ou clique · PNG, JPG, WEBP · até {MAX_IMAGE_MB} MB</span>
+              <span>Arraste, clique ou cole um print (Ctrl+V) · PNG, JPG, WEBP · até {MAX_IMAGE_MB} MB</span>
             </>
           ) : (
             <div className="drop-grid" onClick={(e) => e.stopPropagation()}>
