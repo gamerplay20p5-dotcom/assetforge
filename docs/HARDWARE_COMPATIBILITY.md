@@ -49,6 +49,16 @@ OpenVINO/PyTorch não instalados → nenhuma capacidade de IA declarada.
 **Isto é diagnóstico, não validação:** ainda não há prova de que PyTorch XPU/ComfyUI/Pixal3D rodem nessa A750 (Resizable BAR desligado e 8 GB são riscos de desempenho/memória).
 Observação: a 206 tem CPU **AMD**; “CPUs Intel” valia só para outros nós.
 
+## Nó 206 — execução real de 2026‑11‑26 (usuário dedicado `afforge`, projeto Compose `assetforge`)
+| Teste | Resultado (medido) |
+|---|---|
+| Docker + PostgreSQL 16 + API + worker CPU (Linux) | ✅ saudáveis |
+| Lote procedural (3 casas, GLB+FBX+BLEND, Blender 4.5.17 em container Linux) | ✅ 3/3 válidos em 20 s |
+| **PyTorch XPU / ComfyUI na A750** | ❌ **BLOQUEADO**: `WARNING: Small BAR detected for device 0000:43:00.0` → `XPU device count is zero`; o ComfyUI cai no caminho CUDA e falha |
+**Causa (documentada pela Intel, `compute-runtime/documentation/FAQ.md`):** sem **Resizable BAR** o driver de compute “não inicializa, por design”. A 206 está com a janela de VRAM em 256 MB (ReBAR desativado no BIOS).
+**Ação necessária (Hank, no BIOS da 206, exige reiniciar o servidor):** ativar *Above 4G Decoding* e *Resizable BAR*. Depois, repetir `docker_tasks.sh comfy-check` e `validate`.
+**Nenhum modelo de IA foi executado; a A750 continua NÃO validada.**
+
 ## Limites e coexistência
 Padrão do worker: **metade** dos núcleos e da RAM; janelas de ociosidade, limite de CPU do host e lista “ceder a processos”
 (ex.: `ai-stream-clipper`). Em Docker, `ASSETFORGE_WORKER_YIELD_TO` só enxerga processos do host com `pid: host` (opt‑in

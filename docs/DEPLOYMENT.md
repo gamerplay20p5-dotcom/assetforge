@@ -31,6 +31,7 @@ Ambos aceitam `--no-ai` (só CPU: sem ComfyUI nem worker Intel). O perfil é o `
 
 ## Situação real da 206 (diagnóstico de 2026‑11‑26)
 Docker 29.8.1/Compose v5.5.1 presentes; GPU A750 com `i915`; render gid **993**, video gid 44; portas 8000/5432 livres; workers do Stream Clipper **não usam** `/dev/dri`.
+**Estado após a instalação (2026‑11‑26):** serviços CPU rodando na 206 (postgres, api, worker-cpu; painel na porta 8000); **IA bloqueada: Resizable BAR desativado → driver Intel não inicializa a A750** (medido; veja HARDWARE_COMPATIBILITY.md). O ReBAR passa de recomendado a **obrigatório**.
 **Bloqueios a resolver pelo Hank:** (1) quem executar o `install_single_node.sh` precisa de **acesso ao Docker** (o usuário `asc` não tem); (2) *opcional, recomendado*: ativar **Resizable BAR** no BIOS (hoje a janela é de 256 MB).
 Use um projeto Compose próprio (`assetforge`) — **nunca** o `asc-ctl compose up/down` do Stream Clipper.
 

@@ -31,9 +31,13 @@ O que os testes cobrem de verdade:
 * **Planner**: exemplo “hospital moderno de cinco andares”, PT/EN, texto desconhecido não inventa parâmetros; resposta de LLM
   com campo extra/valor fora da faixa é rejeitada e cai nas regras.
 
+## Testado na 206 (Linux/Docker reais, 2026‑11‑26)
+Build das 3 imagens (central, worker com Blender Linux, ComfyUI/XPU) ok; **PostgreSQL 16 real**, API, worker CPU saudáveis; lote de 3 assets procedurais pelo worker em container (GLB/FBX/BLEND válidos).
+Defeitos encontrados e corrigidos: `cap_drop: ALL` quebrava o Postgres (corrigido, `cap_add` mínimo). **Bloqueio de hardware**: ComfyUI/XPU não enxerga a A750 com Resizable BAR desativado (ver HARDWARE_COMPATIBILITY.md).
+
 ## Limitações conhecidas do que foi testado
 * **Implantação Docker em uma máquina (`deployment/docker-compose.yml`, `Dockerfile.comfyui`, `install_single_node.sh`, `docker_tasks.sh`, backup/restore)**: só verificação estática (YAML, `bash -n`, testes de política); **nada foi construído ou executado**; sem acesso remoto à 206.
-* **PostgreSQL não foi testado.** Tentativa de subir binários oficiais do PostgreSQL 16 foi bloqueada pela política do
+* ~~PostgreSQL não foi testado~~ — **agora testado na 206 (PostgreSQL 16 em Docker)** apenas no fluxo de lote; a suíte pytest completa ainda não rodou contra PostgreSQL (use `ASSETFORGE_TEST_PG_URL`). Texto antigo: **PostgreSQL não foi testado.** Tentativa de subir binários oficiais do PostgreSQL 16 foi bloqueada pela política do
   ambiente (diretório fora do projeto) e o caminho com acentos do repositório quebra o `initdb`. Rode no servidor:
   `ASSETFORGE_TEST_PG_URL=postgresql://assetforge:...@host:5432/assetforge_test pytest tests/integration`
   (a fixture cria e apaga as tabelas do banco de teste — use um banco descartável).
