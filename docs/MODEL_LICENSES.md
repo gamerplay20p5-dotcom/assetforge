@@ -1,5 +1,7 @@
 # Licenças de modelos e dependências
 
+> **TripoSR (MIT) e Stable Fast 3D (Stability AI Community License, condicionada) e dependências: [CPU3D.md](CPU3D.md#licenças-verificadas-nas-fontes-em-2026-11-26-não-é-parecer-jurídico).**
+
 > Modelos da integração com o Intel AI Playground (Pixal3D, TRELLIS.2, MoGe, BiRefNet, DINOv3, Z‑Image‑Turbo) e o parecer de uso comercial no Brasil: **[INTEL_AI.md §4](INTEL_AI.md)**. Atenção a DINOv3 (licença Meta) e à origem do `ae.safetensors`.
 
 Verificado em **2026‑11‑26** diretamente nas fontes (arquivos `LICENSE` no GitHub e metadados da API do Hugging Face).

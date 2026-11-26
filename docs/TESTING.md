@@ -7,7 +7,7 @@ Ambiente de desenvolvimento: Windows 11, CPU Intel (12 threads), 16 GB RAM, Pyth
 
 | Suíte | Comando | Resultado |
 |---|---|---|
-| Python (unitários + integração + Blender real + IA com ComfyUI simulado) | `pytest` | **121 passed** (~2 min) |
+| Python (unitários + integração + Blender real + IA com ComfyUI simulado) | `pytest` | **149 passed** (~2,5 min) |
 | Frontend unitário | `cd apps/dashboard && npm test` | **9 passed** (Vitest) |
 | Typecheck + build do dashboard | `npm run build` | ok (1643 módulos) |
 | **E2E no Chromium contra pilha real** (API + dashboard + worker + Blender) | `npx playwright test` | **2 passed** (5,0 min) |
@@ -32,6 +32,7 @@ O que os testes cobrem de verdade:
   com campo extra/valor fora da faixa é rejeitada e cai nas regras.
 
 ## Testado na 206 (Linux/Docker reais, 2026‑11‑26)
+**IA por CPU (TripoSR):** ~12 execuções reais, incluindo jobs pela API/fila/worker/Blender e benchmark de 3 perfis (ver [CPU3D.md](CPU3D.md)). **Stable Fast 3D: imagem construída, nunca executada.**
 Build das 3 imagens (central, worker com Blender Linux, ComfyUI/XPU) ok; **PostgreSQL 16 real**, API, worker CPU saudáveis; lote de 3 assets procedurais pelo worker em container (GLB/FBX/BLEND válidos).
 Defeitos encontrados e corrigidos: `cap_drop: ALL` quebrava o Postgres (corrigido, `cap_add` mínimo). **Bloqueio de hardware**: ComfyUI/XPU não enxerga a A750 com Resizable BAR desativado (ver HARDWARE_COMPATIBILITY.md).
 

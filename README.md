@@ -22,7 +22,8 @@ vários servidores Linux. Estilo inicial: *Premium Stylized Low/Mid Poly*.
 | Planner texto→parâmetros (regras PT/EN; LLM local opcional) | ✅ regras testadas; ⚠ LLM só com servidor simulado |
 | **Implantação em uma máquina** (Docker: API, dashboard, scheduler, worker CPU, worker Intel, ComfyUI/XPU, Blender, PostgreSQL local ou externo) | ⚠ **escrita e verificada estaticamente; nunca construída/executada** (sem Docker/Arc aqui) — [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) |
 | PostgreSQL | ⚠ **não testado** (testes rodaram em SQLite); suíte aceita `ASSETFORGE_TEST_PG_URL` |
-| Provider **Intel AI** (workflows do Intel AI Playground via ComfyUI headless): texto→imagem→3D, imagem→3D, perfis, LODs, FBX/GLB/BLEND, VRAM, cache de modelos, gate de validação | ✅ integração testada com ComfyUI **simulado** + Blender real; ❌ **nenhum modelo foi executado**, Arc A750 **não validada** — [docs/INTEL_AI.md](docs/INTEL_AI.md) |
+| **IA image-to-3D só com CPU** (TripoSR validado na 206; Stable Fast 3D construído, aguarda token HF): containers Docker, fila, painel, redução por bake, LODs, FBX/GLB/BLEND, benchmark | ✅ **1 asset real gerado e validado na 206** (TripoSR, 104 s); ❌ SF3D não executado — [docs/CPU3D.md](docs/CPU3D.md) |
+| Provider **Intel AI** (DESABILITADO por padrão) (workflows do Intel AI Playground via ComfyUI headless): texto→imagem→3D, imagem→3D, perfis, LODs, FBX/GLB/BLEND, VRAM, cache de modelos, gate de validação | ✅ integração testada com ComfyUI **simulado** + Blender real; ❌ **nenhum modelo foi executado**, Arc A750 **não validada** — [docs/INTEL_AI.md](docs/INTEL_AI.md) |
 
 Resultados reais dos testes: [docs/TESTING.md](docs/TESTING.md).
 
@@ -41,7 +42,7 @@ BLENDER_BIN=/caminho/blender python tests/e2e/stack.py --port 8130      # API + 
 # abra http://127.0.0.1:8130  (senha admin impressa no console)
 ```
 
-Testes: `pytest` (121 testes), `cd apps/dashboard && npm test && npx playwright test`.
+Testes: `pytest` (149 testes), `cd apps/dashboard && npm test && npx playwright test`.
 Implantação em servidores: [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md). Arquitetura: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## Estrutura

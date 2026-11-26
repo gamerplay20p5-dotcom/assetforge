@@ -1,4 +1,8 @@
-# Integração com o Intel AI Playground (ComfyUI headless)
+# Integração com o Intel AI Playground (ComfyUI headless) — **DESABILITADA por padrão**
+
+> **2026-11-26:** na 206 o PyTorch XPU não enxerga a A750 sem Resizable BAR (e não vamos mexer em BIOS/driver/reinício). Este caminho ficou como **opção futura**
+> (`ASSETFORGE_ENABLE_INTEL_AI=1`). O método de IA em uso é a geração só com CPU: **[CPU3D.md](CPU3D.md)**.
+
 
 Fontes consultadas em **2026‑11‑26** (GitHub/Hugging Face): `intel/AI-Playground` (MIT, release **v3.3.0 beta**, commit
 `1aa8423…`), cards dos modelos e READMEs upstream. Tudo marcado **“não validado”** só será afirmado após rodar no hardware do Hank.

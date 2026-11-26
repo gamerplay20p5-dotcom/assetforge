@@ -21,6 +21,9 @@ Nenhum endereço de rede é fixado no código ou nos arquivos de implantação.
 Continua sendo a arquitetura distribuída: a API/fila não sabem quantos workers existem. Para crescer, registre outro worker (outra
 máquina, ex.: a 201, ou mais containers) — veja “Expansão”. **Nada exige mais de um servidor.**
 
+## IA por CPU (método atual)
+Perfil `cpu3d` do Compose (padrão no `.env`): `triposr`, `sf3d` e `worker-ai`. Procedimento e resultados reais: **[CPU3D.md](CPU3D.md)** (`scripts/cpu3d/tasks.sh`). O perfil `ai` (Intel/ComfyUI) está desabilitado.
+
 ## Perfis
 | Perfil | Banco | Como |
 |---|---|---|
