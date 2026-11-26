@@ -12,6 +12,7 @@ cd "$(dirname "$0")/../.."
 IMG=assetforge-vlm-gpu:local
 VOL=assetforge-gpu_vlm-models
 MODEL="${VLM_MODEL:-Qwen/Qwen2.5-VL-7B-Instruct}"
+OUTDIR="$PWD/vlm_results"; mkdir -p -m 777 "$OUTDIR"   # criada pelo usuário (o Docker a criaria como root)
 HARDEN=(--cap-drop ALL --security-opt no-new-privileges --pids-limit 512)
 case "${1:-}" in
   build) docker build -f deployment/Dockerfile.vlm-gpu -t "$IMG" . ;;
@@ -26,7 +27,7 @@ case "${1:-}" in
       -v "$VOL":/models -p "${VLM_BIND:-0.0.0.0}:${VLM_PORT:-8081}:8080" "$IMG" ;;
   benchmark)
     docker run --rm --gpus all "${HARDEN[@]}" --cpus "${VLM_GPU_CPUS:-4}" --memory "${VLM_GPU_MEM:-12g}" -e HF_HUB_OFFLINE=1 \
-      -v "$VOL":/models -v "$(readlink -f "${2:?pasta com as imagens}")":/refs:ro -v "$PWD/vlm_out":/out --entrypoint python "$IMG" \
+      -v "$VOL":/models -v "$(readlink -f "${2:?pasta com as imagens}")":/refs:ro -v "$OUTDIR":/out --entrypoint python "$IMG" \
       /app/scripts/vlm/benchmark_vlm.py --model "$MODEL" --images /refs --out /out --device cuda --task analysis --tag _gpu --max-new-tokens 520 "${@:3}" ;;
   down) docker rm -f vlm-gpu ;;
   logs) docker logs --tail 50 vlm-gpu ;;
