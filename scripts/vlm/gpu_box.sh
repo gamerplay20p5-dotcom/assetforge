@@ -24,7 +24,7 @@ case "${1:-}" in
     docker rm -f vlm-gpu >/dev/null 2>&1 || true
     docker run -d --name vlm-gpu --restart unless-stopped --gpus all "${HARDEN[@]}" \
       --cpus "${VLM_GPU_CPUS:-4}" --memory "${VLM_GPU_MEM:-12g}" --tmpfs /tmp:size=1g \
-      -e VLM_MODEL="$MODEL" -e VLM_TOKEN="$VLM_TOKEN" -e VLM_MAX_SIDE="${VLM_MAX_SIDE:-640}" -e VLM_IDLE_UNLOAD_SECONDS="${VLM_IDLE_UNLOAD_SECONDS:-1800}" -e HF_HUB_OFFLINE=1 \
+      -e VLM_MODEL="$MODEL" -e VLM_TOKEN="$VLM_TOKEN" -e VLM_MAX_SIDE="${VLM_MAX_SIDE:-640}" -e VLM_IDLE_UNLOAD_SECONDS="${VLM_IDLE_UNLOAD_SECONDS:-20}" -e HF_HUB_OFFLINE=1 \
       -v "$VOL":/models -p "${VLM_BIND:-0.0.0.0}:${VLM_PORT:-8081}:8080" "$IMG" ;;
   benchmark)
     docker run --rm --gpus all "${HARDEN[@]}" --cpus "${VLM_GPU_CPUS:-4}" --memory "${VLM_GPU_MEM:-12g}" -e HF_HUB_OFFLINE=1 \

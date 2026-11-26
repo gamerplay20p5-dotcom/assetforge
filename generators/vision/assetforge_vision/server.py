@@ -125,7 +125,7 @@ class Service:
 
     def _reaper(self) -> None:
         while True:
-            time.sleep(30)
+            time.sleep(5)
             idle = time.monotonic() - self.engine.last_used
             busy = any(j["status"] in ("queued", "running") for j in self.jobs.values())
             if self.engine.loaded and not busy and idle > self.engine.idle_unload:

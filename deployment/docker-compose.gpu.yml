@@ -12,7 +12,7 @@ services:
     environment:
       VLM_MODEL: ${VLM_MODEL:-Qwen/Qwen2.5-VL-7B-Instruct}
       VLM_MAX_SIDE: ${VLM_MAX_SIDE:-640}
-      VLM_IDLE_UNLOAD_SECONDS: ${VLM_IDLE_UNLOAD_SECONDS:-1800}
+      VLM_IDLE_UNLOAD_SECONDS: ${VLM_IDLE_UNLOAD_SECONDS:-20}
       VLM_TOKEN: ${VLM_TOKEN:?defina VLM_TOKEN (segredo compartilhado com a API da 206)}
       HF_HUB_OFFLINE: ${VLM_OFFLINE:-1}
     volumes: ["vlm-models:/models"]
