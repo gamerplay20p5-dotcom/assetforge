@@ -14,6 +14,13 @@ interface VisionStatus {
   model?: string;
   reason?: string | null;
 }
+interface Route {
+  mode: "kit" | "fallback" | "none";
+  kit: string | null;
+  label: string;
+  fallback?: string | null;
+  message: string;
+}
 interface Analysis {
   id: string;
   status: "queued" | "running" | "succeeded" | "failed";
@@ -21,7 +28,13 @@ interface Analysis {
   valid?: boolean;
   description?: HouseDescription;
   seconds?: number;
+  category?: string;
+  subject?: string;
+  isolated_object?: boolean;
+  route?: Route;
 }
+
+const CATEGORY_LABEL: Record<string, string> = { house: "Casa", vehicle: "Veículo", character: "Personagem", tree: "Árvore ou planta", prop: "Objeto", other: "Outro" };
 
 function ColorSelect({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
   return (
@@ -50,6 +63,9 @@ export function VisionHouse({ onCreated }: { onCreated: (ids: string[], preview?
   const [analysisId, setAnalysisId] = useState<string | null>(null);
   const [startedAt, setStartedAt] = useState<number | null>(null);
   const [desc, setDesc] = useState<HouseDescription | null>(null);
+  const [refId, setRefId] = useState<string | null>(null);
+  const [other, setOther] = useState<Analysis | null>(null); // the model says it is NOT a house
+  const [sizeM, setSizeM] = useState(1);
   const [aiNote, setAiNote] = useState<string | null>(null);
   const [polish, setPolish] = useState<PolishKey>("polished");
   const [stage, setStage] = useState(6);
@@ -61,11 +77,11 @@ export function VisionHouse({ onCreated }: { onCreated: (ids: string[], preview?
   const analysis = useQuery({
     queryKey: ["vision", analysisId],
     queryFn: () => api<Analysis>(`/vision/describe/${analysisId}`),
-    enabled: !!analysisId && !desc,
+    enabled: !!analysisId && !desc && !other,
     refetchInterval: (q) => (q.state.data && (q.state.data.status === "succeeded" || q.state.data.status === "failed") ? false : 4000),
   });
   const a = analysis.data;
-  const running = !!analysisId && !desc && (!a || a.status === "queued" || a.status === "running");
+  const running = !!analysisId && !desc && !other && (!a || a.status === "queued" || a.status === "running");
 
   useEffect(() => {
     if (!running) return;
@@ -75,6 +91,10 @@ export function VisionHouse({ onCreated }: { onCreated: (ids: string[], preview?
 
   useEffect(() => {
     if (!a || a.status === "queued" || a.status === "running" || desc) return;
+    if (a.status === "succeeded" && a.valid && a.category && a.category !== "house") {
+      setOther(a);
+      return;
+    }
     if (a.status === "succeeded" && a.valid && a.description) {
       setDesc({ ...DEFAULT_DESCRIPTION, ...a.description });
       setAiNote(`Lido pelo Qwen2.5-VL em ${Math.round(a.seconds ?? 0)} s. Confira os campos: o modelo costuma errar janelas, volumes e o tipo de telhado.`);
@@ -93,6 +113,7 @@ export function VisionHouse({ onCreated }: { onCreated: (ids: string[], preview?
     setUrl(URL.createObjectURL(f));
     setAnalysisId(null);
     setDesc(null);
+    setOther(null);
   };
   // Ctrl+V: a pasted screenshot becomes the reference
   useEffect(() => {
@@ -119,11 +140,31 @@ export function VisionHouse({ onCreated }: { onCreated: (ids: string[], preview?
       const up = await fetch("/api/v1/references", { method: "POST", headers: { Authorization: `Bearer ${getToken()}` }, body: fd });
       const ref = await up.json().catch(() => ({}));
       if (!up.ok) throw new Error(typeof ref.detail === "string" ? ref.detail : `falha no upload (${up.status})`);
+      setRefId(ref.id as string);
       return api<{ id: string }>("/vision/describe", { method: "POST", json: { reference_id: ref.id } });
     },
     onSuccess: (r) => {
       setStartedAt(Date.now());
       setAnalysisId(r.id);
+    },
+  });
+
+  // fallback for single objects without a kit: the experimental image-to-mesh provider, clearly labelled
+  const tripo = useMutation({
+    mutationFn: () =>
+      api<{ id: string }>("/jobs", {
+        method: "POST",
+        json: {
+          name: `${other?.subject || "Objeto"} (TripoSR)`,
+          job_type: "ai.image_to_3d",
+          quality_profile: "stylized_standard",
+          formats: ["glb", "fbx", "blend"],
+          params: { provider: "triposr", reference_id: refId, category: "prop", target_size_m: sizeM, lod_ratios: [0.5, 0.25], texture_resolution: 1024, max_triangles: 4000 },
+        },
+      }),
+    onSuccess: (r) => {
+      qc.invalidateQueries({ queryKey: ["jobs"] });
+      onCreated([r.id], url);
     },
   });
 
@@ -194,6 +235,7 @@ export function VisionHouse({ onCreated }: { onCreated: (ids: string[], preview?
                 setUrl(null);
                 setAnalysisId(null);
                 setDesc(null);
+                setOther(null);
               }}
             >
               <X size={12} />
@@ -219,7 +261,29 @@ export function VisionHouse({ onCreated }: { onCreated: (ids: string[], preview?
       </div>
       {fileErr && <div className="check-fail">{fileErr}</div>}
 
-      {!desc && (
+      {other && (
+        <div className="vis-other">
+          <div className="row wrap" style={{ gap: 8 }}>
+            <span className="chip">{CATEGORY_LABEL[other.category ?? "other"] ?? other.category}</span>
+            {other.subject && <strong>{other.subject}</strong>}
+          </div>
+          <div className="st-hint">{other.route?.message}</div>
+          {other.route?.mode === "fallback" && (
+            <div className="row wrap" style={{ gap: 8 }}>
+              <label className="row" style={{ gap: 4 }}>
+                <span className="muted">Altura real (m)</span>
+                <input type="number" min={0.1} step={0.1} style={{ width: 70 }} value={sizeM} onChange={(e) => setSizeM(Number(e.target.value))} />
+              </label>
+              <button disabled={tripo.isPending || !refId || sizeM <= 0} onClick={() => tripo.mutate()}>
+                Gerar com TripoSR (experimental)
+              </button>
+            </div>
+          )}
+          <ErrorNote error={tripo.error} />
+          <button onClick={() => { setDesc({ ...DEFAULT_DESCRIPTION }); setOther(null); setAiNote("Descrição de casa preenchida à mão."); }}>Tratar como casa mesmo assim</button>
+        </div>
+      )}
+      {!desc && !other && (
         <div className="row wrap" style={{ gap: 8 }}>
           <button className="primary" disabled={!file || analyze.isPending || running || off} onClick={() => analyze.mutate()}>
             <Wand2 size={15} /> {running ? `Analisando… ${elapsed}s` : "Analisar com IA"}

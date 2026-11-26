@@ -75,3 +75,23 @@ def test_split_wall_only_counts_brick_under_a_different_wall():
     assert has_split_wall(parse_description(base))
     assert not has_split_wall(parse_description({**base, "lower_wall_material": "siding", "lower_wall_color": "blue"}))  # invented by the model
     assert not has_split_wall(parse_description({**base, "wall_material": "brick"}))
+
+
+def test_analysis_accepts_any_category_and_routes_honestly():
+    from assetforge_vision.kits import route
+    from assetforge_vision.schema import parse_analysis
+
+    car = parse_analysis('{"category": "Car", "subject": "red sports car", "isolated_object": true, "house": null}')
+    assert car.category == "vehicle" and car.house is None
+    r = route(car)
+    assert r["mode"] == "fallback" and r["fallback"] == "triposr" and "kit" in r["message"].lower()
+    scene = parse_analysis('{"category": "other", "subject": "a map", "isolated_object": false, "house": null}')
+    assert route(scene)["mode"] == "none"
+    house = parse_analysis({"category": "house", "subject": "blue house", "isolated_object": False, "house": {k: _first(v) for k, v in TRUTH["02_sobrado_azul"].items()}})
+    assert route(house)["mode"] == "kit" and house.house is not None
+    legacy = parse_analysis({k: _first(v) for k, v in TRUTH["02_sobrado_azul"].items()})  # old house-only answers still work
+    assert legacy.category == "house"
+    with pytest.raises(DescriptionError):
+        parse_analysis('{"category": "house", "subject": "x", "isolated_object": false, "house": null}')
+    with pytest.raises(DescriptionError):
+        parse_analysis('{"category": "spaceship", "subject": "x", "isolated_object": false}')

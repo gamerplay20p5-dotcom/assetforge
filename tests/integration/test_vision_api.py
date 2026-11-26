@@ -112,3 +112,12 @@ def test_preview_and_job_creation_validate_the_description(vlm_client):
     assert ok.status_code == 201, ok.text
     bad = vlm_client.post(f"{API}/jobs", headers=h, json={"name": "casa", "params": {"category": "house", "house_description": {**desc, "floors": 7}}})
     assert bad.status_code == 422
+
+
+def test_describe_reports_category_and_route_for_non_houses(vlm_client, monkeypatch):
+    h = _login(vlm_client)
+    monkeypatch.setattr(StubVlm, "answer", '{"category": "vehicle", "subject": "red car", "isolated_object": true, "house": null}')
+    r = vlm_client.get(f"{API}/vision/describe/vis_ok", headers=h).json()
+    assert r["valid"] and r["category"] == "vehicle" and r["route"]["mode"] == "fallback" and "description" not in r
+    monkeypatch.setattr(StubVlm, "answer", '{"category": "other", "subject": "a map", "isolated_object": false, "house": null}')
+    assert vlm_client.get(f"{API}/vision/describe/vis_ok", headers=h).json()["route"]["mode"] == "none"
