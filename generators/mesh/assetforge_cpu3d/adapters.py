@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import glob
 import os
+import re
 import shutil
 import sys
 from pathlib import Path
@@ -54,18 +55,27 @@ def validate_params(provider: str, params: dict) -> dict:
     return out
 
 
+def provider_device() -> str:
+    """``cpu`` (default) or ``cuda:0`` etc. from PROVIDER_DEVICE; a GPU box sets it so the same server code runs on its card."""
+    d = os.environ.get("PROVIDER_DEVICE", "cpu").strip() or "cpu"
+    if d != "cpu" and not re.fullmatch(r"cuda(:\d)?", d):
+        raise ValueError(f"PROVIDER_DEVICE must be cpu or cuda[:N], got {d!r}")
+    return d
+
+
 def build_command(provider: str, image: Path, out_dir: Path, params: dict, *, bake: bool | None = None) -> tuple[list[str], dict[str, str]]:
     p = validate_params(provider, params)
     py = sys.executable
+    dev = provider_device()
     if provider == "sf3d":
-        cmd = [py, str(SF3D_DIR / "run.py"), str(image), "--output-dir", str(out_dir), "--device", "cpu",
+        cmd = [py, str(SF3D_DIR / "run.py"), str(image), "--output-dir", str(out_dir), "--device", dev,
                "--texture-resolution", str(p["texture_resolution"]), "--remesh_option", p["remesh"],
                "--foreground-ratio", str(p["foreground_ratio"])]
         if p["remesh"] != "none" and p["target_vertex_count"] > 0:
             cmd += ["--target_vertex_count", str(p["target_vertex_count"])]
-        return cmd, {"SF3D_USE_CPU": "1"}
+        return cmd, ({"SF3D_USE_CPU": "1"} if dev == "cpu" else {})
     do_bake = p["bake_texture"] if bake is None else bake
-    cmd = [py, str(TRIPOSR_DIR / "run.py"), str(image), "--device", "cpu", "--output-dir", str(out_dir), "--mc-resolution", str(p["mc_resolution"]),
+    cmd = [py, str(TRIPOSR_DIR / "run.py"), str(image), "--device", dev, "--output-dir", str(out_dir), "--mc-resolution", str(p["mc_resolution"]),
            "--chunk-size", "8192", "--foreground-ratio", str(p["foreground_ratio"])]
     if do_bake:
         # moderngl needs a display/GL context: run under a virtual X server (Mesa llvmpipe, software GL) when available (container)

@@ -83,7 +83,7 @@ services:
       ASSETFORGE_CPU3D_CORES: ${AI_WORKER_CORES:-12}
       ASSETFORGE_CPU3D_RAM_MB: ${CPU3D_JOB_RAM_MB:-16384}
       ASSETFORGE_LLM_MODEL: ${ASSETFORGE_LLM_MODEL:-}
-      ASSETFORGE_VLM_URL: ${ASSETFORGE_VLM_URL:-}               # lista em ordem de preferência: GPU primeiro, CPU como reserva (ex.: http://192.168.1.203:8081,http://vlm:8080)
+      ASSETFORGE_VLM_URL: ${ASSETFORGE_VLM_URL:-}               # lista em ordem de preferência: GPU primeiro, CPU como reserva (ex.: http://IP_DA_CAIXA_GPU:8081,http://vlm:8080)
       ASSETFORGE_VLM_TOKEN: ${ASSETFORGE_VLM_TOKEN:-}           # segredo compartilhado com o serviço de GPU
     volumes: ["assets:/data/storage"]
     ports: ["${ASSETFORGE_BIND:-0.0.0.0}:${ASSETFORGE_PORT:-8000}:8000"]
@@ -186,7 +186,9 @@ services:
       ASSETFORGE_WORKER_MAX_JOBS: ${AI_WORKER_MAX_JOBS:-1}      # 1 = uma geração 3D por vez (RAM/CPU)
       ASSETFORGE_WORKER_CPU_CORES: ${AI_WORKER_CORES:-12}
       ASSETFORGE_WORKER_RAM_MB: ${AI_WORKER_RAM_MB:-24576}
-      ASSETFORGE_CPU3D_PROVIDERS: sf3d=http://sf3d:8080,triposr=http://triposr:8080
+      # 'gpu|cpu': o primeiro endereço que responde pronto é usado (ex.: triposr=http://IP_DA_CAIXA_GPU:8082|http://triposr:8080)
+      ASSETFORGE_CPU3D_PROVIDERS: ${ASSETFORGE_CPU3D_PROVIDERS:-sf3d=http://sf3d:8080,triposr=http://triposr:8080}
+      ASSETFORGE_CPU3D_TOKEN: ${ASSETFORGE_CPU3D_TOKEN:-}
     volumes: ["worker-ai-state:/state"]
     tmpfs: ["/state/jobs:size=${ASSETFORGE_WORKER_SCRATCH:-4g},uid=10002"]
     networks: [internal]

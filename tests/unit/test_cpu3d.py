@@ -194,3 +194,50 @@ def test_registry_license_facts_are_recorded():
     assert not tr.weights_gated and tr.code_license == "MIT" and "MIT" in tr.weights_license
     assert len(sf.commit) == 40 and len(tr.commit) == 40
     json.dumps({k: v.__dict__ for k, v in PROVIDERS.items()})
+
+
+# ----------------------------------------------------------------------------- GPU box: device, token, several URLs
+def test_device_comes_from_the_environment_and_is_whitelisted(monkeypatch):
+    monkeypatch.setenv("PROVIDER_DEVICE", "cuda:0")
+    cmd, env = adapters.build_command("triposr", Path("/w/in.png"), Path("/w/out"), {})
+    assert cmd[cmd.index("--device") + 1] == "cuda:0"
+    cmd, env = adapters.build_command("sf3d", Path("/w/in.png"), Path("/w/out"), {})
+    assert cmd[cmd.index("--device") + 1] == "cuda:0" and "SF3D_USE_CPU" not in env  # CPU-forcing env only on CPU
+    for bad in ("cuda; rm -rf /", "tpu", "cuda:x"):
+        monkeypatch.setenv("PROVIDER_DEVICE", bad)
+        with pytest.raises(ValueError, match="PROVIDER_DEVICE"):
+            adapters.build_command("triposr", Path("/w/in.png"), Path("/w/out"), {})
+
+
+def test_provider_token_is_required_except_for_health(tmp_path, monkeypatch):
+    import httpx
+
+    svc = Service("triposr", tmp_path / "w", tmp_path / "hf", 2, 1, 10)
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(svc, token="tok"))
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    base = f"http://127.0.0.1:{srv.server_address[1]}"
+    try:
+        for _ in range(50):  # wait until the server thread is accepting (avoids a start-up race)
+            try:
+                if httpx.get(f"{base}/health").status_code == 200:
+                    break
+            except httpx.HTTPError:
+                time.sleep(0.1)
+        assert httpx.get(f"{base}/health").status_code == 200
+        assert httpx.get(f"{base}/stats").status_code == 401
+        assert httpx.post(f"{base}/v1/jobs", content=b"x").status_code == 401
+        assert httpx.post(f"{base}/v1/jobs", content=b"x", headers={"Authorization": "Bearer wrong"}).status_code == 401
+        assert httpx.get(f"{base}/stats", headers={"Authorization": "Bearer tok"}).status_code == 200
+    finally:
+        srv.shutdown()
+
+
+def test_client_uses_the_first_healthy_url_and_sends_the_token(make_service, monkeypatch):
+    svc, cp = make_service()
+    gpu_dead = "http://127.0.0.1:9"
+    monkeypatch.setenv("ASSETFORGE_CPU3D_TOKEN", "tok")
+    p = CpuProvider("triposr", f"{gpu_dead}|{cp.base}")
+    assert p.bases == [gpu_dead, cp.base] and "Bearer tok" == p.http.headers["Authorization"]
+    h = p.health()
+    assert h["reachable"] and p.base == cp.base  # the dead GPU box is skipped, the next URL answers
+    assert parse_providers_env(f"triposr={gpu_dead}|http://b:8080")["triposr"] == f"{gpu_dead}|http://b:8080"

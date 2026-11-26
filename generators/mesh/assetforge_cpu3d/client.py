@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -52,18 +53,29 @@ class CpuProvider:
     def __init__(self, name: str, url: str, client: httpx.Client | None = None) -> None:
         if name not in PROVIDERS:
             raise ValueError(f"unknown provider {name!r}")
-        self.name, self.base = name, url.rstrip("/")
-        self.http = client or httpx.Client(timeout=httpx.Timeout(30.0, read=300.0))
+        self.name = name
+        self.bases = [u.strip().rstrip("/") for u in url.split("|") if u.strip()]  # 'gpu_url|cpu_url': first healthy one is used
+        self.base = self.bases[0]
+        token = os.environ.get("ASSETFORGE_CPU3D_TOKEN", "")
+        self.http = client or httpx.Client(timeout=httpx.Timeout(30.0, read=300.0), headers={"Authorization": f"Bearer {token}"} if token else {})
         self.spec = PROVIDERS[name]
 
     # ------------------------------------------------------------------ info
     def health(self) -> dict:
-        try:
-            r = self.http.get(f"{self.base}/health")
-            r.raise_for_status()
-            return {"reachable": True, **r.json()}
-        except (httpx.HTTPError, ValueError) as exc:
-            return {"reachable": False, "ready": False, "reason": f"provider unreachable: {type(exc).__name__}"}
+        """Health of the first ready URL (and remembers it as the one to use); otherwise of the last one tried."""
+        last: dict = {"reachable": False, "ready": False, "reason": "no provider url"}
+        for base in self.bases:
+            try:
+                r = self.http.get(f"{base}/health")
+                r.raise_for_status()
+                h = {"reachable": True, "url": base, **r.json()}
+            except (httpx.HTTPError, ValueError) as exc:
+                h = {"reachable": False, "ready": False, "reason": f"provider unreachable: {type(exc).__name__}"}
+            if h.get("ready"):
+                self.base = base
+                return h
+            last = h
+        return last
 
     def stats(self) -> dict:
         try:

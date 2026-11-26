@@ -38,7 +38,7 @@ def test_cpu3d_providers_are_cpu_only_internal_and_resource_limited():
         assert "HF_TOKEN" not in svc["environment"]  # the gated-weights token never reaches the long-running services
     assert "HF_TOKEN" in SERVICES["sf3d-setup"]["environment"] and SERVICES["sf3d-setup"]["profiles"] == ["tools"]
     w = SERVICES["worker-ai"]["environment"]
-    assert w["ASSETFORGE_CPU3D_PROVIDERS"] == "sf3d=http://sf3d:8080,triposr=http://triposr:8080" and "devices" not in SERVICES["worker-ai"]
+    assert w["ASSETFORGE_CPU3D_PROVIDERS"] == "${ASSETFORGE_CPU3D_PROVIDERS:-sf3d=http://sf3d:8080,triposr=http://triposr:8080}" and "devices" not in SERVICES["worker-ai"]
     assert SERVICES["worker-gpu"]["environment"]["ASSETFORGE_ENABLE_INTEL_AI"] == "${ASSETFORGE_ENABLE_INTEL_AI:-0}"  # Intel stays opt-in
 
 
@@ -134,3 +134,10 @@ def test_gpu_box_compose_runs_only_inference_with_small_cpu_ram_and_a_token():
     assert "cpus" in v and "mem_limit" in v and v["cap_drop"] == ["ALL"]
     assert v["environment"]["VLM_TOKEN"].startswith("${VLM_TOKEN:?")  # refuses to start without a shared secret
     assert len(v["ports"]) == 1
+
+
+def test_triposr_gpu_image_and_script_exist_with_cuda_and_a_token():
+    d = (DEP / "Dockerfile.triposr-gpu").read_text(encoding="utf-8")
+    assert "nvidia/cuda" in d and "devel" in d and "PROVIDER_DEVICE=cuda:0" in d and "torchmcubes" in d
+    sh = (ROOT / "scripts" / "vlm" / "gpu_box.sh").read_text(encoding="utf-8")
+    assert "PROVIDER_TOKEN" in sh and "--gpus all" in sh and "--cap-drop ALL" in sh

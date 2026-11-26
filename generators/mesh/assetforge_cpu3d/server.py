@@ -187,7 +187,7 @@ class Service:
         ok, why = adapters.weights_ready(self.provider, self.hf_home)
         spec = PROVIDERS[self.provider]
         return {"provider": self.provider, "title": spec.title, "ready": ok or "PROVIDER_CMD_OVERRIDE" in os.environ, "reason": why,
-                "threads": self.threads, "concurrency": self.concurrency,
+                "device": adapters.provider_device(), "threads": self.threads, "concurrency": self.concurrency,
                 "active_jobs": sum(1 for j in self.jobs.values() if j.status in ("queued", "running")),
                 "license": {"code": spec.code_license, "weights": spec.weights_license, "commercial": spec.commercial}, "upstream_commit": spec.commit}
 
@@ -203,10 +203,19 @@ class Service:
         return {"host_cpu_percent": psutil.cpu_percent(interval=None), "host_ram_used_mb": int(vm.used / 2**20), "host_ram_total_mb": int(vm.total / 2**20), **cg}
 
 
-def make_handler(svc: Service):
+def make_handler(svc: Service, token: str = ""):
     class H(BaseHTTPRequestHandler):
         def log_message(self, *a):  # noqa: ANN002
             pass
+
+        def _authorized(self) -> bool:
+            """With PROVIDER_TOKEN set (box reachable from another machine) every request except /health must carry it."""
+            if not token:
+                return True
+            import hmac
+
+            given = self.headers.get("Authorization", "").removeprefix("Bearer ").strip()
+            return hmac.compare_digest(given.encode(), token.encode())
 
         def _send(self, code: int, obj) -> None:
             data = json.dumps(obj).encode()
@@ -224,6 +233,8 @@ def make_handler(svc: Service):
             parts = [p for p in u.path.split("/") if p]
             if parts == ["health"]:
                 return self._send(200, svc.health())
+            if not self._authorized():
+                return self._send(401, {"error": "missing or wrong token"})
             if parts == ["stats"]:
                 return self._send(200, svc.stats())
             if len(parts) >= 3 and parts[:2] == ["v1", "jobs"]:
@@ -244,6 +255,8 @@ def make_handler(svc: Service):
             self._send(404, {"error": "not found"})
 
         def do_POST(self):  # noqa: N802
+            if not self._authorized():
+                return self._send(401, {"error": "missing or wrong token"})
             u = urlparse(self.path)
             parts = [p for p in u.path.split("/") if p]
             if parts == ["v1", "jobs"]:
@@ -283,7 +296,7 @@ def main() -> None:
                   int(os.environ.get("PROVIDER_THREADS", "8")), int(os.environ.get("PROVIDER_CONCURRENCY", "1")),
                   float(os.environ.get("PROVIDER_JOB_TIMEOUT", "3600")))
     psutil.cpu_percent(interval=None)
-    srv = ThreadingHTTPServer(("0.0.0.0", int(os.environ.get("PROVIDER_PORT", "8080"))), make_handler(svc))
+    srv = ThreadingHTTPServer(("0.0.0.0", int(os.environ.get("PROVIDER_PORT", "8080"))), make_handler(svc, os.environ.get("PROVIDER_TOKEN", "")))
     print(f"[cpu3d] provider={name} threads={svc.threads} concurrency={svc.concurrency} ready={svc.health()['ready']}", flush=True)
     srv.serve_forever()
 
