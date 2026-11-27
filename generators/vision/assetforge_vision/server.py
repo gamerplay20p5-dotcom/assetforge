@@ -179,6 +179,10 @@ def make_handler(svc: Service, token: str = ""):  # noqa: ANN201
 
         def do_POST(self) -> None:  # noqa: N802
             if not self._authorized():
+                n = int(self.headers.get("Content-Length") or 0)
+                if 0 < n <= MAX_IMAGE_BYTES:  # drain the body so the client gets the 401 instead of a connection reset
+                    self.rfile.read(n)
+                self.close_connection = True
                 return self._send(401, {"error": "missing or wrong token"})
             path, _, query = self.path.partition("?")
             if path != "/describe":
