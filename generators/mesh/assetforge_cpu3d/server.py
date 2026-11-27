@@ -15,6 +15,7 @@ import json
 import os
 import shutil
 import signal
+import socket
 import subprocess
 import sys
 import threading
@@ -256,7 +257,25 @@ def make_handler(svc: Service, token: str = ""):
 
         def do_POST(self):  # noqa: N802
             if not self._authorized():
-                return self._send(401, {"error": "missing or wrong token"})
+                self._send(401, {"error": "missing or wrong token"})
+                self.close_connection = True
+                # An immediate close with unread bytes can reset the TCP connection
+                # on Windows before the client receives the 401. Send FIN first and
+                # drain briefly, without feeding unauthorized data to the provider.
+                deadline = time.monotonic() + 0.25
+                try:
+                    self.wfile.flush()
+                    self.connection.shutdown(socket.SHUT_WR)
+                    remaining = min(int(self.headers.get("Content-Length", "0")), 65536)
+                    while remaining > 0 and (timeout := deadline - time.monotonic()) > 0:
+                        self.connection.settimeout(timeout)
+                        chunk = self.rfile.read1(min(remaining, 8192))
+                        if not chunk:
+                            break
+                        remaining -= len(chunk)
+                except (OSError, ValueError):
+                    pass
+                return
             u = urlparse(self.path)
             parts = [p for p in u.path.split("/") if p]
             if parts == ["v1", "jobs"]:
