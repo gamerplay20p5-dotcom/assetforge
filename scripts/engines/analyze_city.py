@@ -26,7 +26,7 @@ import trimesh
 from PIL import Image, ImageDraw
 
 ROOT = Path(__file__).resolve().parents[2]
-ENGINES = ("t2q8", "sv_q8", "sv", "mv4", "mv3")
+ENGINES = ("t2q8", "sv_q8", "sv", "mv4", "mv3", "mvpy")
 VIEWS = ["front_left", "front_right", "back", "aerial"]
 RESOLUTION = re.compile(r"quantized @res(\d+) \(grid [^)]*\) = (\d+) tokens")
 
@@ -97,6 +97,11 @@ def analyse(d: Path, out: Path, blender_bin: str, threads: int) -> dict:
 
 def resolution_details(d: Path) -> dict:
     _, engine, requested, machine = parse(d.name)
+    pilot = d / "model.json"
+    if engine == "mvpy" and pilot.is_file():
+        report = json.loads(pilot.read_text())
+        return {"engine": engine, "machine": machine, "requested_resolution": int(requested),
+                "effective_resolution": report["effective_resolution"], "tokens": None, "summary": report}
     log = d / "raw.log"
     quantized = RESOLUTION.findall(log.read_text(errors="replace")) if log.is_file() else []
     effective, tokens = (int(value) for value in quantized[-1]) if quantized else (None, None)
