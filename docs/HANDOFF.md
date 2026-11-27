@@ -19,7 +19,9 @@ O build Python ganhou parâmetros de CUDA e arquitetura para a RTX, o Pixal3D ac
 
 A entrada aceita PNG, JPEG e WebP, com normalização da rotação EXIF, e o envio em lote cria um pedido por conjunto de vistas. Para motores multivista, o lote associa nomes `asset__front`, `asset__right`, `asset__back` e `asset__three_quarter`. O usuário informa as vistas que possui. A preparação usa BiRefNet, reaproveita as máscaras existentes, alinha o enquadramento e registra referências repetidas e diferenças de enquadramento. A imagem enviada permanece na Biblioteca como referência original. O worker antigo pode atender imagens já recortadas no Pixal3D. O scheduler reserva a remoção automática no Pixal3D para workers que anunciam essa capacidade.
 
-A regeneração parte da versão escolhida na Biblioteca e permite substituir apenas as vistas necessárias. A fila apresenta preparação, condicionamento, inferência, malha e texturas, validação e empacotamento. No navegador isolado, um JPEG e um WebP criaram dois jobs de um lote. Na Spark, o JPEG passou por recorte automático e Pixal3D SV e produziu um GLB que passou na validação estrutural.
+A regeneração parte da versão escolhida na Biblioteca e permite substituir apenas as vistas necessárias. A fila apresenta preparação, condicionamento, inferência, malha e texturas, validação e empacotamento. No navegador isolado, um JPEG e um WebP criaram dois jobs de um lote. Na Spark, o JPEG passou por recorte automático e Pixal3D SV e produziu um GLB que passou na validação estrutural. Outro teste preparou quatro vistas, com dois recortes automáticos e duas máscaras preservadas. O Playwright também confirmou uma regeneração Pixal3D MV que trocou apenas a frente e reutilizou as outras três referências da versão.
+
+A central executa `assetforge-central:city-live` e a Spark executa `assetforge-engine-worker:city-live` com a capacidade `engine.reference-prep`. A RTX segue registrada e anuncia os motores GGUF. A troca recriou somente a API do AssetForge e o worker NVIDIA da Spark. A imagem anterior da API está registrada em `before-city.override.yml` na central e o contêiner anterior da Spark ficou parado como `assetforge-spark-worker-before-city`. Os 45 testes de API e fila passaram em Docker antes da troca.
 
 ### Pacotes para Unity
 
@@ -31,7 +33,7 @@ A regeneração parte da versão escolhida na Biblioteca e permite substituir ap
 | Operário | 1,8 | 967.151 | 435.204 | 145.010 | Cápsula |
 | Caminhão | 3,4 | 960.367 | 432.153 | 144.024 | Caixa |
 
-As proporções de ensaio foram 1, 0,45 e 0,15. O pipeline de importação e exportação do Blender alterou ligeiramente a contagem do LOD0. As proporções servem para comparar candidatos em Unity.
+As proporções de ensaio foram 1, 0,45 e 0,15. O pipeline de importação e exportação do Blender alterou ligeiramente a contagem do LOD0. As proporções servem para comparar candidatos em Unity. A auditoria reabriu os três BLEND, importou os três FBX e conferiu a altura física e o piso no zero. Os hashes das duas texturas embutidas coincidiram entre os três LODs de cada pacote. As evidências de importação e os metadados estão em `reports_out/engines/city-validation/`.
 
 O piloto de rigging montou 13 ossos no operário retopologizado, mas o automatic weights do Blender deixou os 20.551 vértices sem peso. O caminhão não apresentou rodas destacáveis pelo teste de componentes conectados. O residencial gerou uma seção aberta a 21 m, com 487.619 triângulos. Esse corte permite estudar estágios de obra sem kit e requer geometria de acabamento para virar um estágio utilizável.
 
