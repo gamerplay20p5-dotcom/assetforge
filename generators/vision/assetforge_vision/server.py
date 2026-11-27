@@ -66,6 +66,10 @@ class Engine:
         with self.lock:
             self._model = self._processor = None
             gc.collect()
+            if self.device == "cuda":  # hand the memory back to the card (PyTorch otherwise keeps it cached and nvidia-smi still shows it used)
+                import torch
+
+                torch.cuda.empty_cache()
 
     def describe(self, png: bytes, task: str = "house") -> dict[str, Any]:
         import torch
