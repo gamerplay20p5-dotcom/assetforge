@@ -3,6 +3,34 @@
 Escrito para: outro agente de código (Codex) que vai continuar o trabalho sem o histórico da conversa. Idioma do projeto, da UI e dos docs: **PT-BR**.
 Commits em Conventional Commits; PRs em português **e** inglês. Atribuição nos commits: `Co-Authored-By: <modelo> <noreply@anthropic.com>` se feitos por Claude.
 
+## Reconstrução e Biblioteca CITY+++ · 27/11/2026
+
+O login abre **Reconstrução 3D**. A navegação tem Visão geral, Reconstrução 3D, Agente de construções, Preparação de assets, Biblioteca e Infraestrutura. TRELLIS.2 GGUF e as três variantes do Pixal3D são os motores da reconstrução direta. TripoSR e Stable Fast 3D ficam em Motores legados. Gemini, Grok e os kits manuais ficam no fluxo de construção. A fila, os lotes, os workers e os provedores estão em Infraestrutura.
+
+### Acervo e reprodução
+
+`scripts/engines/import_library.py` importa os 40 experimentos a partir de `~/assetforge-phase3/archive40-source` na 206. Cada execução ocupa uma entrada da Biblioteca, com o master GLB em v1 e revisão humana pendente. Use o filtro **Experimentos CITY+++**. A versão inclui os PNGs de referência e de inferência, as poses multivista, os relatórios, as revisões dos pesos e o SHA-256 dos arquivos. Os GLBs nivelados, os pacotes Unity e os pilotos de otimização e impostores ficam em **Arquivos**. Os vínculos dos derivados com os masters dos pilotos usam o SHA-256 da fonte.
+
+A importação publicou 14 masters TRELLIS.2 GGUF, 13 Pixal3D SV, 12 Pixal3D MV e um Pixal3D Python, sendo 21 da RTX e 19 da Spark. A comparação entre a origem e o armazenamento da central confirmou os 40 SHA-256. A verificação também conferiu 62 PNGs de referência distintos, 47 arquivos ou pacotes derivados e 10 pareceres Gemini. As evidências estão em `archive40-central-dry-run.jsonl`, `archive40-library-import.jsonl` e `archive40-live-verification.json` na 206. A importação reutilizou os GLBs existentes.
+
+**Repetir geração** carrega a receita da versão em exibição. Mantém as imagens, a resolução solicitada, o orçamento de tokens, a seed, as configurações do exportador e os padrões históricos do CLI. A resolução efetiva e o tempo arquivados descrevem a execução anterior. Alterar a seed mantém os demais campos. Alterar uma imagem solicita nova preparação das vistas. A RTX permanece em manutenção no scheduler por causa das divergências de RAM. Para as receitas da RTX, é possível escolher a Spark, com a diferença de hardware e do build CUDA registrada como limitação de reprodutibilidade.
+
+A reconstrução nova tem a decimação desmarcada por padrão. A exportação nativa ainda pode limpar ou remalhar a superfície conforme o motor. O master importado conserva o GLB gerado no experimento, inclusive as escolhas históricas de exportação.
+
+### Preparação para Unity
+
+Na Biblioteca, **Preparar para Unity** seleciona uma versão original. O worker CPU baixa o GLB da versão de origem por uma rota vinculada à lease, registra seu SHA-256 e exporta uma versão derivada com metragem, rotação explícita, pivô, PBR, colisão e arquivos GLB, FBX e BLEND. Os LODs simplificados exigem proporções informadas pelo usuário. A versão do master continua acessível em **Versões**.
+
+O teste de ponta a ponta passou por API, fila e Blender em Docker isolado na 206. A torre a 48 m manteve 297.650 triângulos no LOD0 e gerou 148.825 no LOD1 de teste. O SHA-256 de v1 permaneceu `9432a1580d8725ec7db3d0d4ccf666057d90a1b7e3da9b69ddd45e2eed9a68ca`. O benchmark dentro da Unity continua pendente de um Editor licenciado.
+
+### Agente de construções
+
+O prompt `spec-v3` pede conciliação das vistas, proporções dos volumes, ritmo de fachada, contagem de pavimentos e registro das inferências sobre lados ocultos. `scripts/ai/compare_building_providers.py` usa os mesmos PNGs na mesma ordem, registra os hashes e valida a especificação dos dois provedores no pool central. Gemini `gemini-3.5-flash-lite` produziu especificações válidas para o residencial e o comercial, com tempos de 5,10 s e 6,56 s. Os dois relatórios estão em `~/assetforge-phase3/agent-spec-v3-*.json` na 206. A comparação lado a lado depende da ativação do Grok no painel de IA. A revisão visual e as liberações comerciais permanecem pendentes.
+
+### Docker
+
+Na 206, `~/assetforge-phase3/archive40.override.yml` seleciona a API `assetforge-central:archive40-7818f98` e o worker CPU `assetforge-worker:archive40-118e531`. O rollback da central usa `~/assetforge-phase3/live.override.yml`. Na Spark, os workers GGUF e Python usam as imagens `archive40-118e531`. Os contêineres anteriores estão parados com sufixo `-before-archive40`. Os logs de importação e validação ficam em `~/assetforge-phase3/archive40-*` na 206. A alteração da RTX ficou restrita ao estado do worker na central.
+
 ## Reteste da memória da RTX 4090 · 27/11/2026
 
 ### Após o ajuste de AI Overclock / Tuning para Manual
