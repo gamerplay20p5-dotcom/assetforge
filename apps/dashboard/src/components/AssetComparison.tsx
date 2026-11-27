@@ -34,25 +34,28 @@ export function AssetComparison({ asset, version, token }: { asset: Asset; versi
     </div>
     <div className="engine-compare">
       <section>
-        <h3>Versão {version}</h3>
+        <div className="engine-compare-heading"><h3>Versão {version}</h3></div>
         <Viewer3D url={token ? fileUrl(asset.id, "model.glb", token, version) : null} {...viewerFlags}
           onCapture={references.length ? (image) => setRenders((old) => [...old, image].slice(-4)) : undefined} />
       </section>
       <section>
         {mode === "reference" ? <>
-          <h3>Imagem original</h3>
-          {references.length ? <>
-            <select aria-label="Vista original" value={reference} onChange={(e) => setReference(e.target.value)}>
+          <div className="engine-compare-heading">
+            <h3>Imagem original</h3>
+            {references.length > 1 && <select aria-label="Vista original" value={reference} onChange={(e) => setReference(e.target.value)}>
               {references.map(([view]) => <option key={view} value={view}>{views[view] ?? view}</option>)}
-            </select>
+            </select>}
+          </div>
+          {references.length ? <>
             {target && token && <img alt={views[reference] ?? "Referência original"}
               src={`/api/v1/references/${encodeURIComponent(target)}?token=${encodeURIComponent(token)}`} />}
           </> : <p className="muted">Esta versão não tem referências armazenadas.</p>}
         </> : <>
-          <h3>Outra versão</h3>
-          <select aria-label="Versão para comparar" value={other?.version ?? ""} onChange={(e) => setOtherVersion(Number(e.target.value))}>
-            {versions.map((v) => <option key={v.version} value={v.version}>v{v.version} · {v.engine}</option>)}
-          </select>
+          <div className="engine-compare-heading">
+            <select aria-label="Versão para comparar" value={other?.version ?? ""} onChange={(e) => setOtherVersion(Number(e.target.value))}>
+              {versions.map((v) => <option key={v.version} value={v.version}>v{v.version} · {v.engine}</option>)}
+            </select>
+          </div>
           <Viewer3D url={token && other ? fileUrl(asset.id, "model.glb", token, other.version) : null} {...viewerFlags} />
         </>}
       </section>

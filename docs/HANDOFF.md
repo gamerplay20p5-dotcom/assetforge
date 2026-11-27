@@ -7,6 +7,8 @@ Commits em Conventional Commits; PRs em português **e** inglês. Atribuição n
 
 A aba **Motores** cria jobs de TRELLIS.2 GGUF, Pixal3D Single-View, Multi-View e Python. O kit procedural continua disponível pelo gerador existente. A aba valida as vistas, expõe os parâmetros de inferência e lista os workers que anunciam o motor. Pixal3D SV e MV usam PNGs com transparência. Os motores GGUF permitem pular a decimação nativa do exportador. A Biblioteca carrega o GLB no visualizador, compara vistas originais ou duas versões e registra a revisão humana por versão. As avaliações Gemini usam a configuração de IA da central e têm parecer próprio. Os quatro motores e seus pesos continuam experimentais, com revisão de licença comercial pendente.
 
+Um teste do exportador TRELLIS.2 com `--decim 0` na RTX 4090 escreveu 1.118.836 triângulos, textura de 4096 px e GLB de 40,5 MB em 64,7 s, com resolução 512. O piso de referência do visualizador se alinha à base de cada GLB para não cobrir masters que vêm centrados na origem.
+
 O worker NVIDIA corre em Docker e anuncia temperatura, utilização e memória. A admissão usa histórico por motor, categoria, resolução, tokens e textura, com reservas transitórias após falhas. Na Spark, a reserva usa RAM unificada e o executor Python compartilha a fila com os GGUF por um volume local. O executor Python fica sem rede e usa pesos montados somente para leitura. O GGUF da Spark inclui o patch da grade CUDA registrado neste HANDOFF.
 
 | Cenário TRELLIS.2 GGUF, 1024 efetivos · seed 1 · textura 4096 | RTX 4090 | DGX Spark |

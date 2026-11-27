@@ -32,6 +32,8 @@ export function Viewer3D({ url, wireframe, showBounds, autoRotate, studio, onSta
     scene: THREE.Scene;
     camera: THREE.PerspectiveCamera;
     controls: OrbitControls;
+    ground: THREE.Mesh;
+    grid: THREE.GridHelper;
     model: THREE.Object3D | null;
     box: THREE.Box3Helper | null;
     raf: number;
@@ -98,7 +100,8 @@ export function Viewer3D({ url, wireframe, showBounds, autoRotate, studio, onSta
     ro.observe(el);
     resize();
 
-    const st = { renderer, scene, camera, controls, model: null as THREE.Object3D | null, box: null as THREE.Box3Helper | null, raf: 0 };
+    const st = { renderer, scene, camera, controls, ground, grid, model: null as THREE.Object3D | null,
+      box: null as THREE.Box3Helper | null, raf: 0 };
     state.current = st;
     const tick = () => {
       controls.autoRotate = flags.current.autoRotate;
@@ -170,6 +173,9 @@ export function Viewer3D({ url, wireframe, showBounds, autoRotate, studio, onSta
         s.scene.add(helper);
         s.box = helper;
         const radius = size.length() / 2;
+        // Engine masters may be centered at the origin. Position only the display floor.
+        s.ground.position.y = box.min.y - Math.max(radius / 200, 0.002);
+        s.grid.position.y = box.min.y;
         s.camera.position.copy(centre).add(new THREE.Vector3(0.9, 0.55, 1.1).normalize().multiplyScalar(radius * (studio ? 3.2 : 2.6)));
         s.controls.target.copy(centre);
         s.camera.near = Math.max(radius / 200, 0.05);
