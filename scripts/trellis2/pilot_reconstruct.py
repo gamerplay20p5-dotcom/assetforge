@@ -225,7 +225,7 @@ def main() -> int:
                     run["requested_resolution"] = req
                     run["effective_resolution"] = tee.reduced_to or req  # the token budget can lower the cascade's resolution
                     run["resolution_reduced_by_token_limit"] = tee.reduced_to is not None
-                    run["tokens"] = int(m.coords.shape[0]) if hasattr(m, "coords") else None
+                    run["sparse_voxels"] = int(m.coords.shape[0]) if hasattr(m, "coords") else None  # (not the token count)
 
                     def bake(kind: str):  # noqa: ANN202
                         t1 = time.time()

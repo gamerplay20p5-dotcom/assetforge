@@ -1,6 +1,6 @@
 # Integração do motor TRELLIS.2 do AssetPipeline (Hank) — análise / TRELLIS.2 integration analysis
 
-Estado: **piloto em andamento (1 de 10 imagens medida), nada integrado.** Nenhum resultado abaixo é de teste: tudo vem da leitura do código
+Estado: **piloto em andamento (1 de 10 imagens medida), nada integrado ao AssetForge.** Nenhum resultado abaixo é de teste: tudo vem da leitura do código
 e das licenças publicadas. / Status: analysis only; the pilot has not run.
 
 Fonte estudada (somente leitura, o repositório do Hank não foi alterado): `github.com/gamerplay20p5-dotcom/AssetPipeline` — `mesh/Dockerfile`,
@@ -116,3 +116,47 @@ Avaliação visual (folha `reports_out/trellis_pilot/tower/sheet.jpg`, mesma câ
 reconhecíveis e **muito mais próximos da referência que o TripoSR**. Diferenças visíveis: cores mais escuras/alaranjadas (a referência é bege claro com detalhes
 oliva), faixa central de vidro escura menos nítida, detalhes da marquise e da casa de máquinas simplificados. 1024 e 1536 ficaram visualmente quase iguais.
 **Ainda não avaliado:** qualidade após otimização (o master tem 453 mil triângulos; o orçamento de arranha-céu é 5–15 mil), comparação do Gemini, aprovação do usuário.
+
+## 8. Piloto 1 (continuação) — correções, bake comercial, LODs, cor e Gemini (medido em 2026-11-27)
+
+**Correções do piloto**: código de saída correto (0 ok · 1 falha · 2 sem objeto · 3 recusado · 4 guarda externo · 75 watchdog); exclusividade por `flock` e checagem de
+`clonez-mesh`/outro job no início **e durante** a execução; guarda de memória externo (para só o nosso container acima de 108 GB) e watchdog interno (aborta se a memória
+disponível cair de 12 GB); resolução efetiva registrada; repetição por resolução para aquecimento equivalente.
+
+**Resolução efetiva e desempenho** (torre; 4 execuções com nvdiffrast + 3 com bake comercial, **nenhuma falha**):
+
+| Pedido | Resolução efetiva | TRELLIS.2 | Total | Pico de memória |
+| --- | --- | --- | --- | --- |
+| 1024_cascade (1ª / repetida) | 1024 / 1024 | 284,6 s / 284,0 s | 403 s / 395 s | 74,5 / 71,5 GB |
+| 1536_cascade (1ª / repetida), `--max-tokens 49152` | **1024 / 1024** | 285,0 s / 284,9 s | 414 s / 399 s | 75,2 / 69,1 GB |
+| 1536_cascade, `--max-tokens 131072` | 1536 (amostragem concluída) | ≈ 6 min 35 s por etapa de amostragem | **abortado pelo watchdog**: sobraram 11,4 GB | — |
+
+* **O "1536" anterior nunca foi 1536**: o limite de tokens o reduz para 1024 (por isso 1024 e 1536 saíram idênticos e com o mesmo tempo). O tempo "344 s do 1536" reportado antes **não vale**.
+* **Aquecimento** não alterou o tempo (284,6 s → 284,0 s).
+* O **1536 real não cabe** com os modelos residentes (~55 GB): precisa de carregamento mais enxuto (o fork stableprojectorz documenta pico de 14,6/18,9 GB em 1024/1536 contra 33/35 GB sem ele) — **não testado**.
+
+**Bake comercial sem nvdiffrast**: o bloco `--commercial` (guarda de licença ligado) terminou com `licence_guard_violations: []` — o caminho **não usou** nvdiffrast nem nvdiffrec. Tempo e
+pico iguais aos do bake original (bake 47–58 s; pico 72–74 GB). **Equivalência do rasterizador** (`test_uvraster.py`, mesma malha e UV, 2048 px): cobertura IoU **0,9937**
+(2.348.760 contra 2.350.038 texels; diferenças só em bordas compartilhadas), erro médio de posição 3D **5,6×10⁻⁷** do tamanho do modelo (p99 1,5×10⁻⁶; máx. 0,0042 ≈ 8,7 texels).
+Nosso rasterizador: 0,56 s e 3,1 GB; nvdiffrast: 0,15 s e 0,34 GB. **Observação**: o remalhamento do `to_glb` **não é determinístico** (460.943 contra 485.467 triângulos em duas chamadas),
+por isso não se comparam texturas de GLBs gerados em chamadas diferentes.
+
+**Cor** (valores primeiro, iluminação depois): a textura base color **já nasce escura do bake**: paredes claras ≈ 98/87/76 contra ≈ 218/192/164 na referência — mesmo matiz,
+ganho ≈ 2,4× em todos os canais; nenhuma curva gamma simples explica (melhor ajuste y = 3,49·x^1,40). O Blender **não** escurece (AgX até clareia: 130/105/87). Conclusão: albedo mais escuro que a foto
+iluminada (e o verde-oliva se perde). Opção planejada: calibração de albedo por ativo (parâmetro `albedo_gain` de `make_lods.py`), sem alterar o master. Não aplicada.
+
+**LODs** (alvos 15.000 / 7.500 / 2.500 / 500 triângulos):
+1. *Decimação por colapso no Blender* (`make_lods.py`): **inutilizável** — o master é ≈ 1.100 cascas soltas de ≤ 100 triângulos; o colapso rasga a malha já em 15 mil (e nem chega a 2,5 mil/500 sem apagar peças e remalhar por voxel).
+2. *LODs pelo `to_glb` comercial* (`--lods`; 14.729 / 6.989 / 2.354 / 404 triângulos; ~26–29 s cada) + **normal map assado em Blender** a partir do master (`bake_normals.py`; 1–6 s cada):
+   **LOD0 reconhecível, com buracos e riscos escuros; LOD1 degrada (varandas rasgadas); LOD2 e LOD3 inutilizáveis (espetos/lâminas)**. Os alvos de vértices precisam de calibração (triângulos ≈ 0,72–0,89 × vértices).
+   **Conclusão: nenhum método genérico entrega 15k/7,5k/2,5k/500 com qualidade a partir deste master.** Direção a testar: proxies para edifícios (volume + textura de fachada assada) ou o próprio kit procedural/agente para LOD2–LOD3.
+
+**Gemini** (`gemini-3.5-flash-lite`, comparação direta com a imagem original; nota é conselho, **não** aprova):
+
+| | Nota | Veredito | Observação |
+| --- | --- | --- | --- |
+| Master 453 mil | 6,0 | acceptable_with_fixes | silhueta 8, proporções 7, materiais 5, cores 6; cor virou marrom, textura "empastada", gradil do telhado ausente |
+| LOD0 14,7 mil | 2,5 | unfaithful | estrangulamentos, buracos nas paredes, textura esticada |
+| LOD1 7,0 mil | 2,1 | unfaithful | idem, pior |
+
+Aprovação visual do usuário: **pendente**. Folhas: `reports_out/trellis_pilot/tower/sheet.jpg` e `tower_v3/sheet_lods_v3.jpg` (não versionadas).

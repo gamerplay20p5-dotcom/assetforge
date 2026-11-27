@@ -72,6 +72,8 @@ Análise completa e licenças em `docs/TRELLIS2_INTEGRATION.md` (ler primeiro). 
 * **Descoberta**: o remalhamento do `to_glb` **não é determinístico** (duas chamadas deram 460.943 e 485.467 triângulos), então não dá para comparar texturas de dois GLBs gerados em chamadas
   diferentes. A comparação correta é `scripts/trellis2/test_uvraster.py` (nvdiffrast × nosso rasterizador na **mesma** malha/UV). **Ainda não executado.**
 
+### Atualização (mesmo dia, depois do HANDOFF inicial): os blocos da Spark TERMINARAM — ver a seção 8 de `docs/TRELLIS2_INTEGRATION.md` com todos os números (1536 real aborta por memória; rasterizador equivalente IoU 0,9937; bake comercial limpo; LODs pelo to_glb só aguentam ≈15k; Gemini 6,0/2,5/2,1). Pendências 1–3 abaixo estão concluídas; a Spark está livre (nenhum job). O texto a seguir é o estado antigo:
+
 ### Em execução quando este arquivo foi escrito
 
 Na Spark (`~/assetforge-pilot`), `chain.sh` roda em sequência: (1) `tower_v2_both` (`--bake both`, resoluções 1024,1024,1536,1536, repetidas p/ aquecimento equivalente) e
