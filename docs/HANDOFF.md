@@ -3,6 +3,40 @@
 Escrito para: outro agente de código (Codex) que vai continuar o trabalho sem o histórico da conversa. Idioma do projeto, da UI e dos docs: **PT-BR**.
 Commits em Conventional Commits; PRs em português **e** inglês. Atribuição nos commits: `Co-Authored-By: <modelo> <noreply@anthropic.com>` se feitos por Claude.
 
+## Preparação para CITY+++ · 27/11/2026
+
+### Workers e memória
+
+A RTX 4090 está instalada em um host com 128 GB nominais. O Linux reporta 126.326 MiB de RAM utilizável e a GPU reporta 24.564 MiB de VRAM. A Spark reporta 124.608 MiB unificados. O agendamento NVIDIA considera a telemetria real e a reserva disponível. Os dois contêineres continuaram emitindo heartbeat na central durante o diagnóstico.
+
+O GDB reproduziu um SIGSEGV na inferência concorrente de três NPCs a 1024 na RTX. A thread principal caiu em `trellis::build_neighbor_table`, chamada por `sparse_c2s`, `decode_unet` e `shape_decode`. Os dois outros processos terminaram. Uma tentativa de baixar a imagem CUDA qualificadora falhou com erro de digest, e o compilador da imagem instrumentada com AddressSanitizer também sofreu segfault.
+
+O teste independente `memtester 4G 1`, em Docker sem GPU, registrou 12 falhas em endereços distintos. Os padrões incluíram endereço possivelmente inválido e divergências de bits em leituras vindas de escritas conhecidas. A falha de memória do host é demonstrada. A origem física entre módulo, canal e controlador ainda está em aberto. A pilha do GDB mostra onde o processo caiu, sem identificar onde os dados foram corrompidos. Os ensaios de carga e builds de diagnóstico do AssetForge na RTX foram interrompidos. Os serviços existentes e o worker mantiveram seus processos. A chave SSH apresentada pela RTX mudou mais tarde. O OpenSSH recusou recuperar os logs e a verificação da chave foi mantida.
+
+O build Python ganhou parâmetros de CUDA e arquitetura para a RTX, o Pixal3D aceita `--cpu-offload` e o piloto TRELLIS.2 Python usa pesos locais com offload opcional. Os pesos principais foram baixados, mas a RTX ainda não produziu GLBs Python verificáveis. A confirmação do hardware e da identidade SSH antecede a repetição desses dois pilotos. A memória real do worker substitui a indicação anterior de 22 GiB. Os números de 22 GiB em medições antigas são históricos.
+
+### Referências e uso do painel
+
+A entrada aceita PNG, JPEG e WebP, com normalização da rotação EXIF, e o envio em lote cria um pedido por conjunto de vistas. Para motores multivista, o lote associa nomes `asset__front`, `asset__right`, `asset__back` e `asset__three_quarter`. O usuário informa as vistas que possui. A preparação usa BiRefNet, reaproveita as máscaras existentes, alinha o enquadramento e registra referências repetidas e diferenças de enquadramento. A imagem enviada permanece na Biblioteca como referência original. O worker antigo pode atender imagens já recortadas no Pixal3D. O scheduler reserva a remoção automática no Pixal3D para workers que anunciam essa capacidade.
+
+A regeneração parte da versão escolhida na Biblioteca e permite substituir apenas as vistas necessárias. A fila apresenta preparação, condicionamento, inferência, malha e texturas, validação e empacotamento. No navegador isolado, um JPEG e um WebP criaram dois jobs de um lote. Na Spark, o JPEG passou por recorte automático e Pixal3D SV e produziu um GLB que passou na validação estrutural.
+
+### Pacotes para Unity
+
+`scripts/engines/prepare_game.py` gera derivados em Blender Docker com correção de orientação explícita, metragem, pivô na base, colisão simplificada, mapas para Unity URP, GLBs separados por LOD, FBX, BLEND e `assetforge-import.json`. Os masters foram montados apenas para leitura e tiveram SHA-256 conferido. Os pacotes reais estão em `~/assetforge-phase3/unity-packs/` na central.
+
+| Piloto | Altura (m) | Triângulos LOD0 | Triângulos LOD1 | Triângulos LOD2 | Colisão |
+| --- | ---: | ---: | ---: | ---: | --- |
+| Residencial | 42 | 929.723 | 418.314 | 139.263 | Caixa |
+| Operário | 1,8 | 967.151 | 435.204 | 145.010 | Cápsula |
+| Caminhão | 3,4 | 960.367 | 432.153 | 144.024 | Caixa |
+
+As proporções de ensaio foram 1, 0,45 e 0,15. O pipeline de importação e exportação do Blender alterou ligeiramente a contagem do LOD0. As proporções servem para comparar candidatos em Unity.
+
+O piloto de rigging montou 13 ossos no operário retopologizado, mas o automatic weights do Blender deixou os 20.551 vértices sem peso. O caminhão não apresentou rodas destacáveis pelo teste de componentes conectados. O residencial gerou uma seção aberta a 21 m, com 487.619 triângulos. Esse corte permite estudar estágios de obra sem kit e requer geometria de acabamento para virar um estágio utilizável.
+
+O projeto `integrations/unity-benchmark` está isolado e prepara o URP, a matriz de cenas e os CSVs de frame time, FPS, draw calls, triângulos, memória e transições visíveis de LOD. O usuário confirmou que ainda não há um Editor Unity licenciado disponível. A execução do player e os orçamentos geométricos ficam pendentes.
+
 ## Integração experimental de motores · 27/11/2026
 
 A aba **Motores** cria jobs de TRELLIS.2 GGUF, Pixal3D Single-View, Multi-View e Python. O kit procedural continua disponível pelo gerador existente. A aba valida as vistas, expõe os parâmetros de inferência e lista os workers que anunciam o motor. Pixal3D SV e MV usam PNGs com transparência. Os motores GGUF permitem pular a decimação nativa do exportador. A Biblioteca carrega o GLB no visualizador, compara vistas originais ou duas versões e registra a revisão humana por versão. As avaliações Gemini usam a configuração de IA da central e têm parecer próprio. Os quatro motores e seus pesos continuam experimentais, com revisão de licença comercial pendente.
@@ -163,7 +197,7 @@ Trocar de branch com arquivos não rastreados conflitantes já deu problema. Tra
 | Máquina | Papel | Observações |
 | --- | --- | --- |
 | **192.168.1.206** (`afforge`) | Central: API, dashboard, PostgreSQL, filas, workers CPU, Blender | Ubuntu 26.04, Threadripper 3955WX (32 threads), 200 GB RAM, só CPU. Pode usar até 70% de CPU/RAM. Repo em `~/assetforge`. Deploy: `docker compose --env-file .env -f deployment/docker-compose.yml up -d --build <serviço>` (**nunca** `asc-ctl compose up/down`). Container da API tem rootfs **somente leitura**: para scripts avulsos use `docker compose ... run --rm --no-deps -T -v ... api python ...`. |
-| **192.168.1.203** (`afforge`, host `htsllm2`) | **Só GPU**: RTX 4090 24 GB, i9-11900K, 22 GB RAM | Roda `vlm-gpu` (Qwen, :8081) e `triposr-gpu` (:8082) via `scripts/vlm/gpu_box.sh` (só Docker, sem compose plugin; token em `~/assetforge/.env.gpu`). Sem sudo. Trabalho pesado de CPU/RAM fica na 206. |
+| **192.168.1.203** (`afforge`, host `htsllm2`) | RTX 4090 24 GB, i9-11900K, 128 GB RAM instalados, 126.326 MiB utilizáveis no Linux | Roda `vlm-gpu` (Qwen, :8081), `triposr-gpu` (:8082) e o worker AssetForge em Docker, sem plugin Compose. O primeiro teste de integridade da RAM falhou. Ver o diagnóstico CITY+++ no início deste documento. |
 | **192.168.1.252** (`henrylawrencecahill@`, host `spark-f146`) | **NVIDIA DGX Spark (GB10, aarch64, 121 GB de memória unificada)**: máquina principal de geração 3D | A chave do AssetForge foi autorizada na conta do Hank. Código/pesos do Hank em `~/clonez-pipeline` e `~/clonez-models` (ler só). Nosso trabalho em `~/assetforge-pilot`. O run do Hank (`clonez-mesh`, tmux + cron `keep-running`) está **parado por decisão do dono** ("Stopped by hand"); o cron continua instalado, mas inerte até alguém rodar `mesh-start`. |
 
 ## 3. O que já existe no AssetForge (tudo em `master`, testado: 244 testes + 11 do dashboard passavam)

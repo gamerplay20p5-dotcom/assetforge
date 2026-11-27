@@ -2,7 +2,7 @@
 
 Projeto isolado com Unity 6000.0.65f1 e URP 17.0.4. O editor importa três pacotes de teste e cria a cena de benchmark, os prefabs, as colisões e os LODGroups. O player faz uma passagem de câmera fixa por cenário e grava métricas por frame.
 
-Use `scripts/engines/prepare_game.py` em Blender Docker para criar os pacotes `building`, `npc` e `vehicle` em um diretório comum. Passe a altura real em metros, a correção de orientação e as proporções de LOD a ensaiar. O LOD0 conserva a topologia do master. Compare cada proporção com a mesma matéria-prima, versões e qualidade gráfica.
+Use `scripts/engines/prepare_game.py` em Blender Docker para criar os pacotes `building`, `npc` e `vehicle` em um diretório comum. Passe a altura real em metros, a correção de orientação e as proporções de LOD a ensaiar. O LOD0 usa razão 1. A importação e a exportação do Blender podem alterar a contagem de faces. Compare cada proporção com a mesma matéria-prima, versões e qualidade gráfica.
 
 ```bash
 bash integrations/unity-benchmark/run_docker.sh build /path/packages /path/results
