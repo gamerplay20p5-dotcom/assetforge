@@ -114,3 +114,60 @@ Na Spark (`~/assetforge-pilot`), `chain.sh` roda em sequência: (1) `tower_v2_bo
 * `nvdiffrast`: o `import nvdiffrast.torch as dr` busca o atributo `torch` no pacote — o stub do guarda já cobre isso.
 * TRELLIS.2 `Tee`: a mensagem "resolution is reduced to N" (limite de tokens) é capturada por regex em `pilot_reconstruct.py`; o campo `tokens` do metrics é o nº de voxels esparsos, não tokens (renomear).
 * O pico de memória da Spark varia entre execuções (74–94 GB); o controle precisa ser contínuo (guarda + watchdog), não só a checagem inicial.
+
+---
+
+# FASE 2 — Comparativo de motores (pixal3d.cpp Q8 × TRELLIS.2 Python × Pixal3D) — atualizado em 2026-11-27/28
+
+Pedido do dono: usar **Spark e RTX 4090 integralmente** como workers de produção 3D; **pixal3d.cpp Q8 nas duas máquinas com prioridade**, sem abandonar o TRELLIS.2 Python; comparar com as **mesmas
+referências/câmeras/luz**: TRELLIS.2 Python · TRELLIS.2 GGUF Q8 · Pixal3D.cpp Q8 single-view · Pixal3D.cpp Q8 multi-view · Pixal3D Python na Spark · kit procedural · Gemini+procedural · híbrido.
+Registrar: resolução efetiva, tempo, pico RAM/VRAM por etapa, triângulos, textura, fidelidade, componentes desconectados, qualidade após otimização, estabilidade em gerações consecutivas.
+**Não** declarar vencedor só pela nota do Gemini. **Não** iniciar desenvolvimentos complexos antes de ter os primeiros modelos reais do Pixal3D. Manter Qwen/TripoSR na 203 (estão ociosos: ~506 MiB de VRAM).
+
+## Código e pesos usados
+
+* `raven38/pixal3d.cpp` commit **`d1b4926452f9e09702b891db5f05acc845e153ed`** (MIT; fork de `pwilkin/trellis.cpp`; ggml vendorizado MIT). Sem Python em execução, **sem nvdiffrast/nvdiffrec** no código (só citados em docs).
+* Pesos GGUF (públicos, sem token), em `~/assetforge-models/` de **cada máquina** (script `~/assetforge-engines/download_weights.sh`, retomável):
+  * `trellis2-q8/` = `ilintar/trellis2-gguf` pasta `q8` (≈9,3 GB; licença "other" = a do modelo-fonte, MIT) e `trellis2-q4/` (≈6,1 GB).
+  * `pixal3d-mv-q8/` = `raven38/pixal3d-q8_0-v1` e `pixal3d-sv-q8/` = `raven38/pixal3d-sv-q8_0-v1` (≈7,5 GB cada; MIT, exceto `dinov3.gguf` = licença DINOv3 — ver `LICENSE.md` na pasta).
+  * Pixal3D original (Python): `TencentARC/Pixal3D` (MIT; padrão 1536; `inference.py`, `inference_mv.py`; depende do ambiente TRELLIS.2 + MoGe + natten + utils3d). **Ainda não executado.**
+* Imagem Docker: `deployment/Dockerfile.pixal3d-cuda` (Ubuntu 24.04 + CUDA 13.1; compila `trellis-cli`/`trellis-server` do commit fixado). Build:
+  `docker build -f Dockerfile.pixal3d-cuda --build-arg CUDA_ARCHS=<arch> --build-arg BUILD_JOBS=<n> -t assetforge-pixal3d:cuda<arch> .` — **203: `89` (tag cuda89)**; **Spark: `121` (tag cuda121)**.
+  Os pesos NÃO ficam na imagem (montados em `/models:ro`).
+
+## Erros encontrados e soluções (para não repetir)
+
+1. CMake 3.22 (Ubuntu 22.04) falha com `FetchContent ... DOWNLOAD_EXTRACT_TIMESTAMP` (libwebp) → usar **Ubuntu 24.04**.
+2. Link falha com `undefined reference to cuMemCreate...` → no build não há driver: usar o **stub** (`LIBRARY_PATH=/usr/local/cuda/lib64/stubs` + `-Wl,-rpath-link`).
+3. `COPY --from=build /src/build/bin` não existe → coletar com `find /src/build -name '*.so*'` para `/out`.
+4. **Spark é sm_121**: compilar com `CUDA_ARCHS=120` dá `CUDA error: no kernel image is available` → usar **`121`**.
+5. `pkill -f 'docker build'` mata a própria sessão SSH → usar padrão ancorado `'^docker build'`.
+6. Scripts `.sh` com CRLF quebram no Linux (`set: pipefail: invalid option`) → `sed -i 's/\r$//'`; `.gitattributes` agora força LF em `*.sh`.
+7. Container gravando como root deixa arquivos que não dá para apagar → `docker run --user $(id -u):$(id -g)` (já no `run_cpp.sh`).
+8. Substituir `run_cpp.sh` enquanto roda corrompe o bash em execução → copiar para `.new` e `mv` (atômico).
+
+## Como rodar (Docker, medido)
+
+`scripts/engines/run_cpp.sh <nome> <imagem-docker> <subpasta-de-pesos> <subpasta-de-entradas> -- <args do trellis-cli>` em `~/assetforge-engines` de cada máquina. Mede tempo, pico de RAM do sistema, pico de VRAM (4090), grava
+`mem.csv` (a cada 0,5 s) e `summary.json`; recusa iniciar se outro job/`clonez-mesh` estiver rodando e para o container se a RAM disponível cair de `MIN_AVAIL_GB` (padrão 10). Entradas em `~/assetforge-engines/refs/`
+(`tower.png`, `house_stage6.png`, `house_stage5.png`, `house_stage3_frame.png`, `tower_rgba.png` = recorte BiRefNet gerado pelo próprio trellis-cli com `--dump-bg`). Cadeia de testes: `chain_engines.sh <imagem> <rótulo>`.
+Flags úteis do `trellis-cli`: `--res 512|1024|1536`, `--max-tokens`, `--atlas PX`, `--decim` (padrão: 300K faces; `0` = sem decimar), `--sv-image` (+ `--pixal3d-weights sv`), `--views DIR` (+ `--pixal3d-weights mv`), `--trellis2-mv DIR`, `--birefnet`, `--dump-bg`, `--profile`.
+
+## Resultados até agora (torre; sempre medidos, nunca estimados)
+
+| Motor | Máquina | Res. efetiva | Tempo | Pico RAM (sistema) | Pico VRAM | Triângulos / componentes | Obs. |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| TRELLIS.2 **Python** (original) | Spark | 1024 (o "1536" também virou 1024 pelo limite de tokens) | ≈285 s TRELLIS.2 + 48–58 s textura | 69–75 GB | n/d (memória unificada) | ≈453 mil (master 500k vért.) | ver `docs/TRELLIS2_INTEGRATION.md` §7–8 |
+| TRELLIS.2 **GGUF Q8** (C++) | RTX 4090 | 1024 | **232,6 s** | **8,6 GB** (+6,6 GB sobre a base) | **12,0 GB** (+11,5) | 297.650 tri (decimação padrão 300K) / 19 componentes UV; atlas 4096; GLB 12 MB | 1ª geração real; dir `~/assetforge-engines/out/tower_t2q8_1024_4090` |
+
+Visual (mesmas câmeras do piloto 1): estrutura **mais limpa** que o master Python (coluna de varandas com lajes, faixa central de vidro, cobertura e casa de máquinas legíveis); cor ainda dourada/escura; fachada traseira
+inferida plana. **Impressão visual do assistente, não aprovação.** Falta: Gemini, componentes soltos do GLB, qualidade pós-otimização, estabilidade (3 execuções), Pixal3D SV/MV, 1536, Pixal3D Python.
+
+## Estado em execução / pendências (ordem)
+
+1. **4090**: `chain_engines.sh assetforge-pixal3d:cuda89 4090` rodando (Pixal3D SV 1024 → TRELLIS.2 Q8 1536 → 2 repetições do Q8 1024). Resultados: `~/assetforge-engines/chain.status` e `out/*/summary.json`.
+2. **Spark**: build `assetforge-pixal3d:cuda121` (log `~/assetforge-engines/build_pixal3d121.log`); ao terminar, rodar a mesma cadeia com `bash chain_engines.sh assetforge-pixal3d:cuda121 spark`. O run do Hank continua **parado**.
+3. **Multi-view**: o `trellis-cli --views` precisa de 4 vistas + `transforms.json`. Não temos vistas reais da torre; usar o exemplo oficial `assets/mv_images/example` do repositório TencentARC/Pixal3D (marcar como "exemplo do upstream") e/ou pedir vistas ao dono.
+4. **Pixal3D Python na Spark** (derivar da imagem `clonez-mesh:1`; trocar o `to_glb` por `assetforge_trellis2.to_glb_commercial`).
+5. Medir por etapa (usar `--profile`, `--profile-cond` e `mem.csv`), contar componentes soltos (`tools/glb_metrics.py` do pixal3d.cpp ou o nosso union-find), LODs/otimização, Gemini (`scripts/ai/gemini_compare.py`), kit procedural e Gemini+procedural com as **mesmas** referências/câmeras.
+6. Só depois: scheduler/workers de produção (Spark e 4090) respeitando FIFO e consumo real de recursos.
