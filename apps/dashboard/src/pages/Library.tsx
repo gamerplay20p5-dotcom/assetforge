@@ -455,7 +455,7 @@ function AssetDetail({ id, onClose }: { id: string; onClose: () => void }) {
           <Heart size={14} fill={a.favorite ? "currentColor" : "none"} /> Favorito
         </button>
         {m?.generator_id === "experimental.reconstruct" ? <Link className="btn"
-          to={`/engines?asset=${encodeURIComponent(a.id)}&name=${encodeURIComponent(a.name)}`}>
+          to={`/engines?${new URLSearchParams({ asset: a.id, name: a.name, engine: a.engine, version: String(ver) })}`}>
           <RefreshCw size={14} /> Nova versão
         </Link> : <button onClick={() => regen.mutate()} disabled={regen.isPending}>
           <RefreshCw size={14} /> Nova versão

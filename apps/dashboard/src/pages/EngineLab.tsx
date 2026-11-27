@@ -3,7 +3,7 @@ import { useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { api } from "../api";
 import { ErrorNote, Panel } from "../components/ui";
-import type { Job, Worker } from "../types";
+import type { Asset, Job, Worker } from "../types";
 
 interface Engine {
   id: string;
@@ -16,15 +16,38 @@ interface Engine {
 
 const views: Record<string, string> = { front: "Frente", right: "Lateral direita", back: "Costas", three_quarter: "Vista 3/4" };
 
+function groupBatch(files: File[], required: string[]) {
+  const groups = new Map<string, Record<string, File>>();
+  for (const file of files) {
+    const stem = file.name.replace(/\.[^.]+$/, "");
+    const match = stem.match(/^(.+)__(front|right|back|three_quarter)$/i);
+    if (!match && required.length > 1) throw new Error(`Identifique a vista no nome de ${file.name}.`);
+    const name = match?.[1] ?? stem;
+    const view = match?.[2].toLowerCase() ?? "front";
+    if (!required.includes(view)) throw new Error(`A vista ${view} de ${name} não é usada por este motor.`);
+    const refs = groups.get(name) ?? {};
+    if (refs[view]) throw new Error(`${name} tem mais de um arquivo para a vista ${views[view]}.`);
+    refs[view] = file;
+    groups.set(name, refs);
+  }
+  return [...groups].map(([name, files]) => ({ name, files }));
+}
+
 export function EngineLab() {
   const [query] = useSearchParams();
   const assetId = query.get("asset");
+  const sourceVersion = query.get("version");
   const cache = useQueryClient();
   const engines = useQuery({ queryKey: ["engines"], queryFn: () => api<{ items: Engine[] }>("/engines") });
   const workers = useQuery({ queryKey: ["workers"], queryFn: () => api<Worker[]>("/workers"), refetchInterval: 15000 });
-  const [engineId, setEngine] = useState("trellis2-gguf");
+  const source = useQuery({
+    queryKey: ["asset", assetId, sourceVersion],
+    queryFn: () => api<Asset>(`/assets/${assetId}${sourceVersion ? `?version=${encodeURIComponent(sourceVersion)}` : ""}`),
+    enabled: !!assetId,
+  });
+  const [engineId, setEngine] = useState(query.get("engine") ?? "trellis2-gguf");
   const [name, setName] = useState(query.get("name") ?? "");
-  const [category, setCategory] = useState("building");
+  const [categoryOverride, setCategory] = useState("");
   const [files, setFiles] = useState<Record<string, File>>({});
   const [workerId, setWorker] = useState("");
   const [resolution, setResolution] = useState(1024);
@@ -36,6 +59,10 @@ export function EngineLab() {
   const [angle, setAngle] = useState(45);
   const [scale, setScale] = useState(1);
   const [skipDecimation, setSkipDecimation] = useState(false);
+  const [batchMode, setBatchMode] = useState(false);
+  const [batchFiles, setBatchFiles] = useState<File[]>([]);
+  const category = categoryOverride || source.data?.category || "building";
+  const existing = source.data?.manifest?.generation_params.references as Record<string, string> | undefined;
   const engine = engines.data?.items.find((item) => item.id === engineId);
   const compatible = (workers.data ?? []).filter((worker) =>
     worker.capabilities.features?.includes(`engine.${engineId}`));
@@ -43,21 +70,39 @@ export function EngineLab() {
   const create = useMutation({
     mutationFn: async () => {
       if (!engine) throw new Error("Selecione um motor");
-      const references = Object.fromEntries(await Promise.all(engine.views.map(async (view) => {
-        const file = files[view];
-        if (!file) throw new Error(`Envie a vista ${views[view]}`);
-        const data = new FormData();
-        data.append("file", file);
-        const saved = await api<{ id: string }>("/references", { method: "POST", body: data });
-        return [view, saved.id];
-      })));
-      return api<Job>("/jobs", { method: "POST", json: {
-        name: name.trim(), asset_id: assetId ?? undefined, worker_id: selectedWorker?.id,
+      const groups = batchMode ? groupBatch(batchFiles, engine.views) : [{ name: name.trim(), files }];
+      if (!groups.length) throw new Error("Selecione os arquivos do lote.");
+      const form = new FormData();
+      const assignments: { group: number; view: string }[] = [];
+      const refs = groups.map((): Record<string, string> => ({}));
+      for (const [index, group] of groups.entries()) {
+        if (group.name.length > 120) throw new Error(`Nome de asset muito longo: ${group.name}`);
+        for (const view of engine.views) {
+          const file = group.files[view];
+          if (file) {
+            form.append("files", file);
+            assignments.push({ group: index, view });
+          } else if (!batchMode && existing?.[view]) refs[index][view] = existing[view];
+          else throw new Error(`Envie a vista ${views[view]} de ${group.name}.`);
+        }
+      }
+      if (assignments.length) {
+        const saved = await api<{ items: { id: string }[] }>("/references/batch", { method: "POST", body: form });
+        for (const [index, { group, view }] of assignments.entries()) refs[group][view] = saved.items[index].id;
+      }
+      const items = groups.map((group, index) => ({
+        name: group.name, asset_id: assetId ?? undefined, worker_id: selectedWorker?.id,
         job_type: "experimental.reconstruct",
-        params: { engine: engineId, category, references, resolution, max_tokens: tokens,
+        params: { engine: engineId, category, references: refs[index], resolution, max_tokens: tokens,
           seed, texture_size: texture, structure_guidance: structure, shape_guidance: shape,
           mesh_scale: scale, three_quarter_angle: angle, skip_decimation: engineId !== "pixal3d-python" && skipDecimation },
-      } });
+      }));
+      if (batchMode) {
+        const batch = await api<{ name: string; total: number }>("/batches", { method: "POST", json: { name: name.trim(), items } });
+        return { label: `${batch.name} · ${batch.total} gerações`, route: "/batch" };
+      }
+      const job = await api<Job>("/jobs", { method: "POST", json: items[0] });
+      return { label: job.name, route: "/queue" };
     },
     onSuccess: () => cache.invalidateQueries({ queryKey: ["jobs"] }),
   });
@@ -81,7 +126,10 @@ export function EngineLab() {
       {engines.error && <ErrorNote error={engines.error} />}
       {engine && <form onSubmit={(e) => { e.preventDefault(); create.mutate(); }}>
         <div className="form-grid">
-          <label>Nome<input value={name} required maxLength={120} onChange={(e) => setName(e.target.value)} /></label>
+          {!assetId && <label>Envio<select value={batchMode ? "batch" : "single"} onChange={(e) => setBatchMode(e.target.value === "batch")}>
+            <option value="single">Um asset</option><option value="batch">Lote de assets</option>
+          </select></label>}
+          <label>{batchMode ? "Nome do lote" : "Nome"}<input value={name} required maxLength={120} onChange={(e) => setName(e.target.value)} /></label>
           <label>Categoria<select value={category} onChange={(e) => setCategory(e.target.value)}>
             <option value="building">Construção</option><option value="vehicle">Veículo</option>
             <option value="npc">NPC</option><option value="prop">Objeto</option>
@@ -106,13 +154,20 @@ export function EngineLab() {
           </>}
         </div>
         <h3>Referências</h3>
-        {engine.id !== "trellis2-gguf" && <p className="muted">Use PNG com o objeto recortado e fundo transparente.</p>}
+        <p className="muted">PNG, JPEG ou WebP. O worker remove o fundo e alinha o enquadramento quando necessário.</p>
+        {source.error && <ErrorNote error={source.error} />}
         <div className="form-grid">
-          {engine.views.map((view) => <label key={view}>{views[view]}<input type="file" required={!files[view]}
-            accept={engine.id !== "trellis2-gguf" ? "image/png" : "image/png,image/jpeg,image/webp"} onChange={(e) => {
+          {batchMode ? <label>Arquivos do lote
+            <input type="file" multiple accept="image/png,image/jpeg,image/webp" required={!batchFiles.length}
+              onChange={(e) => setBatchFiles(Array.from(e.target.files ?? []))} />
+            <small className="muted">{engine.views.length > 1
+              ? `Use nome__vista no arquivo. Vistas exigidas: ${engine.views.join(", ")}.`
+              : "Cada imagem gera um asset."} {batchFiles.length > 0 && `${batchFiles.length} arquivos selecionados.`}</small>
+          </label> : engine.views.map((view) => <label key={view}>{views[view]}<input type="file" required={!files[view] && !existing?.[view]}
+            accept="image/png,image/jpeg,image/webp" onChange={(e) => {
               const file = e.target.files?.[0];
               if (file) setFiles((old) => ({ ...old, [view]: file }));
-            }} />{files[view]?.name}</label>)}
+            }} />{files[view]?.name ?? (existing?.[view] ? "Reutilizar esta vista" : "")}</label>)}
           <label>Worker<select value={selectedWorker?.id ?? ""} onChange={(e) => setWorker(e.target.value)}>
             <option value="">Automático</option>
             {compatible.map((w) => <option key={w.id} value={w.id}>{w.name}{w.online && w.state === "enabled" ? "" : " (indisponível)"}</option>)}
@@ -121,7 +176,7 @@ export function EngineLab() {
         {compatible.length === 0 && <p className="muted">O pedido ficará na fila até um worker compatível se registrar.</p>}
         <div className="row wrap">
           <button className="primary" disabled={create.isPending || !name.trim()}>{create.isPending ? "Enviando…" : "Enfileirar geração"}</button>
-          {create.data && <Link to="/queue">Acompanhar {create.data.name}</Link>}
+          {create.data && <Link to={create.data.route}>Acompanhar {create.data.label}</Link>}
         </div>
         {create.error && <ErrorNote error={create.error} />}
       </form>}

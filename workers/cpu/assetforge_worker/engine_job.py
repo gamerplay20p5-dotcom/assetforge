@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import math
 import os
 import re
@@ -23,20 +24,51 @@ from PIL import Image, ImageDraw
 from .nvidia import CPP_WEIGHTS, sample
 
 
-def prepare_views(work: Path, params: ReconstructionParams) -> Path:
+def matte_view(raw: Path, output: Path) -> None:
+    models = Path(os.environ.get("ASSETFORGE_ENGINE_MODELS", "/models")) / CPP_WEIGHTS["trellis2-gguf"]
+    log = output.with_suffix(".log")
+    with log.open("wb") as stream:
+        status = subprocess.run(
+            ["trellis-cli", "--image", str(raw), "--models", str(models), "--birefnet",
+             "--require-gpu", "--bg-only", "-o", str(output)],
+            stdout=stream, stderr=subprocess.STDOUT, timeout=180, check=False,
+        )
+    cutout = output.with_name(f"{output.stem}_cutout.png")
+    if status.returncode or not cutout.is_file():
+        raise PipelineError(f"Falha no recorte da vista {raw.stem}: {log.read_text(errors='replace')[-400:]}")
+    cutout.replace(output)
+
+
+def prepare_views(work: Path, params: ReconstructionParams, emit) -> tuple[Path, dict]:
     poses = {"front": 0, "right": 90, "back": 180, "three_quarter": params.three_quarter_angle}
     names = ENGINES[params.engine]["views"]
     directory = work / "views"
     directory.mkdir()
-    images = []
+    images, report, hashes = [], {}, set()
+    masks = work / "masks"
+    masks.mkdir()
     for view in names:
-        with Image.open(work / f"{view}.png") as source:
+        raw = work / f"{view}.png"
+        signature = hashlib.sha256(raw.read_bytes()).hexdigest()
+        if signature in hashes:
+            raise PipelineError(f"A vista {view} repete uma referência do mesmo asset.")
+        hashes.add(signature)
+        with Image.open(raw) as source:
             rgba = source.convert("RGBA")
-        alpha = rgba.getchannel("A")
-        box = alpha.point(lambda a: 255 if a >= 128 else 0).getbbox()
-        if alpha.getextrema() == (255, 255) or not box:
-            raise PipelineError(f"{view}: envie uma PNG recortada com fundo transparente")
+        removed_background = rgba.getchannel("A").getextrema() == (255, 255)
+        if removed_background:
+            masked = masks / raw.name
+            matte_view(raw, masked)
+            with Image.open(masked) as source:
+                rgba = source.convert("RGBA")
+        foreground = rgba.getchannel("A").point(lambda a: 255 if a >= 128 else 0)
+        box = foreground.getbbox()
+        if not box or foreground.getextrema() == (255, 255) or foreground.histogram()[255] < 256:
+            raise PipelineError(f"A vista {view} não tem um primeiro plano suficiente após o recorte.")
+        report[view] = {"background_removed": removed_background,
+                        "bbox_px": list(box), "image_size": list(rgba.size)}
         images.append((rgba, box))
+        emit({"type": "log", "message": f"Vista {view}: {'fundo removido' if removed_background else 'máscara original preservada'}"})
     size = 1024
     span = max(max(box[2] - box[0], box[3] - box[1]) for _, box in images)
     scale = 0.85 * size / span
@@ -55,7 +87,13 @@ def prepare_views(work: Path, params: ReconstructionParams) -> Path:
                        "transform_matrix": [[c, 0, s, 3.119 * s], [s, 0, -c, -3.119 * c], [0, 1, 0, 0], [0, 0, 0, 1]]})
     (directory / "transforms.json").write_text(json.dumps(
         {"camera_angle_x": math.radians(20), "mesh_scale": params.mesh_scale, "frames": frames}), encoding="utf-8")
-    return directory
+    heights = [(box[3] - box[1]) / image.height for image, box in images]
+    warnings = []
+    if max(heights) > 1.7 * min(heights):
+        warning = "As vistas têm enquadramentos muito diferentes. Confira escala e câmera nas referências."
+        warnings.append(warning)
+        emit({"type": "log", "level": "warning", "message": warning})
+    return directory, {"views": report, "warnings": warnings}
 
 
 def cpp_command(work: Path, out: Path, params: ReconstructionParams, views: Path | None, threads: int) -> list[str]:
@@ -77,7 +115,7 @@ def cpp_command(work: Path, out: Path, params: ReconstructionParams, views: Path
             "--threads", str(max(1, threads)), *options, "-o", str(out)]
 
 
-def execute(work: Path, params: ReconstructionParams, views: Path | None, model: Path, threads: int) -> dict:
+def execute(work: Path, params: ReconstructionParams, views: Path | None, model: Path, threads: int, emit) -> dict:
     start = time.monotonic()
     baseline = sample()
     lowest = baseline.copy()
@@ -87,6 +125,17 @@ def execute(work: Path, params: ReconstructionParams, views: Path | None, model:
     request = work / "python.request.json"
     response = work / "python.response.json"
     log = None
+    progress = set()
+    log_offset = 0
+    phase = "conditioning"
+
+    def advance(next_phase):
+        nonlocal phase
+        if phase != next_phase:
+            emit({"type": "stage", "name": phase, "status": "done"})
+            phase = next_phase
+            emit({"type": "stage", "name": phase, "status": "start"})
+
     try:
         if broker:
             tmp = request.with_suffix(".tmp")
@@ -96,6 +145,24 @@ def execute(work: Path, params: ReconstructionParams, views: Path | None, model:
             log = log_path.open("w", encoding="utf-8")
             proc = subprocess.Popen(cpp_command(work, model, params, views, threads), stdout=log, stderr=subprocess.STDOUT)
         while not (response.exists() if broker else proc.poll() is not None):
+            if log_path.is_file():
+                with log_path.open(encoding="utf-8", errors="replace") as reader:
+                    reader.seek(log_offset)
+                    while line := reader.readline():
+                        if not line.endswith("\n"):
+                            break
+                        log_offset = reader.tell()
+                        message = line.strip()
+                        native_stage = re.match(r"^\[(\d+)/([67])\]", message)
+                        if (native_stage or re.match(r"^\[(?:Pipeline|Rembg|Baking|Export)\]", message)) and message not in progress:
+                            progress.add(message)
+                            emit({"type": "log", "message": message[:500]})
+                        if (native_stage and native_stage[1] == "3") or (broker and "Starting generation" in message):
+                            advance("inference")
+                        if (native_stage and native_stage[1] == native_stage[2]) or (broker and message.startswith(("[Baking]", "[Export]"))):
+                            if phase == "conditioning":
+                                advance("inference")
+                            advance("surface")
             if broker and time.time() - (work.parent / ".pixal3d-python-heartbeat").stat().st_mtime > 20:
                 raise RuntimeError("Pixal3D Python runner stopped responding")
             status = sample()
@@ -164,11 +231,12 @@ def run_reconstruction(job: dict, work: Path, emit, threads: int) -> dict:
         emit({"type": "stage", "name": name, "status": status})
 
     stage("prepare", "start")
-    views = None if params.engine == "trellis2-gguf" else prepare_views(work, params)
+    views, preparation = (None, {}) if params.engine == "trellis2-gguf" else prepare_views(work, params, emit)
     stage("prepare", "done")
-    stage("inference", "start")
-    runtime = execute(work, params, views, model, threads)
-    stage("inference", "done")
+    stage("conditioning", "start")
+    runtime = execute(work, params, views, model, threads, emit)
+    for finished in ("conditioning", "inference", "surface"):
+        stage(finished, "done")
     stage("validate_outputs", "start")
     validation = validate_glb(model, require_bottom_center=False)
     if not validation.passed:
@@ -189,7 +257,8 @@ def run_reconstruction(job: dict, work: Path, emit, threads: int) -> dict:
                              bounding_box=(tuple(lo.tolist()), tuple(hi.tolist())), pivot="engine_original", triangle_count=triangles,
                              triangle_budget=None, lods=[LodInfo(level=0, triangles=triangles, file="model.glb")],
                              license="Experimental. Revisão de licenças para uso comercial pendente.",
-                             engine=params.engine, generation_params={**params.model_dump(), "runtime": runtime},
+                             engine=params.engine, generation_params={**params.model_dump(), "runtime": runtime,
+                                                                      "reference_preparation": preparation},
                              files=files, created_at=datetime.now(UTC))
     manifest_path = out / "manifest.json"
     manifest_path.write_text(manifest.model_dump_json(), encoding="utf-8")

@@ -41,7 +41,8 @@ Emit = Callable[[dict], None]
 
 def plan_for(job_type: str) -> list[tuple[str, float]]:
     if job_type == "experimental.reconstruct":
-        return [("prepare", 1), ("inference", 12), ("validate_outputs", 1), ("package", 1)]
+        return [("prepare", 1), ("conditioning", 2), ("inference", 8), ("surface", 4),
+                ("validate_outputs", 1), ("package", 1)]
     if job_type == "agent.building":
         from .agent_pipeline import AGENT_PLAN
 
