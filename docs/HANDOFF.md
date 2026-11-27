@@ -3,6 +3,90 @@
 Escrito para: outro agente de código (Codex) que vai continuar o trabalho sem o histórico da conversa. Idioma do projeto, da UI e dos docs: **PT-BR**.
 Commits em Conventional Commits; PRs em português **e** inglês. Atribuição nos commits: `Co-Authored-By: <modelo> <noreply@anthropic.com>` se feitos por Claude.
 
+## Continuidade do AssetForge em 2026-11-27
+
+Esta seção registra o estado depois da retomada. Os dados mais antigos ficam abaixo para referência histórica.
+
+### Bateria CITY+++
+
+Às 14h50 (Brasília), as duas cadeias registravam `CITY_CHAIN_DONE`. A RTX 4090 concluiu 18 de 18 execuções do lote com 1024 solicitados. A Spark concluiu 17 de 18. O TRELLIS.2 Q8 do veículo civil saiu com código 133 durante a cópia CUDA. O log registra 1536 efetivos e 45.835 tokens antes da falha.
+
+A 4090 deixou de responder ao SSH durante a recuperação e voltou a responder às 15h42 (Brasília). Após o retorno, o Linux via 123 GiB de RAM e a RTX 4090 reportava 24.564 MiB de VRAM. A configuração de RAM medida antes do retorno era de 22 GiB. `fetch_results.sh` recuperou os 15 modelos restantes. Os SHA-256 dos 21 GLBs da RTX 4090 (18 do lote e três testes da torre) e dos 17 GLBs concluídos na bateria original da Spark coincidiram com os arquivos de origem.
+
+A tabela reúne as medianas de tempo total e as resoluções efetivas nos logs das execuções concluídas na Spark.
+
+| Categoria | TRELLIS.2 Q8 | Pixal3D single-view Q8 | Pixal3D multi-view Q8 |
+| --- | --- | --- | --- |
+| Arranha-céus | 765,3 s · 1280–1536 | 325,4 s · 1024 | 1.014,8 s · 1280–1536 |
+| NPCs | 244,2 s · 1536 | 106,3 s · 1024 | 243,8 s · 1536 |
+| Veículos | 1.303,8 s · 1152 (um modelo) | 771,4 s · 1024 | 1.636,2 s · 1408–1536 |
+
+Medianas do tempo total na RTX 4090, com 1024 efetivos confirmados no log das 18 execuções.
+
+| Categoria | TRELLIS.2 Q8 | Pixal3D single-view Q8 | Pixal3D multi-view Q8 |
+| --- | --- | --- | --- |
+| Arranha-céus | 117,25 s | 122,60 s | 176,05 s |
+| NPCs | 54,55 s | 64,35 s | 77,35 s |
+| Veículos | 190,85 s | 198,15 s | 173,95 s |
+
+O `analyze_city.py` registrou 40 análises e 160 vistas conferidas em `reports_out/engines/analysis/`. São os 36 modelos do lote com a recuperação do veículo corrigido, os três testes da torre e o residencial Python. Há sete folhas de modelos e uma de otimização em `reports_out/engines/analysis/sheets/`. O arquivo `all.json` inclui a resolução efetiva de cada modelo e os tokens registrados nos logs. O script também foi validado na 206, em Docker, com o master multi-view do prédio comercial.
+
+* **Arranha-céus.** O multi-view manteve varandas e janelas nas costas do residencial. O TRELLIS.2 gerou uma fachada traseira lisa. No comercial, o multi-view manteve o vidro azul e o volume lateral, com artefatos no chão. O single-view do residencial apresentou eixo principal quase horizontal nas duas máquinas.
+* **NPCs.** O multi-view manteve o padrão refletivo do colete do operário. No civil, os três motores escureceram a camiseta. O multi-view acrescentou volumes nos sapatos e o TRELLIS.2 teve a menor contagem de triângulos.
+* **Veículos.** O single-view e o TRELLIS.2 corrigido mantiveram a silhueta do carro civil, com lanternas simplificadas e carroceria mais escura. O multi-view do caminhão acrescentou janelas no baú na Spark e deformou a porta traseira na 4090. O single-view abriu a traseira na Spark. O TRELLIS.2 escureceu a cabine e mudou a cor do baú.
+
+As câmeras são fixadas em relação aos eixos do GLB. A frente e as costas podem aparecer trocadas quando o motor gera o asset girado. O ângulo PCA mede o eixo principal da geometria, que costuma ser horizontal em veículos. A coluna de RAM mede o aumento no host durante a execução e inclui outras cargas concorrentes.
+
+### Limite de grade CUDA
+
+No `cpy.cu` do GGML fixado pelo motor, o caminho otimizado de transposição agrupa oito matrizes por bloco em Z. O limite de CUDA para esse eixo é 65.535 blocos. A quantidade de matrizes vem da forma do tensor, por isso o teto de tokens do piloto ainda deixa passar casos que acionam a asserção. O patch em `deployment/ggml-cuda-transpose-grid.patch` conserva o caminho otimizado dentro da grade válida e usa o kernel genérico de cópia por strides para grades maiores. [Código GGML fixado](https://github.com/pwilkin/ggml/blob/737e88f25d4f62254f3b7a726fd9663036cc94da/src/ggml-cuda/cpy.cu#L207-L243) · [Limites CUDA](https://docs.nvidia.com/cuda/cuda-programming-guide/05-appendices/compute-capabilities.html)
+
+Em Docker na GB10, a imagem de referência retornou 133 em `grid_z=65535`. A imagem corrigida passou em 1, 65.535 e 65.536 blocos em Z. No maior caso, os 10.485.620 valores foram iguais aos da transposição de referência. O teste pode ser executado com o alvo Docker `cuda-grid-check` e `CUDA_ARCHS=121`.
+
+O veículo civil foi reexecutado em `veh_civilian_001_t2q8_1536_spark_gridfix`. A execução com a imagem corrigida usou os mesmos 1536 efetivos, 45.835 tokens e seed 1. Exportou o GLB de 298.460 triângulos em um componente em **2.129,3 s**, incluindo o período de sobreposição com o piloto Python. O resultado foi recuperado com `fetch_results.sh`, conferido pelo SHA-256 e incluído na folha do veículo civil. O log e o diretório originais da falha foram preservados.
+
+```bash
+docker build --target cuda-grid-check --build-arg CUDA_ARCHS=121 \
+  -t assetforge-ggml-grid:verify -f deployment/Dockerfile.pixal3d-cuda .
+docker run --rm --network none --ulimit core=0 --gpus all assetforge-ggml-grid:verify
+```
+
+### Pixal3D Python e otimização
+
+O piloto Python usa o código e os pesos multi-view fixados, uma imagem Docker derivada para a Spark e um diretório de trabalho separado (`~/assetforge-pixal3d-python`). As vistas entram com máscara alfa, o DINOv3 existente é montado somente para leitura e a exportação usa o bake do AssetForge protegido por `license_guard`. O build e o download dos 14 arquivos do modelo terminaram. O teste de importação executou uma soma CUDA na GB10 com PyTorch 2.7.1 e NATTEN 0.21.0. O residencial foi exportado a **1536 efetivos** em **1.567,06 s**, com 52.993.226 faces decodificadas antes da exportação. O JSON de execução registra zero chamadas às bibliotecas bloqueadas. O master e as métricas estão em `result/bldg_skyscraper_residential_001_mvpy_1536_spark/`.
+
+O GLB final de 38,4 MiB tem 930.515 triângulos e 472 componentes após soldar posições equivalentes. São 26.758 triângulos fora do maior componente. As vistas mostram o prédio completo e uma placa de chão gerada pelo motor. O multi-view C++ da Spark gerou um único componente para o mesmo residencial a 1280 efetivos. A cópia local do GLB Python foi conferida pelo SHA-256 e está incluída na folha do residencial.
+
+Os dois containers de geração dividiram a Spark durante o teste. A memória disponível chegou a 20,7 GiB no bake Python. Na amostragem C++, as três primeiras etapas levaram 109–115 s por etapa. Na sobreposição com a forma e textura do Python, houve etapas de 225–253 s. O teste demonstra que as duas cargas podem coexistir nesta configuração e que a latência aumenta quando ambas saturam a GPU.
+
+Na RTX 4090, dois jobs Docker de NPC a 1024 efetivos rodaram simultaneamente, com seed 1 e atlas de 4096. O TRELLIS.2 Q8 gerou `npc_government_001` em 81 s e o Pixal3D multi-view Q8 gerou `npc_public_service_001` em 97 s. O pico de VRAM total foi 6.825 MiB, com 120.328 MiB de RAM disponíveis no menor ponto. VLM e TripoSR continuaram ativos. Os dados estão em `~/assetforge-engines/concurrency-city-20261127/` na RTX 4090. Os GLBs de 276.134 e 976.810 triângulos estão com os logs em `reports_out/engines/concurrency/rtx4090/`, conferidos pelo SHA-256. A medição cobre duas cargas leves e complementa a bateria original.
+
+O arquivo `scripts/engines/pixal3d_python.py` oferece `download --models /models` e `generate`. O comando abaixo usa os pesos já baixados e um diretório novo para a saída. Execute-o no checkout do AssetForge na Spark.
+
+```bash
+pilot="$HOME/assetforge-pixal3d-python"
+views="$HOME/assetforge-engines/refs/city/bldg_skyscraper_residential_001/mv4"
+mkdir -p "$pilot/result/residential-1536-revisao" "$pilot/cache"
+docker build -f deployment/Dockerfile.pixal3d-python -t assetforge-pixal3d-python:spark .
+docker run --rm --gpus all --ipc host --user "$(id -u):$(id -g)" \
+  -e HOME=/tmp -e TORCH_HOME=/cache/torch -e TORCHINDUCTOR_CACHE_DIR=/cache/inductor \
+  -e ATTN_BACKEND=flash_attn -e HF_HUB_OFFLINE=1 \
+  -v "$PWD:/assetforge:ro" -v "$pilot/cache:/cache" -v "$pilot/models:/models:ro" \
+  -v "$views:/views:ro" -v "$HOME/clonez-models/dinov3-vitl16-hf:/dino:ro" \
+  -v "$pilot/result/residential-1536-revisao:/out" \
+  --entrypoint python assetforge-pixal3d-python:spark /assetforge/scripts/engines/pixal3d_python.py generate \
+  --views /views --models /models --dinov3 /dino --output /out/model.glb \
+  --resolution 1536 --max-tokens 131072 --seed 1
+```
+
+O piloto de otimização usa `gltfpack` em Docker e exige os mesmos SHA-256 para as texturas incorporadas antes de entregar o GLB derivado. No prédio comercial multi-view da Spark, o master de 997.086 triângulos e 42.219.256 bytes deu derivados de 498.536 triângulos e 26.021.812 bytes (alvo 50%) e 249.270 triângulos e 16.628.760 bytes (alvo 25%). O SHA-256 do master permaneceu idêntico. A silhueta, as fachadas e as faixas do topo se mantiveram nas duas vistas revisadas. A folha local está em `reports_out/engines/analysis/sheets/comparativo-otimizacao.jpg`. A repetição em outras categorias segue pendente.
+
+Para os alvos 15.000, 7.500, 2.500 e 500 triângulos, o simplificador conservador parou entre 120.820 e 120.878 triângulos nesse master. Os derivados preservaram as texturas. Na folha de 120.820 triângulos aparecem ondulações e interrupções nas linhas da fachada. LODs mais leves exigem avaliar outra estratégia de simplificação ou reprojeção.
+
+A aprovação artística é do dono. A integração dos motores ao dashboard segue a aprovação de cada motor, e o uso comercial depende da revisão das licenças. Os testes de concorrência cobrem duas cargas específicas por máquina. Falta medir a vazão sob demanda e a coexistência de duas cargas pesadas na 4090.
+
+Na suíte local, 245 testes passaram. O teste de autenticação do provider CPU3D reproduziu `WinError 10053` no commit anterior `1085197` e foi executado separadamente.
+
 ## 0. Regras do dono (valem sempre)
 
 * **Honestidade**: nunca apresentar resultado simulado; só reportar o que foi medido. Não declarar sucesso porque "gerou um GLB válido". A nota de uma IA **nunca**
@@ -263,7 +347,7 @@ Imagens Docker: `assetforge-pixal3d:cuda89` (4090), `:cuda120` (Spark, **não se
 
 ---
 
-# ESTADO EXATO PARA CONTINUAR (consolidado em 2026-11-27 ~02:00 CST na Spark / 07:50 UTC; **este bloco substitui qualquer estado anterior deste arquivo**)
+# REGISTRO HISTÓRICO (consolidado em 2026-11-27 ~02:00 CST na Spark / 07:50 UTC)
 
 **Antes de tudo**: o Codex deve **estudar o projeto inteiro antes de modificar qualquer arquivo** (ler este HANDOFF do início ao fim, `docs/CLOUD_AI.md`, `docs/TRELLIS2_INTEGRATION.md`, `docs/GPU.md`, `docs/VISION.md`, `scripts/engines/*`, `scripts/trellis2/*`), **recuperar os resultados das baterias existentes** (comandos abaixo) e continuar exatamente daqui, **sem repetir testes já feitos**.
 **Não** iniciar baterias novas desnecessárias antes de concluir as atuais. **Não** tornar os kits procedurais obrigatórios (eles competem como mais um motor). **Preservar a RTX 4090 e a Spark como workers ativos de geração 3D.** **Não** iniciar o Projeto Dragão de Três Cabeças.
