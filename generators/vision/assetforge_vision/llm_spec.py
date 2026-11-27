@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-PROMPT_VERSION = "spec-v1"
+PROMPT_VERSION = "spec-v2"
 SIDES = ["front", "back", "left", "right"]
 FEATURES = ["porch", "portico", "chimney", "dormer", "balcony", "panel", "shrubs", "balcony_stack", "glass_strip", "pilaster", "canopy", "roof_screen"]
 HEX = {"type": "string", "pattern": "^#[0-9A-Fa-f]{6}$"}
@@ -115,6 +115,26 @@ CONVENTIONS = """Conventions of the kit (use them exactly):
   (x,w, curtain wall from `floor` up), pilaster (x,w,depth, vertical strip in palette.accent from `floor` up), canopy (x,w,depth, height above the
   ground floor), roof_screen (x,w along the wing width, y,depth along its depth, height), panel (x,w,depth: cladding in wall2), shrubs (x,w,depth).
 - Colours are hex. Match the reference colours; frames/metal are usually dark; keep the Premium Stylized look (clean shapes, readable details).
+Composition rules (very important):
+- Most towers and blocks are ONE slab: use ONE wing for the whole shaft (all floors) and add a second wing only for a clearly different volume
+  (podium, rooftop penthouse, side annex). Never split one shaft into several stacked wings or side-by-side wings "to add detail".
+- Volumes must touch or overlap: a wing on top of another has y0 = top of the one below; a side annex shares a wall (its cx/cz places it against the shaft,
+  not floating beside it). Keep the main shaft centred at cx=0, cz=0 unless the reference clearly shows an offset.
+- Balcony columns, vertical glass strips, pilasters, awnings and rooftop equipment are FEATURES on the facade, not extra wings. A dark/coloured vertical
+  band on the facade = feature (balcony_stack / glass_strip / pilaster) plus palette, not a different volume.
+- Count storeys from the reference (window rows), do not guess round numbers.
+
+Worked example (a 19-storey residential slab: beige walls, olive balcony column, central glass strip, shop ground floor with canopy, penthouse):
+{"name":"Torre residencial","category":"apartment","wall_kind":"plaster","roof_kind":"plaster","palette":{"wall":"#E8D1AC","trim":"#EFE1C6","roof":"#8A8A86","door":"#3A3E44","frame":"#3A3E44","accent":"#878B55","glass":"#566069"},
+ "wings":[{"name":"main","w":22,"d":16,"floors":19,"fh":3.1,"ground_fh":4.6,"cx":0,"cz":0,"foundation":0.3,"roof":"flat","bay":2.2,"door_side":"front","door_w":2.6,"door_h":3.3,"door_x":-1,
+   "window":{"w":1.35,"h":1.75,"sill":0.65,"lite":true,"mullions_x":2,"mullions_y":1},"ground_window":{"w":3,"h":3.1,"sill":0.35,"lite":true,"mullions_x":3,"mullions_y":1},
+   "skip":[{"side":"front","x0":-10.2,"x1":-3.6}]},
+  {"name":"penthouse","w":6,"d":6,"floors":1,"fh":3.4,"cx":-6.5,"cz":-1.5,"y0":60.9,"roof":"flat","window":{"w":1.6,"h":1.9,"sill":0.6,"lite":true}}],
+ "features":[{"type":"balcony_stack","wing":"main","side":"front","x":-6.9,"w":5.8,"depth":1.25,"floor":1},{"type":"glass_strip","wing":"main","side":"front","x":-0.9,"w":4.6,"floor":1},
+   {"type":"pilaster","wing":"main","side":"front","x":-10,"w":0.55,"depth":0.35,"floor":1},{"type":"canopy","wing":"main","side":"front","x":-0.9,"w":5.6,"depth":2.3,"height":3.9},
+   {"type":"roof_screen","wing":"main","side":"front","x":4.5,"w":10,"depth":6,"y":1,"height":1.5}]}
+This is only an example of the format and level of detail; describe what the REFERENCE shows.
+
 Reproduce the reference as faithfully as the kit allows: storey count, proportions (estimate real sizes; a storey is ~2.8-3.2 m), window rhythm,
 roof shape, materials and colours, porches/balconies/garage and the rooftop. Prefer several wings over forcing one box."""
 
@@ -136,7 +156,8 @@ def critique_prompt(n_refs: int, n_renders: int, spec: dict, iteration: int) -> 
         f"(iteration {iteration}).",
         CONVENTIONS,
         "Compare the renders with the reference: storey count, proportions, window rhythm and sizes, roof, materials, colours, balconies, entrance, rooftop.",
-        "Return: score = fidelity 0-10 (10 = indistinguishable in shape and colour at game scale); issues = concrete differences, most important first; "
+        "Be a strict reviewer. First check the SILHOUETTE: number of volumes, their relative size and whether they line up like the reference (a shaft split into offset volumes is a major error). Then storeys, window rhythm, colours, balconies, entrance, rooftop. "
+        "Return: score = fidelity 0-10 (10 = indistinguishable; 7 = same idea but visible differences in volumes or proportions; below 5 = different building); you must list at least 3 differences unless the match is nearly perfect; issues = concrete differences, most important first; "
         "spec = the FULL corrected specification (not a diff). Change only what makes it closer to the reference.",
         f"CURRENT SPEC: {json.dumps(spec)[:16000]}",
     ])
