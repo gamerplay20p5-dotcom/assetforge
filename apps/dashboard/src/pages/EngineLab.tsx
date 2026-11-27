@@ -156,7 +156,7 @@ function ReconstructionForm({ source }: { source?: Asset }) {
         {unavailable && " O worker original está indisponível. Selecione outro worker para continuar."}
       </p>}
       <div className="form-grid">
-        <label>Motor<select value={engineId} onChange={(e) => {
+        <label>Motor<select aria-label="Motor" value={engineId} onChange={(e) => {
           const next = engines.data?.items.find((item) => item.id === e.target.value);
           if (!next) return;
           setEngine(next.id);
