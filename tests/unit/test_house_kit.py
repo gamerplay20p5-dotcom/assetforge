@@ -15,10 +15,11 @@ from assetforge_procedural.mesh import MeshBuilder
 @pytest.mark.parametrize("name", sorted(ARCHETYPES))
 def test_every_archetype_builds_a_closed_textured_house(name):
     gen = generate_house(ARCHETYPES[name](1))
-    assert 500 < gen.mesh.triangle_count < 9_000  # low/mid poly (the bungalow is deliberately simple)
+    limit = 15_000 if name == "ref_tower" else 9_000  # low/mid poly; the 19-storey tower uses the skyscraper budget
+    assert 500 < gen.mesh.triangle_count < limit  # (the bungalow is deliberately simple)
     lo, hi = gen.mesh.bounds()
     assert abs(lo[1]) < 1e-4 and abs((lo[0] + hi[0]) / 2) < 1e-3 and abs((lo[2] + hi[2]) / 2) < 1e-3  # pivot bottom-center
-    assert {"wall", "roof", "glass", "trim"} <= set(gen.mesh.parts)
+    assert {"wall", "glass", "trim"} <= set(gen.mesh.parts) and ({"roof", "roof_cap"} & set(gen.mesh.parts))  # flat roofs only have the cap
     for part in gen.mesh.parts.values():
         assert np.isfinite(part.vertices).all() and np.isfinite(part.uvs).all()
         assert part.faces.max() < len(part.vertices)

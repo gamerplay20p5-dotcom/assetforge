@@ -23,6 +23,7 @@ HOUSE_GENERATOR_ID = "procedural.house"
 HOUSE_GENERATOR_VERSION = "0.2.0"
 SIDES = ("front", "back", "right", "left")
 ROOFS = ("gable", "hip", "shed", "flat", "none")
+FEATURE_TYPES = ("porch", "portico", "chimney", "dormer", "balcony", "panel", "shrubs", "balcony_stack", "glass_strip", "pilaster", "canopy", "roof_screen")
 WALL_KINDS = ("stucco", "clapboard", "plaster", "brick", "stone", "wood")
 
 
@@ -37,6 +38,7 @@ class WindowStyle:
     mullions: tuple[int, int] = (2, 3)
     lit_prob: float = 0.12
     casing: bool = True
+    lite: bool = False  # few-triangle windows for tall buildings
 
 
 @dataclass
@@ -80,6 +82,8 @@ class WingSpec:
     side_wall: dict[str, str] = field(default_factory=dict)  # per-side wall material override
     door_x: float | None = None  # explicit door position along the facade (default: centre bay)
     skip_ground: dict[str, list[tuple[float, float]]] = field(default_factory=dict)  # x ranges free of ground-floor openings
+    ground_fh: float = 0.0  # taller ground floor (shops/lobby); 0 = same as fh
+    ground_window: WindowStyle | None = None  # storefront windows on the ground floor
 
 
 @dataclass
@@ -134,11 +138,12 @@ class HouseSpec:
         wings = []
         for w in d.get("wings", []):
             w = dict(w)
-            if isinstance(w.get("window"), dict):
-                wd = dict(w["window"])
-                if "mullions" in wd:
-                    wd["mullions"] = tuple(wd["mullions"])
-                w["window"] = build(WindowStyle, wd)
+            for wk in ("window", "ground_window"):
+                if isinstance(w.get(wk), dict):
+                    wd = dict(w[wk])
+                    if "mullions" in wd:
+                        wd["mullions"] = tuple(wd["mullions"])
+                    w[wk] = build(WindowStyle, wd)
             if "sides" in w:
                 w["sides"] = tuple(w["sides"])
             if "skip" in w:
@@ -164,8 +169,8 @@ class HouseSpec:
         for w in self.wings:
             if not (0.8 <= w.w <= 40 and 0.8 <= w.d <= 40):
                 raise ValueError(f"wing {w.name}: width/depth must be 0.8..40 m")
-            if not 1 <= w.floors <= 6 or not 1.4 <= w.fh <= 5:
-                raise ValueError(f"wing {w.name}: floors 1..6 and floor height 1.4..5 m")
+            if not 1 <= w.floors <= 40 or not 1.4 <= w.fh <= 5 or not (w.ground_fh == 0 or 2.2 <= w.ground_fh <= 8):
+                raise ValueError(f"wing {w.name}: floors 1..40, floor height 1.4..5 m, ground floor 2.2..8 m")
             if w.roof not in ROOFS or w.ridge not in ("x", "z") or not 8 <= w.pitch <= 65:
                 raise ValueError(f"wing {w.name}: invalid roof")
             if any(s not in SIDES for s in w.sides):
@@ -173,7 +178,7 @@ class HouseSpec:
         for f in self.features:
             if f.wing not in names:
                 raise ValueError(f"feature {f.type}: unknown wing {f.wing!r}")
-            if f.type not in ("porch", "portico", "chimney", "dormer", "balcony", "panel", "shrubs"):
+            if f.type not in FEATURE_TYPES:
                 raise ValueError(f"unknown feature type {f.type!r}")
             if f.side not in SIDES:
                 raise ValueError(f"feature {f.type}: invalid side")
@@ -210,8 +215,19 @@ class HouseBuilder:
         yaw, off, length = table[side]
         return yaw, off, length
 
+    def _fl_y(self, w: WingSpec, f: int) -> float:
+        """Height of the floor slab of storey ``f`` (0 = ground), honouring a taller ground floor."""
+        base = w.y0 + w.foundation
+        if f <= 0:
+            return base
+        return base + (w.ground_fh or w.fh) + (f - 1) * w.fh
+
     def _top(self, w: WingSpec) -> float:
-        return w.y0 + w.foundation + w.floors * w.fh
+        return self._fl_y(w, w.floors)
+
+    def _feature_skips(self, w: WingSpec, side: str) -> list[tuple[float, float]]:
+        """Facade x-ranges covered by curtain-wall strips: no punched windows behind them."""
+        return [(f.x - f.w / 2, f.x + f.w / 2) for f in self.s.features if f.type == "glass_strip" and f.wing == w.name and f.side == side]
 
     # ------------------------------------------------------------------ layout
     def _layout(self, w: WingSpec, side: str, length: float) -> list[Opening]:
@@ -227,10 +243,11 @@ class HouseBuilder:
         while n > 1 and span / n < st.w + 0.45:
             n -= 1
         centres = [-length / 2 + margin + span * (i + 0.5) / n for i in range(n)] if n > 1 or span > 0 else [0.0]
-        skip = w.skip.get(side, [])
+        skip = w.skip.get(side, []) + self._feature_skips(w, side)
         ww = min(st.w, (span / n) * 0.62) if n > 1 else min(st.w, max(0.6, length - 2 * 0.6))
+        gw = w.ground_window
         for f in range(w.floors):
-            y_fl = fnd + f * w.fh
+            y_fl = self._fl_y(w, f)
             for i, cx in enumerate(centres):
                 if any(a - ww / 2 - 0.2 <= cx <= b + ww / 2 + 0.2 for a, b in skip):
                     continue
@@ -250,11 +267,13 @@ class HouseBuilder:
                     continue
                 if side in w.no_windows:
                     continue
-                rise = st.arch * ww / 2
-                y0 = y_fl + st.sill
-                ops.append(Opening(cx, ww, y0, y0 + st.h + rise, "window", arch=st.arch, shutters=st.shutters,
-                                   flower_box=st.flower_boxes and f == 0 and not (has_door and abs(cx) < 1.0),
-                                   mullions=st.mullions, lit=bool(self.rng.random() < st.lit_prob), casing=st.casing))
+                ws = gw if (f == 0 and gw is not None) else st
+                wwf = min(ws.w, (span / n) * 0.9) if (ws is gw and n > 1) else ww
+                rise = ws.arch * wwf / 2
+                y0 = y_fl + ws.sill
+                ops.append(Opening(cx, wwf, y0, y0 + ws.h + rise, "window", arch=ws.arch, shutters=ws.shutters,
+                                   flower_box=ws.flower_boxes and f == 0 and not (has_door and abs(cx) < 1.0),
+                                   mullions=ws.mullions, lit=bool(self.rng.random() < ws.lit_prob), casing=ws.casing, lite=ws.lite))
         if has_door and w.door_x is not None and not w.garage:
             y_fl = fnd
             rise = w.door_arch * w.door_w / 2
@@ -342,12 +361,12 @@ class HouseBuilder:
                     C.window_dressing(mb, m, o, reveal)
             if w.belt:
                 for f in range(1, w.floors):
-                    C.belt_course(mb, "trim", -L / 2 - 0.04, L / 2 + 0.04, fnd + f * w.fh)
+                    C.belt_course(mb, "trim", -L / 2 - 0.04, L / 2 + 0.04, self._fl_y(w, f))
             if w.corner_posts:
                 for x in (-L / 2, L / 2):
                     C.corner_post(mb, "trim" if not w.timber else "timber", x, fnd, top - 0.12, 0.24 if w.timber else 0.2)
             if w.timber:
-                C.timber_frame(mb, "timber", -L / 2 + 0.1, L / 2 - 0.1, fnd, top - 0.12, ops, [fnd + f * w.fh for f in range(1, w.floors)])
+                C.timber_frame(mb, "timber", -L / 2 + 0.1, L / 2 - 0.1, fnd, top - 0.12, ops, [self._fl_y(w, f) for f in range(1, w.floors)])
 
     def _gable_windows(self, w: WingSpec) -> None:
         if w.roof != "gable" or not w.gable_window or w.name not in self.ridge_y:
@@ -598,7 +617,7 @@ class HouseBuilder:
         w = self.wings[f.wing]
         mb, m = self.mb, self.m
         yaw, off, L = self._frame(w, f.side)
-        y = w.y0 + w.foundation + f.floor * w.fh
+        y = self._fl_y(w, f.floor)
         x0, x1 = f.x - f.w / 2, f.x + f.w / 2
         with mb.transform(yaw, off):
             C.bbox(mb, "trim", (x0, y - 0.18, 0), (x1, y, f.depth), 0.03, faces=("+y", "-y", "+x", "-x", "+z"))
@@ -613,7 +632,7 @@ class HouseBuilder:
         w = self.wings[f.wing]
         yaw, off, L = self._frame(w, f.side)
         y0 = w.y0 + w.foundation + f.y
-        y1 = y0 + (f.height or w.floors * w.fh - 0.14)  # stop just under the eave so it never pokes through the roof slab
+        y1 = y0 + (f.height or self._top(w) - (w.y0 + w.foundation) - f.y - 0.14)  # stop just under the eave so it never pokes through the roof slab
         with self.mb.transform(yaw, off):
             C.bbox(self.mb, "wall2", (f.x - f.w / 2, y0, 0), (f.x + f.w / 2, y1, f.depth or 0.14), 0.025, faces=("+z", "+x", "-x", "+y", "-y"))
 
@@ -625,6 +644,49 @@ class HouseBuilder:
             for i in range(n):
                 x = f.x - f.w / 2 + (i + 0.5) * f.w / n
                 C.shrub(self.mb, self.m, x, f.depth or 0.55, 0.36 + 0.14 * float(self.rng.random()), light=bool(i % 2))
+
+    # ------------------------------------------------------------------ high-rise features
+    def _feat_balcony_stack(self, f: Feature) -> None:
+        """A balcony on every storey from ``floor`` up to ``height`` (storey index, 0 = up to the top)."""
+        w = self.wings[f.wing]
+        yaw, off, L = self._frame(w, f.side)
+        last = int(f.height) if f.height else w.floors - 1
+        x0, x1 = f.x - f.w / 2, f.x + f.w / 2
+        with self.mb.transform(yaw, off):
+            for fl in range(max(1, f.floor), min(last, w.floors - 1) + 1):
+                y = self._fl_y(w, fl)
+                C.bbox(self.mb, "trim", (x0, y - 0.16, 0), (x1, y, f.depth), 0.02, faces=("+y", "-y", "+x", "-x", "+z"))
+                C.railing(self.mb, self.m, x0 + 0.05, x1 - 0.05, f.depth - 0.06, y, 1.0, 0.28, iron=True)
+
+    def _feat_glass_strip(self, f: Feature) -> None:
+        w = self.wings[f.wing]
+        yaw, off, L = self._frame(w, f.side)
+        y0 = self._fl_y(w, max(0, f.floor))
+        y1 = self._top(w) - 0.3 if not f.height else y0 + f.height
+        with self.mb.transform(yaw, off):
+            C.glass_strip(self.mb, self.m, f.x - f.w / 2, f.x + f.w / 2, y0, y1, [self._fl_y(w, k) for k in range(1, w.floors)])
+
+    def _feat_pilaster(self, f: Feature) -> None:
+        w = self.wings[f.wing]
+        yaw, off, L = self._frame(w, f.side)
+        y0 = self._fl_y(w, max(0, f.floor))
+        y1 = self._top(w) - 0.1 if not f.height else y0 + f.height
+        with self.mb.transform(yaw, off):
+            C.pilaster(self.mb, "accent", f.x, f.w, y0, y1, f.depth or 0.12)
+
+    def _feat_canopy(self, f: Feature) -> None:
+        w = self.wings[f.wing]
+        yaw, off, L = self._frame(w, f.side)
+        y = self._fl_y(w, 0) + (f.height or (w.ground_fh or w.fh) * 0.82)
+        with self.mb.transform(yaw, off):
+            C.canopy(self.mb, self.m, f.x - f.w / 2, f.x + f.w / 2, y, f.depth)
+
+    def _feat_roof_screen(self, f: Feature) -> None:
+        """Equipment screen on the roof of the wing; ``x`` is along the wing width, ``y`` along its depth."""
+        w = self.wings[f.wing]
+        top = self._top(w) + 0.22
+        with self.mb.transform(0, (w.cx, 0, w.cz)):
+            C.roof_screen(self.mb, self.m, f.x - f.w / 2, f.x + f.w / 2, f.y - f.depth / 2, f.y + f.depth / 2, top, f.height or 1.4)
 
     def _door_steps(self, w: WingSpec) -> None:
         yaw, off, L = self._frame(w, w.door_side or "front")
@@ -823,6 +885,35 @@ def archetype_ref06(seed: int = 1) -> HouseSpec:
     return HouseSpec("Sobrado Verde com Garagem", "ref06", seed, 0.05, "clapboard", "shingles", "plaster", pal, [main, gar], feats, ground=True)
 
 
+def archetype_ref_tower(seed: int = 1) -> HouseSpec:
+    """Residential tower (user reference): beige facade, olive-framed balcony column, central glass strip, olive pilasters, storefront
+    ground floor with an entrance canopy, rooftop penthouse and equipment screen."""
+    upper = WindowStyle(w=1.35, h=1.75, sill=0.65, mullions=(2, 1), casing=False, lit_prob=0.0, lite=True)
+    shop = WindowStyle(w=3.0, h=3.1, sill=0.35, mullions=(3, 1), casing=False, lit_prob=0.0, lite=True)
+    floors, gfh, fh, fnd = 19, 4.6, 3.1, 0.3
+    top = fnd + gfh + (floors - 1) * fh
+    main = WingSpec("main", 22.0, 16.0, floors, fh, 0, 0, foundation=fnd, pad=0.0, wall="wall", roof="flat", overhang=0.15, bay=2.2, window=upper,
+                    ground_fh=gfh, ground_window=shop, door_side="front", door_w=2.6, door_h=3.3, door_x=-1.0, corner_posts=False, belt=False,
+                    skip={"front": [(-10.2, -3.6)]})
+    balc_windows = WingSpec("balc", 6.2, 0.2, floors, fh, -6.9, 8.0 - 0.1, foundation=fnd, wall="wall", roof="none", window=WindowStyle(
+        w=1.4, h=2.3, sill=0.15, mullions=(3, 1), casing=False, lit_prob=0.0, lite=True), bay=1.9, ground_fh=gfh, ground_window=shop, sides=("front",),
+        corner_posts=False, no_windows=())
+    pent = WingSpec("pent", 6.0, 6.0, 1, 3.4, -6.5, -1.5, y0=top + 0.22, foundation=0.0, wall="wall", roof="flat", overhang=0.25,
+                    window=WindowStyle(w=1.6, h=1.9, sill=0.6, mullions=(3, 1), casing=False, lit_prob=0.0, lite=True), bay=1.9, corner_posts=False)
+    pal = _pal(wall="#E8D1AC", trim="#EFE1C6", base="#D5BE98", roof="#8A8A86", accent="#878B55", door="#3A3E44", frame="#3A3E44", shutter="#3A3E44",
+               metal="#44484E", glass="#566069", timber="#878B55", brick="#A05A43", deck="#B98C55", flower="#F0E6C8")
+    feats = [Feature("balcony_stack", "main", "front", x=-6.9, w=5.8, depth=1.25, floor=1),
+             Feature("pilaster", "main", "front", x=-10.0, w=0.55, depth=0.35, floor=1), Feature("pilaster", "main", "front", x=-3.8, w=0.55, depth=0.35, floor=1),
+             Feature("glass_strip", "main", "front", x=-0.9, w=4.6, floor=1),
+             Feature("pilaster", "main", "front", x=4.1, w=0.45, depth=0.18, floor=1), Feature("pilaster", "main", "front", x=6.3, w=0.45, depth=0.18, floor=1),
+             Feature("pilaster", "main", "right", x=-2.6, w=0.45, depth=0.18, floor=1), Feature("pilaster", "main", "right", x=2.6, w=0.45, depth=0.18, floor=1),
+             Feature("canopy", "main", "front", x=-0.9, w=5.6, depth=2.3, height=3.9),
+             Feature("roof_screen", "main", "front", x=4.5, w=10.0, depth=6.0, y=1.0, height=1.5)]
+    spec = HouseSpec("Torre residencial", "ref_tower", seed, 0.03, "stucco", "plaster", "plaster", pal, [main, pent], feats)
+    _ = balc_windows  # kept as a documented alternative; the balcony column uses the main wing's windows
+    return spec
+
+
 ARCHETYPES = {
     "tudor_cottage": archetype_tudor_cottage,
     "colonial": archetype_colonial,
@@ -836,6 +927,7 @@ ARCHETYPES = {
     "ref04": archetype_ref04,
     "ref05": archetype_ref05,
     "ref06": archetype_ref06,
+    "ref_tower": archetype_ref_tower,
 }
 
 

@@ -26,6 +26,7 @@ VIEWS = {  # name: (azimuth deg from front (+Z of the glTF), elevation deg, dist
 wanted = argv[4].split(",") if len(argv) > 4 else list(VIEWS)
 plain = len(argv) > 5 and argv[5] == "plain"  # neutral backdrop, fixed framing (stage sheets)
 frame_h = float(argv[6]) if len(argv) > 6 else 0.0  # full-house height so every stage uses the same camera
+portrait = len(argv) > 7 and argv[7] == "portrait"  # tall buildings
 
 bpy.ops.wm.read_factory_settings(use_empty=True)
 bpy.ops.import_scene.gltf(filepath=glb)
@@ -36,7 +37,7 @@ hi = Vector((max(p.x for p in pts), max(p.y for p in pts), max(p.z for p in pts)
 centre = (lo + hi) / 2
 radius = (hi - lo).length / 2
 if plain:
-    radius = max(max(hi.x - lo.x, hi.y - lo.y) * 0.62, frame_h * 1.25)
+    radius = max(max(hi.x - lo.x, hi.y - lo.y) * 0.62, frame_h * (0.62 if portrait else 1.25))
 
 # ground
 if not plain:
@@ -132,7 +133,7 @@ try:
     scene.view_settings.look = "AgX - High Contrast"
 except Exception:  # noqa: BLE001
     pass
-scene.render.resolution_x, scene.render.resolution_y = size, int(size * 0.75)
+scene.render.resolution_x, scene.render.resolution_y = (int(size * 0.75), size) if portrait else (size, int(size * 0.75))
 scene.render.image_settings.file_format = "PNG"
 
 cam = bpy.data.cameras.new("cam")

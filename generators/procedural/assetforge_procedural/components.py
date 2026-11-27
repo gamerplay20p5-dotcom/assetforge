@@ -113,6 +113,7 @@ class Opening:
     lit: bool = False
     sill: bool = True
     casing: bool = True
+    lite: bool = False  # high-rise window: glass + one mullion cross, no frame/casing/sill (few triangles)
 
     @property
     def rise(self) -> float:
@@ -170,6 +171,16 @@ def window_dressing(mb: MeshBuilder, m: dict[str, str], o: Opening, reveal: floa
     zf = -r * 0.62
     spring = o.y1 - o.rise
     glass = m["glass_lit"] if o.lit else m["glass"]
+    if o.lite:
+        facing_quad(mb, glass, o.x0, o.x1, o.y0, o.y1, zf, tile=1.0)
+        cols, rows = o.mullions
+        for i in range(1, cols):
+            x = o.x0 + o.w * i / cols
+            facing_quad(mb, m["frame"], x - 0.025, x + 0.025, o.y0, o.y1, zf + 0.012)
+        for j in range(1, rows):
+            y = o.y0 + (o.y1 - o.y0) * j / rows
+            facing_quad(mb, m["frame"], o.x0, o.x1, y - 0.025, y + 0.025, zf + 0.013)
+        return
     # glass pane at the back of the frame
     if o.arch > 0:
         pts = arc_points(o.cx, spring, o.w - 2 * f, max(o.rise - f, 0.05), arch_n)
@@ -533,7 +544,7 @@ def house_materials(palette: dict[str, str], wear: float, wall_kind: str = "stuc
         "brick": MaterialDef("brick", w("brick", "#9A5B45"), "brick", 0.9, 0.0, 1.6),
         "deck": MaterialDef("deck", w("deck", "#8A6A4A"), "planks", 0.8, 0.0, 1.6),
         "metal": MaterialDef("metal", w("metal", "#2E3236"), None, 0.5, 0.6),
-        "glass": MaterialDef("glass", "#6F9DB3", "glass", 0.08, 0.0, 1.0),
+        "glass": MaterialDef("glass", palette.get("glass", "#6F9DB3"), "glass", 0.08, 0.0, 1.0),
         "glass_lit": MaterialDef("glass_lit", "#F2D08A", "glass", 0.25, 0.0, 1.0),
         "plant": MaterialDef("plant", "#4C8A3E", None, 0.95, 0.0),
         "plant2": MaterialDef("plant2", "#6FA84B", None, 0.95, 0.0),
@@ -745,3 +756,50 @@ def shed_framing(mb: MeshBuilder, mat: str, x0: float, x1: float, z0: float, z1:
         else:
             beam(mb, mat, (x, y_low, za), (x, y_hi, zb), 0.06, 0.16)
     return y_hi
+
+
+# ------------------------------------------------------------------------------------------------ high-rise parts (facade frame)
+def glass_strip(mb: MeshBuilder, m: dict[str, str], x0: float, x1: float, y0: float, y1: float, floor_ys: Sequence[float], mullion: float = 1.2,
+                proud: float = 0.08) -> None:
+    """Curtain-wall band: dark glass with vertical mullions and a transom at every floor, framed by the accent colour."""
+    bbox(mb, m["accent"], (x0 - 0.18, y0, 0), (x1 + 0.18, y1 + 0.18, proud), 0.02, faces=("+z", "+x", "-x", "+y"))
+    facing_quad(mb, m["glass"], x0, x1, y0, y1, proud + 0.005, tile=3.0)
+    n = max(1, round((x1 - x0) / mullion))
+    for i in range(1, n):
+        x = x0 + (x1 - x0) * i / n
+        facing_quad(mb, m["frame"], x - 0.035, x + 0.035, y0, y1, proud + 0.012)
+    for y in floor_ys:
+        if y0 < y < y1:
+            facing_quad(mb, m["frame"], x0, x1, y - 0.06, y + 0.06, proud + 0.013)
+
+
+def pilaster(mb: MeshBuilder, mat: str, x: float, w: float, y0: float, y1: float, depth: float = 0.12) -> None:
+    bbox(mb, mat, (x - w / 2, y0, 0), (x + w / 2, y1, depth), 0.015, faces=("+z", "+x", "-x", "+y"))
+
+
+def canopy(mb: MeshBuilder, m: dict[str, str], x0: float, x1: float, y: float, depth: float) -> None:
+    """Entrance canopy: thin slab with a metal fascia and a row of downlights."""
+    bbox(mb, m["trim"], (x0, y - 0.18, 0), (x1, y, depth), 0.02, faces=("+x", "-x", "+y", "-y", "+z"))
+    bbox(mb, m["metal"], (x0 - 0.03, y - 0.28, depth - 0.06), (x1 + 0.03, y + 0.04, depth + 0.02), 0.01, faces=("+x", "-x", "+y", "-y", "+z"))
+    n = max(2, int((x1 - x0) / 0.9))
+    for i in range(n):
+        cx = x0 + (i + 0.5) * (x1 - x0) / n
+        bbox(mb, m["glass_lit"], (cx - 0.1, y - 0.185, depth * 0.45), (cx + 0.1, y - 0.18, depth * 0.45 + 0.2), faces=("-y",))
+
+
+def roof_screen(mb: MeshBuilder, m: dict[str, str], x0: float, x1: float, z0: float, z1: float, y: float, h: float) -> None:
+    """Rooftop equipment screen: posts and horizontal louvres (world/wing frame)."""
+    for (a, b) in (((x0, z1 - 0.06), (x1, z1)), ((x0, z0), (x1, z0 + 0.06)), ((x0, z0), (x0 + 0.06, z1)), ((x1 - 0.06, z0), (x1, z1))):
+        bbox(mb, m["metal"], (a[0], y, a[1]), (b[0], y + 0.08, b[1]), faces=("+y", "+x", "-x", "+z", "-z"))
+    k = max(3, int(h / 0.22))
+    for i in range(1, k + 1):
+        yy = y + h * i / k
+        for zz, sgn in ((z1, 1), (z0, -1)):
+            bbox(mb, m["metal"], (x0, yy - 0.05, zz - 0.04), (x1, yy, zz + 0.04), faces=("+y", "+z" if sgn > 0 else "-z"))
+        for xx in (x0, x1):
+            bbox(mb, m["metal"], (xx - 0.04, yy - 0.05, z0), (xx + 0.04, yy, z1), faces=("+y", "+x" if xx == x1 else "-x"))
+    n = max(2, int((x1 - x0) / 2.0))
+    for i in range(n + 1):
+        xx = x0 + (x1 - x0) * i / n
+        for zz in (z0, z1):
+            bbox(mb, m["metal"], (xx - 0.05, y, zz - 0.05), (xx + 0.05, y + h, zz + 0.05), faces=("+x", "-x", "+z", "-z"))

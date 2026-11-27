@@ -888,7 +888,7 @@ def generate_building(params: BuildingParams) -> GeneratedBuilding:
         spec = description_to_spec(parse_description(params.house_description), params.seed)
         spec.wear = params.wear
         return _gh(spec, params.construction_stage or 6)
-    if params.category == "house" and (params.house_spec or params.archetype):
+    if params.house_spec or (params.category == "house" and params.archetype):
         from .house import ARCHETYPES, HouseSpec, generate_house  # local import: house.py builds on this module
 
         if params.house_spec:
