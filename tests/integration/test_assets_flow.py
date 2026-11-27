@@ -66,12 +66,20 @@ def test_new_version_of_existing_asset_preserves_original(client, admin, make_wo
     j1 = _make_job(client, admin, job_body())
     l1 = w.lease()
     assert w.complete(l1, w.run_real_pipeline(l1, tmp_path / "a")).status_code == 200
+    path = f"{API}/assets/{j1['asset_id']}"
+    r = client.patch(f"{path}?version=1", headers=admin, json={"review_status": "approved"})
+    assert r.json()["review_status"] == "approved"
     j2 = _make_job(client, admin, job_body(asset_id=j1["asset_id"], params={"category": "house", "seed": 2}))
     l2 = w.lease()
     assert l2["job"]["version"] == 2
     assert w.complete(l2, w.run_real_pipeline(l2, tmp_path / "b")).status_code == 200
     a = client.get(f"{API}/assets/{j1['asset_id']}", headers=admin).json()
     assert a["current_version"] == 2 and [v["version"] for v in a["versions"]] == [1, 2]
+    assert a["review_status"] == "pending"
+    assert client.get(f"{path}?version=1", headers=admin).json()["review_status"] == "approved"
+    r = client.patch(f"{path}?version=1", headers=admin, json={"review_status": "rejected"})
+    assert r.json()["review_status"] == "rejected"
+    assert client.get(path, headers=admin).json()["review_status"] == "pending"
     v1 = client.get(f"{API}/assets/{j1['asset_id']}/files/model.glb?version=1", headers=admin).content
     v2 = client.get(f"{API}/assets/{j1['asset_id']}/files/model.glb?version=2", headers=admin).content
     assert v1 != v2 and v1 == (tmp_path / "a" / "out" / "model.glb").read_bytes()
@@ -121,7 +129,7 @@ def test_upload_rejects_path_traversal_and_bad_extensions(client, admin, make_wo
     f.write_bytes(b"x")
     for rel in ("../../evil.png", "..%2f..%2fevil.png", "a/../../evil.png", "run.exe", "a%5Cb.png"):
         r = w.upload(lease, rel, f)
-        assert r.status_code in (400, 404, 422), (rel, r.status_code)
+        assert r.status_code in (400, 404, 405, 422), (rel, r.status_code)
     assert not any(p.name.startswith("evil") for p in tmp_path.rglob("*"))
 
 

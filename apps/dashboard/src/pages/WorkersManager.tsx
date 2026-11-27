@@ -116,6 +116,8 @@ function WorkerDetail({ w, onSave }: { w: Worker; onSave: (l: Record<string, num
   const detail = useQuery({ queryKey: ["workers", w.id], queryFn: () => api<Worker>(`/workers/${w.id}`), refetchInterval: 5000 });
   const t = w.telemetry;
   const caps = w.capabilities;
+  const adaptive = w.kind === "nvidia";
+  const engineGpu = t.engine_gpu;
   return (
     <div className="grid g3">
       <Panel title="Telemetria ao vivo">
@@ -127,7 +129,12 @@ function WorkerDetail({ w, onSave }: { w: Worker; onSave: (l: Record<string, num
             <Meter label="VRAM" value={g.vram_used_mb ?? null} max={g.vram_total_mb} unit="MB" na="não medida" />
           </div>
         ))}
-        {!(t.gpus ?? []).length && <Meter label="GPU" value={null} na="sem GPU declarada neste node" />}
+        {adaptive && engineGpu ? <>
+          <Meter label={engineGpu.name ?? "GPU NVIDIA"} value={engineGpu.utilization_percent ?? null} />
+          {engineGpu.unified
+            ? <Meter label="RAM unificada livre" value={engineGpu.ram_available_mb ?? null} max={t.ram_total_mb} unit="MB" />
+            : <Meter label="VRAM livre" value={engineGpu.vram_free_mb ?? null} max={engineGpu.vram_total_mb ?? undefined} unit="MB" />}
+        </> : !(t.gpus ?? []).length && <Meter label="GPU" value={null} na="sem GPU declarada neste node" />}
         {Object.entries(w.capabilities.cpu3d?.providers ?? {}).map(([n, p]) => {
           const tel = t.cpu3d?.[n];
           return (
@@ -140,7 +147,7 @@ function WorkerDetail({ w, onSave }: { w: Worker; onSave: (l: Record<string, num
         {t.gate && <div className="note" style={{ margin: "8px 0" }}>Despacho em espera neste node: {t.gate}</div>}
         <dl className="kv">
           <dt>Temperatura</dt>
-          <dd>{t.temperature_c != null ? `${t.temperature_c} °C` : "indisponível"}</dd>
+          <dd>{(engineGpu?.temperature_c ?? t.temperature_c) != null ? `${engineGpu?.temperature_c ?? t.temperature_c} °C` : "indisponível"}</dd>
         </dl>
       </Panel>
       <Panel title="Capacidades" actions={<Settings2 size={14} />}>
@@ -170,6 +177,7 @@ function WorkerDetail({ w, onSave }: { w: Worker; onSave: (l: Record<string, num
         </dl>
       </Panel>
       <Panel title="Limites de recursos (este node também roda outros projetos)">
+        {adaptive ? <p className="muted">Concorrência adaptativa · {w.active_jobs} em execução</p> : <>
         <div className="grid g3">
           <label className="field">
             Jobs simultâneos
@@ -187,6 +195,7 @@ function WorkerDetail({ w, onSave }: { w: Worker; onSave: (l: Record<string, num
         <button style={{ marginTop: 10 }} onClick={() => onSave({ max_concurrent_jobs: Number(jobs), ...(cpu ? { cpu_cores: Number(cpu) } : {}), ...(ram ? { ram_mb: Number(ram) } : {}) })}>
           Aplicar limites
         </button>
+        </>}
         <h4 style={{ margin: "14px 0 6px" }}>Histórico recente</h4>
         {(detail.data?.recent_jobs ?? []).slice(0, 6).map((j) => (
           <div key={j.id} className="row" style={{ fontSize: 12 }}>

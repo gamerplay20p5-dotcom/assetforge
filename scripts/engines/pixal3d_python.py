@@ -53,6 +53,7 @@ def generate(args: argparse.Namespace) -> None:
         details["effective_resolution"] = int(kwargs["grid_size"])
         details["decoded_faces_before_export"] = len(kwargs["faces"])
         print(json.dumps(details), flush=True)
+        kwargs["texture_size"] = args.texture_size
         return to_glb_commercial(**kwargs)
 
     rembg.AssetForgePreMattedViews = PreMattedViews
@@ -76,6 +77,8 @@ def generate(args: argparse.Namespace) -> None:
             model_path=str(model_dir),
             max_num_tokens=args.max_tokens,
             resolution=args.resolution,
+            ss_guidance_strength=args.structure_guidance,
+            shape_slat_guidance_strength=args.shape_guidance,
         )
         details["wall_seconds"] = round(time.monotonic() - started, 2)
         details["restricted_library_calls"] = violations()
@@ -98,6 +101,9 @@ def main() -> None:
     run.add_argument("--resolution", type=int, choices=(1024, 1536), required=True)
     run.add_argument("--max-tokens", type=int, required=True)
     run.add_argument("--seed", type=int, default=1)
+    run.add_argument("--texture-size", type=int, default=4096)
+    run.add_argument("--structure-guidance", type=float, default=7.5)
+    run.add_argument("--shape-guidance", type=float, default=7.5)
     args = parser.parse_args()
     if args.mode == "download":
         download_models(args.models)

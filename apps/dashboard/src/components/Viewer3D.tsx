@@ -17,6 +17,7 @@ interface Props {
   /** transparent background + shadow-catcher floor, for the studio stage (CSS paints the backdrop) */
   studio?: boolean;
   onStats?: (s: ViewerStats) => void;
+  onCapture?: (image: string) => void;
 }
 
 function cssVar(name: string, fallback: string): string {
@@ -24,7 +25,7 @@ function cssVar(name: string, fallback: string): string {
 }
 
 /** Interactive glTF viewer (orbit/zoom/pan). Everything shown is loaded from the real exported GLB. */
-export function Viewer3D({ url, wireframe, showBounds, autoRotate, studio, onStats }: Props) {
+export function Viewer3D({ url, wireframe, showBounds, autoRotate, studio, onStats, onCapture }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const state = useRef<{
     renderer: THREE.WebGLRenderer;
@@ -111,6 +112,7 @@ export function Viewer3D({ url, wireframe, showBounds, autoRotate, studio, onSta
       cancelAnimationFrame(st.raf);
       ro.disconnect();
       controls.dispose();
+      if (st.model) disposeModel(st.model);
       scene.traverse((o) => {
         const m = o as THREE.Mesh;
         if (m.geometry) m.geometry.dispose();
@@ -131,9 +133,15 @@ export function Viewer3D({ url, wireframe, showBounds, autoRotate, studio, onSta
     new GLTFLoader().load(
       url,
       (gltf) => {
-        if (cancelled || !state.current) return;
+        if (cancelled || !state.current) {
+          disposeModel(gltf.scene);
+          return;
+        }
         const s = state.current;
-        if (s.model) s.scene.remove(s.model);
+        if (s.model) {
+          s.scene.remove(s.model);
+          disposeModel(s.model);
+        }
         if (s.box) s.scene.remove(s.box);
         const model = gltf.scene;
         let tris = 0;
@@ -193,10 +201,33 @@ export function Viewer3D({ url, wireframe, showBounds, autoRotate, studio, onSta
 
   return (
     <div className="viewer" ref={host}>
+      {onCapture && !loading && !error && url && state.current?.model &&
+        <button type="button" className="viewer-capture" onClick={() => {
+          const rendered = state.current;
+          if (!rendered?.model) return;
+          rendered.renderer.render(rendered.scene, rendered.camera);
+          onCapture(rendered.renderer.domElement.toDataURL("image/jpeg", 0.85).split(",")[1]);
+        }}>Capturar vista</button>}
       {loading && <div className="viewer-overlay">Carregando modelo…</div>}
       {error && <div className="viewer-overlay err">{error}</div>}
     </div>
   );
+}
+
+function disposeModel(root: THREE.Object3D) {
+  const materials = new Set<THREE.Material>();
+  const textures = new Set<THREE.Texture>();
+  root.traverse((object) => {
+    const mesh = object as THREE.Mesh;
+    if (!mesh.isMesh) return;
+    mesh.geometry.dispose();
+    for (const material of Array.isArray(mesh.material) ? mesh.material : [mesh.material]) materials.add(material);
+  });
+  for (const material of materials) {
+    for (const value of Object.values(material)) if (value instanceof THREE.Texture) textures.add(value);
+    material.dispose();
+  }
+  for (const texture of textures) texture.dispose();
 }
 
 function applyWire(root: THREE.Object3D, on: boolean) {

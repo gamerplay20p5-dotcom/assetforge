@@ -178,7 +178,8 @@ def heartbeat(body: Heartbeat, request: Request, worker: Worker = Depends(curren
 @worker_router.post("/lease")
 def lease(request: Request, worker: Worker = Depends(current_worker), db: Session = Depends(get_db)):
     s = request.app.state.settings
-    worker.last_heartbeat = utcnow()
+    if worker.kind != "nvidia":
+        worker.last_heartbeat = utcnow()
     job = try_lease(db, worker, s)
     db.commit()
     if job is None:
@@ -331,7 +332,7 @@ def complete(job_id: str, body: CompleteIn, request: Request, worker: Worker = D
     shutil.move(str(staging), str(dest))
     storage.drop_staging(job.id)
 
-    asset = db.get(Asset, job.asset_id)
+    asset = db.scalar(select(Asset).where(Asset.id == job.asset_id).with_for_update())
     if asset is None:
         asset = Asset(id=job.asset_id, name=job.name, category=job.category, tags=list(job.tags or []),
                       art_profile=manifest.get("art_profile", ""), generator_id=manifest.get("generator_id", ""))
@@ -340,6 +341,13 @@ def complete(job_id: str, body: CompleteIn, request: Request, worker: Worker = D
         emit_event(db, "asset.created", asset.id, name=asset.name)
     else:
         emit_event(db, "asset.version_created", asset.id, version=job.asset_version)
+        if asset.review_status != "pending":
+            previous = db.scalar(select(AssetVersion).where(
+                AssetVersion.asset_id == asset.id, AssetVersion.version == asset.current_version,
+            ).with_for_update())
+            if previous and "art_review" not in previous.manifest:
+                previous.manifest = {**previous.manifest, "art_review": {"status": asset.review_status}}
+        asset.review_status = "pending"
     asset.current_version = job.asset_version
     asset.generator_id = manifest.get("generator_id", asset.generator_id)
     db.add(AssetVersion(
@@ -349,6 +357,8 @@ def complete(job_id: str, body: CompleteIn, request: Request, worker: Worker = D
     mark_succeeded(db, job)
     job.result = {"asset_id": asset.id, "version": job.asset_version, "files": len(files),
                   "triangles": manifest.get("triangle_count"), "engine": result.get("engine")}
+    if job.job_type == "experimental.reconstruct":
+        job.result = {**job.result, "engine_runtime": manifest.get("generation_params", {}).get("runtime", {})}
     try:
         db.commit()
     except IntegrityError as exc:  # duplicate (asset_id, version): another completion won

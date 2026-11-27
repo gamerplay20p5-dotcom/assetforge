@@ -166,13 +166,15 @@ class AiRouter:
 
     # ------------------------------------------------------------------ the call
     def generate_json(self, task: str, system: str, prompt: str, images: list[tuple[bytes, str]], schema: dict, prompt_version: str,
-                      job_id: str = "", use_cache: bool = True) -> AiAnswer:
+                      job_id: str = "", use_cache: bool = True, provider: str | None = None) -> AiAnswer:
         now = utcnow()
-        if use_cache and (cached := self._cached_answer(task, system, prompt, images, schema, prompt_version, job_id)) is not None:
+        if use_cache and (cached := self._cached_answer(task, system, prompt, images, schema, prompt_version, job_id, provider)) is not None:
             return cached  # a cache hit needs no provider call, so it is served even when every key is at its limit
         keys, why, soonest = self.candidates(now)
         errors = list(why)
         for key in keys:
+            if provider and key.provider != provider:
+                continue
             try:
                 prov = self.provider_for(key)
                 model = self._model(key, prov)
@@ -219,10 +221,12 @@ class AiRouter:
         raise NoKeyAvailable("; ".join(errors), soonest)
 
     def _cached_answer(self, task: str, system: str, prompt: str, images: list[tuple[bytes, str]], schema: dict, prompt_version: str,
-                       job_id: str) -> AiAnswer | None:
+                       job_id: str, provider: str | None = None) -> AiAnswer | None:
         free_only = bool(get_ai_settings(self.db)["free_only"])
         keys = self.db.execute(select(AiKey).where(AiKey.enabled.is_(True), AiKey.model != "").order_by(AiKey.priority, AiKey.created_at)).scalars()
         for key in keys:
+            if provider and key.provider != provider:
+                continue
             if free_only and is_paid(key) and not key.allow_paid:
                 continue
             hit = self._cache_get(cache_key(task, prompt_version, key.model, schema, images, prompt))

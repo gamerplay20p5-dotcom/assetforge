@@ -1,0 +1,44 @@
+name: assetforge-engines
+
+x-worker: &worker
+  restart: unless-stopped
+  init: true
+  gpus: all
+  ipc: host
+  security_opt: ["no-new-privileges:true"]
+  cap_drop: [ALL]
+
+services:
+  nvidia:
+    <<: *worker
+    build:
+      context: ..
+      dockerfile: deployment/Dockerfile.engine-worker
+      args:
+        ENGINE_IMAGE: ${ENGINE_IMAGE:-assetforge-pixal3d:cuda89}
+    image: assetforge-engine-worker:local
+    env_file: ${ENGINE_WORKER_ENV_FILE:-.env.engine-worker}
+    environment:
+      ASSETFORGE_WORKER_JOB_TIMEOUT: ${ENGINE_WORKER_JOB_TIMEOUT:-7200}
+    volumes:
+      - engine-state:/state
+      - ${ENGINE_MODELS_DIR:-/var/lib/assetforge/gguf}:/models:ro
+
+  pixal3d-python:
+    <<: *worker
+    profiles: [pixal3d-python]
+    network_mode: none
+    build:
+      context: ..
+      dockerfile: deployment/Dockerfile.engine-python-worker
+      args:
+        PYTHON_ENGINE_IMAGE: ${PYTHON_ENGINE_IMAGE:-assetforge-pixal3d-python:spark}
+    image: assetforge-engine-python-worker:local
+    volumes:
+      - engine-state:/state
+      - ${PIXAL3D_MODELS_DIR:-/var/lib/assetforge/pixal3d-python}:/python-models:ro
+      - ${PIXAL3D_DINOV3_DIR:-/var/lib/assetforge/dinov3}:/dino:ro
+      - ${PIXAL3D_CACHE_DIR:-/var/lib/assetforge/pixal3d-cache}:/cache
+
+volumes:
+  engine-state:

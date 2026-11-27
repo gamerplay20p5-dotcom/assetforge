@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import mimetypes
+import io
 import tempfile
 import zipfile
 from pathlib import Path
@@ -11,13 +12,19 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import FileResponse
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
+from assetforge_vision import compare
+from PIL import Image, UnidentifiedImageError
+from pydantic import BaseModel, Field
 from starlette.background import BackgroundTask
 
 from ..models import Asset, AssetVersion, User
+from ..ai.router import AiRejected, AiRouter, NoKeyAvailable
 from ..schemas import AssetPatch, DownloadRequest, asset_out
 from ..security import get_db, require_operator, require_viewer, user_or_download_token
 from ..services import audit, emit_event
 from ..storage import UnsafePath, safe_join
+from .references import reference_path
+from .ai import _decode_image
 
 router = APIRouter(prefix="/assets", tags=["assets"])
 
@@ -70,31 +77,97 @@ def get_asset(asset_id: str, version: int | None = None, db: Session = Depends(g
 
 
 @router.patch("/{asset_id}")
-def patch_asset(asset_id: str, body: AssetPatch, user: User = Depends(require_operator),
+def patch_asset(asset_id: str, body: AssetPatch, version: int | None = None, user: User = Depends(require_operator),
                 db: Session = Depends(get_db)) -> dict:
-    a = db.get(Asset, asset_id)
+    a = db.scalar(select(Asset).where(Asset.id == asset_id).with_for_update())
     if not a:
         raise HTTPException(404, "asset not found")
     changes = body.model_dump(exclude_none=True)
+    selected = None
+    if "review_status" in changes:
+        selected = _version(db, asset_id, version, lock=True)
+        selected.manifest = {**selected.manifest, "art_review": {
+            "status": changes["review_status"], "reviewed_by": user.username,
+        }}
+        if selected.version != a.current_version:
+            changes = {k: v for k, v in changes.items() if k != "review_status"}
     for k, v in changes.items():
         if k == "tags":
             v = sorted({t.strip()[:40] for t in v if t.strip()})
         setattr(a, k, v)
-    audit(db, user.username, "asset.update", "asset", a.id, **{k: (v if k != "tags" else len(v)) for k, v in changes.items()})
+    audit(db, user.username, "asset.update", "asset", a.id, version=version or a.current_version,
+          **{k: (v if k != "tags" else len(v)) for k, v in body.model_dump(exclude_none=True).items()})
     emit_event(db, "asset.updated", a.id, **{k: v for k, v in changes.items() if k != "tags"})
     db.commit()
-    return asset_out(a)
+    return asset_out(a, selected)
 
 
-def _version(db: Session, asset_id: str, version: int | None) -> AssetVersion:
+def _version(db: Session, asset_id: str, version: int | None, *, lock: bool = False) -> AssetVersion:
     a = db.get(Asset, asset_id)
     if not a:
         raise HTTPException(404, "asset not found")
     ver = version if version is not None else a.current_version
-    v = db.scalar(select(AssetVersion).where(AssetVersion.asset_id == asset_id, AssetVersion.version == ver))
+    stmt = select(AssetVersion).where(AssetVersion.asset_id == asset_id, AssetVersion.version == ver)
+    v = db.scalar(stmt.with_for_update().execution_options(populate_existing=True) if lock else stmt)
     if not v:
         raise HTTPException(404, "version not found")
     return v
+
+
+class EvaluationIn(BaseModel):
+    renders: list[str] = Field(min_length=1, max_length=4)
+
+
+def evaluation_image(data: bytes) -> tuple[bytes, str]:
+    """Normalize submitted renders and references before handing them to the central key pool."""
+    try:
+        with Image.open(io.BytesIO(data)) as image:
+            if image.width * image.height > 16_777_216:
+                raise HTTPException(413, "render image too large")
+            rgba = image.convert("RGBA")
+            rgba.thumbnail((1200, 1200), Image.Resampling.LANCZOS)
+            flat = Image.new("RGB", rgba.size, (200, 200, 200))
+            flat.paste(rgba, mask=rgba.getchannel("A"))
+            out = io.BytesIO()
+            flat.save(out, "JPEG", quality=88)
+            return out.getvalue(), "image/jpeg"
+    except (UnidentifiedImageError, OSError, Image.DecompressionBombError) as exc:
+        raise HTTPException(422, "invalid evaluation image") from exc
+
+
+@router.post("/{asset_id}/versions/{version}/evaluate")
+def evaluate(asset_id: str, version: int, body: EvaluationIn, request: Request,
+             user: User = Depends(require_operator), db: Session = Depends(get_db)) -> dict:
+    selected = _version(db, asset_id, version)
+    params = selected.manifest.get("generation_params", {})
+    refs = params.get("references") or {}
+    front = refs.get("front") or params.get("reference_id") or next(iter(params.get("reference_ids") or []), None)
+    if not front:
+        raise HTTPException(422, "esta versão não tem imagem de referência")
+    settings = request.app.state.settings
+    originals = [(name, refs[name]) for name in ("front", "right", "back", "three_quarter") if name in refs]
+    if not originals:
+        originals = [("front", front)]
+    images = [evaluation_image(reference_path(request, ref).read_bytes()) for _, ref in originals]
+    images += [evaluation_image(_decode_image(b, 4 * 1024**2)[0]) for b in body.renders]
+    names = [f"captura {i}" for i in range(1, len(body.renders) + 1)]
+    model_label = f"{asset_id} v{version}"
+    try:
+        ans = AiRouter(db, settings.resolved_secret()).generate_json(
+            "asset.visual_review", compare.SYSTEM, compare.compare_prompt(
+                names, model_label, reference_names=[name for name, _ in originals]), images,
+            compare.COMPARE_SCHEMA, compare.PROMPT_VERSION, selected.job_id or "", provider="gemini",
+        )
+    except NoKeyAvailable as exc:
+        raise HTTPException(429, "Gemini indisponível no pool central. Confira a cota em IA na nuvem.") from exc
+    except AiRejected as exc:
+        raise HTTPException(502, "Gemini recusou a avaliação") from exc
+    selected = _version(db, asset_id, version, lock=True)
+    report = {**compare.clean(ans.data), "provider": ans.provider, "model": ans.model, "cached": ans.cached}
+    selected.manifest = {**selected.manifest, "gemini_evaluation": report}
+    audit(db, user.username, "asset.evaluate", "asset", asset_id, version=version, model=ans.model)
+    db.commit()
+    return report
 
 
 @router.get("/{asset_id}/files/{path:path}")

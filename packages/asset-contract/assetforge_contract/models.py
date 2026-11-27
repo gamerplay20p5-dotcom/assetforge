@@ -10,6 +10,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from .budgets import QualityProfile
+from .engines import ReconstructionParams
 
 CONTRACT_VERSION = "1.0.0"
 
@@ -64,7 +65,7 @@ class BuildingParams(StrictModel):
         default=None, description="Full architectural spec (JSON) for the house kit; overrides `archetype`. Validated by the generator")
 
 
-JobType = Literal["procedural.building", "ai.text_to_3d", "ai.image_to_3d", "agent.building"]
+JobType = Literal["procedural.building", "ai.text_to_3d", "ai.image_to_3d", "agent.building", "experimental.reconstruct"]
 AI_JOB_TYPES = ("ai.text_to_3d", "ai.image_to_3d")
 
 
@@ -163,6 +164,10 @@ class JobCreate(StrictModel):
             self.params = BuildingParams.model_validate(self.params).model_dump(mode="json")
         elif self.job_type == "agent.building":
             self.params = AgentParams.model_validate(self.params).model_dump(mode="json")
+        elif self.job_type == "experimental.reconstruct":
+            if self.formats != ["glb"] or self.triangle_limit is not None:
+                raise ValueError("experimental reconstruction exports the master as GLB")
+            self.params = ReconstructionParams.model_validate(self.params).model_dump(mode="json")
         else:
             ai = AiParams.model_validate(self.params)
             if self.job_type == "ai.text_to_3d" and ai.provider != "intel":
@@ -274,7 +279,7 @@ class AssetManifest(StrictModel):
     animations: list[str] = Field(default_factory=list)
     construction_states: list[str] = Field(default_factory=list)
     triangle_count: int
-    triangle_budget: tuple[int, int]
+    triangle_budget: tuple[int, int] | None
     license: str = "CC0-1.0 (procedurally generated, no third-party assets)"
     provenance: dict[str, str] = Field(default_factory=dict)
     engine: str = "trimesh"

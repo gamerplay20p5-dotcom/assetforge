@@ -43,7 +43,7 @@ class EnrollmentCreate(BaseModel):
 class WorkerRegister(BaseModel):
     enrollment_token: str
     name: str = Field(min_length=2, max_length=120, pattern=r"^[A-Za-z0-9_.-]+$")
-    kind: Literal["cpu", "intel", "hybrid"] = "cpu"
+    kind: Literal["cpu", "intel", "hybrid", "nvidia"] = "cpu"
     address: str = ""
     hostname: str = ""
     version: str = ""
@@ -224,7 +224,8 @@ def asset_out(a: Asset, version: AssetVersion | None = None, detail: bool = Fals
     m = (v.manifest if v else {}) or {}
     out = {
         "id": a.id, "name": a.name, "category": a.category, "tags": a.tags or [], "favorite": a.favorite,
-        "review_status": a.review_status, "current_version": a.current_version, "art_profile": a.art_profile,
+        "review_status": (m.get("art_review") or {}).get("status", a.review_status if v and v.version == a.current_version else "pending"),
+        "current_version": a.current_version, "art_profile": a.art_profile,
         "generator_id": a.generator_id, "created_at": iso(a.created_at), "updated_at": iso(a.updated_at),
         "triangle_count": v.triangle_count if v else 0, "engine": v.engine if v else "",
         "dimensions_m": m.get("dimensions_m"), "seed": m.get("seed"), "version_count": len(a.versions),

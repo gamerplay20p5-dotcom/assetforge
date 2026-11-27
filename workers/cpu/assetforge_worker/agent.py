@@ -21,10 +21,12 @@ import psutil
 from assetforge_export.ai_pipeline import plan_for
 from assetforge_export.pipeline import find_blender
 from assetforge_export.proc import JobCancelled, SubprocessFailed, SubprocessTimeout, run_supervised
+from assetforge_contract.engines import RECONSTRUCT
 
 from .ai import AiRuntime, Cpu3dRuntime
 from .client import AuthFailed, LeaseLost, ServerClient
 from .config import WorkerConfig
+from . import nvidia
 from .policy import lease_gate, parse_active_hours
 from .resources import capabilities, detect_gpus, telemetry
 
@@ -44,7 +46,8 @@ class Agent:
         self.queue_paused = False
         self._lock = threading.Lock()
         self.active: dict[str, threading.Event] = {}  # job_id -> cancel flag
-        self.pool = ThreadPoolExecutor(max_workers=max(1, cfg.max_jobs), thread_name_prefix="job")
+        self.pool = None if cfg.kind == "nvidia" else ThreadPoolExecutor(max_workers=max(1, cfg.max_jobs), thread_name_prefix="job")
+        self.threads: set[threading.Thread] = set()
         self.heartbeat_seconds = 10
         self.windows = parse_active_hours(cfg.active_hours)
         self.cpu_samples: deque[float] = deque(maxlen=6)
@@ -59,6 +62,9 @@ class Agent:
                 log.warning("could not lower process priority")
 
     def _caps(self) -> dict:
+        if self.cfg.kind == "nvidia":
+            return {"kind": self.cfg.kind, "features": nvidia.features(self.cfg.work_dir),
+                    "formats": ["glb"], "ram_total_mb": psutil.virtual_memory().total // 2**20}
         ai = self.ai.status()
         return capabilities(self.cfg, self.blender, ai, self.ai.model_rows() if ai.get("enabled") else None, self.cpu3d.status())
 
@@ -120,6 +126,8 @@ class Agent:
                 with self._lock:
                     ids = list(self.active)
                 body = {"telemetry": telemetry(len(ids), str(self.cfg.work_dir), self.gate_reason, self.ai.gpus() or self.gpus, self.cpu3d.telemetry()), "active_jobs": ids}
+                if self.pool is None:
+                    body["telemetry"]["engine_gpu"] = nvidia.sample()
                 beat += 1
                 if not caps_sent or beat % 6 == 0:  # re-publish: ComfyUI/models may come up or change
                     body["capabilities"] = self._caps()
@@ -148,7 +156,7 @@ class Agent:
                  self.cfg.cpu_cores, self.cfg.ram_mb)
         while not self.stop.is_set():
             with self._lock:
-                free = self.cfg.max_jobs - len(self.active)
+                free = 1 if self.pool is None else self.cfg.max_jobs - len(self.active)
             self.gate_reason = self._gate()
             if free > 0 and self.state == "enabled" and not self.queue_paused and self.gate_reason is None:
                 try:
@@ -163,10 +171,23 @@ class Agent:
                     flag = threading.Event()
                     with self._lock:
                         self.active[leased["job_id"]] = flag
-                    self.pool.submit(self.execute, leased, flag)
+                    if self.pool is None:
+                        self.threads = {thread for thread in self.threads if thread.is_alive()}
+                        thread = threading.Thread(target=self.execute, args=(leased, flag))
+                        self.threads.add(thread)
+                        thread.start()
+                    else:
+                        self.pool.submit(self.execute, leased, flag)
                     continue
             self.stop.wait(self.cfg.poll_interval_s)
-        self.pool.shutdown(wait=False, cancel_futures=True)
+        if self.pool is not None:
+            self.pool.shutdown(wait=False, cancel_futures=True)
+        else:
+            with self._lock:
+                for flag in self.active.values():
+                    flag.set()
+            for thread in self.threads:
+                thread.join()
 
     # ------------------------------------------------------------------ one job
     def execute(self, leased: dict, cancel: threading.Event) -> None:
@@ -220,6 +241,9 @@ class Agent:
             if job["job_type"].startswith("ai.") and ref_id:
                 self.client.download_reference(ref_id, workdir / "reference.png")
                 job = {**job, "reference_path": str(workdir / "reference.png")}
+            if job["job_type"] == RECONSTRUCT:
+                for view, ref in job["params"]["references"].items():
+                    self.client.download_reference(ref, workdir / f"{view}.png")
             (workdir / "job.json").write_text(json.dumps(job), encoding="utf-8")
             threading.Thread(target=flusher, daemon=True).start()
             log.info("job %s started: %s", job_id, job["name"])

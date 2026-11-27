@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""Compare renders with the original reference using the Gemini key stored in the AssetForge API (run INSIDE the api container, so the key never leaves
-the server), or with GEMINI_API_KEY from the environment.
+"""Compare renders with the original reference using the central Gemini pool (inside the API container),
+or with GEMINI_API_KEY from the environment.
 
     python gemini_compare.py --ref ref.png --label "LOD0 15k" --views front_left=a.png front_right=b.png back=c.png aerial=d.png --out result.json [--db]
 """
@@ -11,6 +11,7 @@ import argparse
 import json
 import os
 import sys
+import time
 from pathlib import Path
 
 for d in ("apps/api", "generators/vision", "/app/apps/api", "/app/generators/vision"):
@@ -33,28 +34,45 @@ def main() -> int:
     ap.add_argument("--label", required=True)
     ap.add_argument("--views", nargs="+", required=True, help="name=path ...")
     ap.add_argument("--out", type=Path, required=True)
-    ap.add_argument("--db", action="store_true", help="use the key stored in the AssetForge database (inside the api container)")
+    ap.add_argument("--db", action="store_true", help="use the central AI pool inside the API container")
     ap.add_argument("--extra", default="")
     a = ap.parse_args()
-    if a.db:
-        from assetforge_api.ai.crypto import decrypt
-        from assetforge_api.config import get_settings
-        from assetforge_api.db import Database
-        from assetforge_api.models import AiKey
-
-        s = get_settings()
-        k = Database(s.database_url).session().query(AiKey).filter(AiKey.provider == "gemini", AiKey.enabled.is_(True)).order_by(AiKey.priority).first()
-        prov, model = make_provider("gemini", decrypt(s.resolved_secret(), k.key_enc), k.base_url), k.model
-    else:
-        prov = make_provider("gemini", os.environ["GEMINI_API_KEY"])
-        model = pick_model("gemini", [m["name"] for m in prov.list_models()])
     names, imgs = [], [(a.ref.read_bytes(), "image/png")]
     for v in a.views:
         n, p = v.split("=", 1)
         names.append(n)
         imgs.append((Path(p).read_bytes(), "image/png"))
-    r = prov.generate_json(model, compare.SYSTEM, compare.compare_prompt(names, a.label, a.extra), imgs, compare.COMPARE_SCHEMA)
-    out = {"label": a.label, "model": model, "tokens": r.total_tokens, "seconds": round(r.latency_ms / 1000, 1), **compare.clean(r.data)}
+    prompt = compare.compare_prompt(names, a.label, a.extra)
+    started = time.monotonic()
+    cached = False
+    if a.db:
+        from assetforge_api.ai.router import AiRejected, AiRouter, NoKeyAvailable
+        from assetforge_api.config import get_settings
+        from assetforge_api.db import Database
+
+        settings = get_settings()
+        with Database(settings.database_url).session() as db:
+            try:
+                answer = AiRouter(db, settings.resolved_secret()).generate_json(
+                    "asset.visual_review", compare.SYSTEM, prompt, imgs, compare.COMPARE_SCHEMA,
+                    compare.PROMPT_VERSION, provider="gemini",
+                )
+            except NoKeyAvailable as exc:
+                print("Gemini pool unavailable; consult central AI usage.", file=sys.stderr)
+                if exc.retry_at:
+                    print(f"Retry after {exc.retry_at.isoformat()}", file=sys.stderr)
+                return 75
+            except AiRejected:
+                print("Gemini rejected the evaluation; consult central AI usage.", file=sys.stderr)
+                return 1
+        model, tokens, data, cached = answer.model, answer.total_tokens, answer.data, answer.cached
+    else:
+        prov = make_provider("gemini", os.environ["GEMINI_API_KEY"])
+        model = pick_model("gemini", [m["name"] for m in prov.list_models()])
+        result = prov.generate_json(model, compare.SYSTEM, prompt, imgs, compare.COMPARE_SCHEMA)
+        tokens, data = result.total_tokens, result.data
+    out = {"label": a.label, "model": model, "tokens": tokens, "cached": cached,
+           "seconds": round(time.monotonic() - started, 1), **compare.clean(data)}
     a.out.write_text(json.dumps(out, indent=2, ensure_ascii=False), encoding="utf-8")
     print(json.dumps({k: out[k] for k in ("label", "overall", "verdict")}))
     return 0

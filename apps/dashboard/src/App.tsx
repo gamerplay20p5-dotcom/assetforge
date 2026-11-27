@@ -6,6 +6,7 @@ import { api, getToken, setToken, useDownloadToken } from "./api";
 import { Dashboard } from "./pages/Dashboard";
 import { Generator } from "./pages/Generator";
 import { Studio } from "./pages/Studio";
+import { EngineLab } from "./pages/EngineLab";
 import { BatchStudio } from "./pages/BatchStudio";
 import { QueueManager } from "./pages/QueueManager";
 import { Library } from "./pages/Library";
@@ -69,6 +70,7 @@ function useLiveEvents(enabled: boolean) {
 
 const NAV = [
   { to: "/", label: "Imagem → 3D", icon: ImagePlus, end: true },
+  { to: "/engines", label: "Motores", icon: Triangle },
   { to: "/generator", label: "Procedural", icon: Sparkles },
   { to: "/library", label: "Biblioteca", icon: Boxes },
   { to: "/queue", label: "Fila", icon: ListChecks },
@@ -157,6 +159,7 @@ export function App() {
         <main className={`content ${flush ? "flush" : ""}`}>
           <Routes>
             <Route path="/" element={<Studio />} />
+            <Route path="/engines" element={<EngineLab />} />
             <Route path="/image3d" element={<Navigate to="/" replace />} />
             <Route path="/dashboard" element={<Dashboard />} />
             <Route path="/generator" element={<Generator />} />

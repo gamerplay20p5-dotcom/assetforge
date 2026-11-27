@@ -26,11 +26,13 @@ SYSTEM = ("You are a strict 3D art reviewer for a game studio (Premium Stylized 
           "the original reference image. You only describe what you see; you do not write code.")
 
 
-def compare_prompt(view_names: list[str], label: str, extra: str = "") -> str:
+def compare_prompt(view_names: list[str], label: str, extra: str = "", reference_names: list[str] | None = None) -> str:
+    originals = (f"The first {len(reference_names)} images are ORIGINAL references, in this order: "
+                 + ", ".join(reference_names) + ".") if reference_names else "The FIRST image is the ORIGINAL reference."
     return "\n\n".join([
-        f"The FIRST image is the ORIGINAL reference. The next {len(view_names)} images are renders of the generated model '{label}', in this order: "
-        + ", ".join(view_names) + ". All renders share the same camera and neutral lighting.",
-        "Judge the model against the reference on: silhouette, proportions, materials, colors, components (windows, balconies, entrance, roof elements), "
+        f"{originals} The next {len(view_names)} images are renders of the generated model '{label}', in this order: "
+        + ", ".join(view_names) + ". The render camera may show different angles of the object.",
+        "Judge the model against the references on: silhouette, proportions, materials, colors, characteristic components, "
         "deformations (warped or melted surfaces, holes, floating parts). The renders use a neutral studio light and no photographic shading, so judge hue and "
         "relative tones, and say separately if the model is globally darker or lighter than the reference.",
         "Scores are 0-10 (10 = indistinguishable at game scale; 7 = same design with visible differences; below 5 = different object). Be strict and "

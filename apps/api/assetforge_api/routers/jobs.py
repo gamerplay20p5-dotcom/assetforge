@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 from assetforge_contract import JobCreate
+from assetforge_contract.engines import ENGINES, RECONSTRUCT
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import ValidationError
 from sqlalchemy import func, select
@@ -36,6 +37,10 @@ def create_job(db: Session, spec: JobCreate, user: User, settings, batch_id: str
         ref = spec.params.get("reference_id")
         if not (settings.storage_root / "references" / f"{ref}.png").is_file():
             raise HTTPException(404, f"reference image {ref} not found (upload it first)")
+    if spec.job_type == RECONSTRUCT:
+        for ref in spec.params["references"].values():
+            if not (settings.storage_root / "references" / f"{ref}.png").is_file():
+                raise HTTPException(404, f"reference image {ref} not found")
     if spec.job_type == "agent.building":
         from ..ai.router import get_ai_settings
 
@@ -47,8 +52,12 @@ def create_job(db: Session, spec: JobCreate, user: User, settings, batch_id: str
         for ref in spec.params.get("reference_ids", []):
             if not (settings.storage_root / "references" / f"{ref}.png").is_file():
                 raise HTTPException(404, f"reference image {ref} not found (upload it first)")
-    if spec.worker_id and db.get(Worker, spec.worker_id) is None:
-        raise HTTPException(404, f"worker {spec.worker_id} not found")
+    if spec.worker_id:
+        worker = db.get(Worker, spec.worker_id)
+        if worker is None:
+            raise HTTPException(404, f"worker {spec.worker_id} not found")
+        if spec.job_type == RECONSTRUCT and f"engine.{spec.params['engine']}" not in (worker.capabilities or {}).get("features", []):
+            raise HTTPException(422, "worker does not support the selected engine")
     if spec.depends_on:
         found = set(db.scalars(select(Job.id).where(Job.id.in_(spec.depends_on))))
         missing = set(spec.depends_on) - found
@@ -60,7 +69,8 @@ def create_job(db: Session, spec: JobCreate, user: User, settings, batch_id: str
         triangle_limit=spec.triangle_limit, formats=list(spec.formats), tags=list(spec.tags),
         art_profile_id=spec.art_profile_id, category=spec.category, priority=spec.priority,
         requirements=requirements_for(spec.job_type, list(spec.formats), vram_mb=settings.ai_vram_mb, provider=spec.params.get("provider"),
-                                      cpu3d_cores=settings.cpu3d_cores, cpu3d_ram_mb=settings.cpu3d_ram_mb), pinned_worker_id=spec.worker_id,
+                                      cpu3d_cores=settings.cpu3d_cores, cpu3d_ram_mb=settings.cpu3d_ram_mb,
+                                      params=spec.params), pinned_worker_id=spec.worker_id,
         not_before=spec.scheduled_at, depends_on=list(spec.depends_on), has_deps=bool(spec.depends_on),
         idempotency_key=spec.idempotency_key, max_attempts=settings.default_max_attempts, created_by=user.username,
         retry_of=retry_of,
@@ -79,6 +89,14 @@ def _parse_spec(data: dict) -> JobCreate:
 
 
 # ----------------------------------------------------------------------------- jobs
+@router.get("/engines", dependencies=[Depends(require_viewer)])
+def engine_catalog() -> dict:
+    return {"items": [
+        {"id": key, **entry, "experimental": True, "commercial_status": "pending"}
+        for key, entry in ENGINES.items()
+    ]}
+
+
 @router.post("/jobs", status_code=201)
 def post_job(body: JobCreate, request: Request, user: User = Depends(require_operator),
              db: Session = Depends(get_db)) -> dict:

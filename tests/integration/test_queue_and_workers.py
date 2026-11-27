@@ -1,5 +1,8 @@
-import pytest
 from datetime import timedelta
+from io import BytesIO
+
+import pytest
+from PIL import Image
 
 from assetforge_api.db import utcnow
 from assetforge_api.models import Job
@@ -62,10 +65,28 @@ def test_enrollment_token_is_single_use(client, admin):
     assert client.post(f"{API}/worker/register", json={**body, "enrollment_token": "enr_bogus"}).status_code == 401
 
 
-def test_nvidia_kind_is_not_accepted(client, admin):
-    enr = client.post(f"{API}/workers/enrollment-tokens", headers=admin, json={}).json()["token"]
-    r = client.post(f"{API}/worker/register", json={"enrollment_token": enr, "name": "n", "kind": "nvidia"})
-    assert r.status_code == 422
+def test_nvidia_admission_uses_headroom_and_capability_instead_of_fixed_slots(client, admin, make_worker):
+    with BytesIO() as image:
+        Image.new("RGB", (64, 64), "orange").save(image, "PNG")
+        ref = client.post(f"{API}/references", headers=admin, files={"file": ("ref.png", image.getvalue())}).json()["id"]
+    worker = make_worker(kind="nvidia", features=("engine.trellis2-gguf",))
+    other = make_worker(kind="nvidia", features=("engine.pixal3d-sv",))
+    for i in range(5):
+        _job(client, admin, {"name": f"pilot-{i}", "job_type": "experimental.reconstruct",
+                             "formats": ["glb"], "params": {"engine": "trellis2-gguf", "category": "npc",
+                                                             "references": {"front": ref}}})
+    assert worker.lease() is None  # registration alone provides no device sample
+    gpu = {"temperature_c": 83, "utilization_percent": 0, "ram_available_mb": 100000,
+           "ram_total_mb": 124000, "vram_total_mb": 24564, "vram_free_mb": 24071, "unified": False}
+    worker.heartbeat(telemetry={"engine_gpu": gpu})
+    assert worker.lease() is None
+    gpu["temperature_c"] = 45
+    other.heartbeat(telemetry={"engine_gpu": gpu})
+    assert other.lease() is None
+    worker.heartbeat(telemetry={"engine_gpu": gpu})
+    leases = [worker.lease() for _ in range(5)]
+    assert len({lease["job_id"] for lease in leases[:4]}) == 4
+    assert leases[4] is None
 
 
 # ----------------------------------------------------------------------------- scheduling

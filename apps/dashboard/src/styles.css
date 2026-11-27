@@ -1650,3 +1650,20 @@ tr.selected td {
   border-radius: 6px;
   display: block;
 }
+.engine-workbench, .engine-compare {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(240px, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+.engine-workbench form { display: grid; gap: 12px; }
+.engine-workbench .form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr)); gap: 12px; }
+.engine-workbench label { display: grid; align-content: start; gap: 5px; }
+.engine-worker-line { display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; padding: 8px 0; }
+.engine-worker-line small { grid-column: 1 / -1; }
+.engine-compare img { max-width: 100%; max-height: 430px; display: block; margin-inline: auto; object-fit: contain; }
+.engine-compare .viewer { height: 340px; min-height: 270px; }
+.viewer-capture { position: absolute; top: 10px; left: 10px; z-index: 1; }
+@media (max-width: 950px) {
+  .engine-workbench, .engine-compare { grid-template-columns: minmax(0, 1fr); }
+}

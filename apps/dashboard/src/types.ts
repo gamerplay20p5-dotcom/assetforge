@@ -95,6 +95,15 @@ export interface Worker {
   };
   limits: { max_concurrent_jobs?: number; cpu_cores?: number; ram_mb?: number; vram_mb?: number };
   telemetry: {
+    engine_gpu?: {
+      name?: string;
+      unified?: boolean;
+      ram_available_mb?: number;
+      vram_free_mb?: number | null;
+      vram_total_mb?: number | null;
+      temperature_c?: number | null;
+      utilization_percent?: number | null;
+    };
     cpu_percent?: number;
     ram_used_mb?: number;
     ram_total_mb?: number;
@@ -149,7 +158,7 @@ export interface Manifest {
   lods: { level: number; triangles: number; file: string }[];
   colliders: { type: string; center: number[]; size: number[] }[];
   connection_points: { name: string; position: number[] }[];
-  triangle_budget: [number, number];
+  triangle_budget: [number, number] | null;
   triangle_count: number;
   bounding_box: [number[], number[]];
   generation_params: Record<string, unknown>;
@@ -158,6 +167,7 @@ export interface Manifest {
   generator_id: string;
   generator_version: string;
   quality_profile: string;
+  gemini_evaluation?: { overall: number; model: string; main_differences: string[]; defects: string[] };
 }
 
 export interface Summary {
