@@ -74,7 +74,7 @@ def test_nvidia_admission_uses_headroom_and_capability_instead_of_fixed_slots(cl
     for i in range(5):
         _job(client, admin, {"name": f"pilot-{i}", "job_type": "experimental.reconstruct",
                              "formats": ["glb"], "params": {"engine": "trellis2-gguf", "category": "npc",
-                                                             "references": {"front": ref}}})
+                                                             "references": {"front": ref}, "skip_decimation": False}})
     assert worker.lease() is None  # registration alone provides no device sample
     gpu = {"temperature_c": 83, "utilization_percent": 0, "ram_available_mb": 100000,
            "ram_total_mb": 124000, "vram_total_mb": 24564, "vram_free_mb": 24071, "unified": False}
