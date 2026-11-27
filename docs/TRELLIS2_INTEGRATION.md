@@ -29,19 +29,36 @@ Medido pelo Hank na Spark (README dele, **não reproduzido por nós**): 2,5 a 16
 | `llm.py`, `prompts/system.md`, `catalog.py`, `geometry.py`, `pipeline.py` (etapa cubos/esferas) | **Não** | Catálogo e formato de itens do jogo dele; o juiz de foto/malha será o Gemini (já integrado). |
 | Z-Image-Turbo (texto→foto) | **Opcional** | Só quando o usuário pedir asset a partir de texto, como definido. |
 
-## 3. Licenças (o que foi verificado)
+## 3. Licenças (verificadas nos textos publicados em 2026-11-27; não é parecer jurídico)
 
 | Componente | Licença | Uso comercial |
 | --- | --- | --- |
-| TRELLIS.2 (código e pesos 4B), BiRefNet, CuMesh, FlexGEMM, utils3d | MIT | Sim |
-| Z-Image-Turbo | Apache-2.0 | Sim |
-| flash-attn, PyTorch | BSD | Sim |
-| DINOv3 (encoder do TRELLIS.2, via `timm/vit_large_patch16_dinov3`) | Licença própria da Meta (`dinov3-license`) | **A confirmar** com a licença completa antes de produção |
-| **nvdiffrast** e **nvdiffrec** (NVIDIA Source Code License, "1-Way Commercial") | O texto diz que o trabalho "only may be used or intended for use non-commercially", e define isso como "research or evaluation purposes only" | **NÃO sem licença da NVIDIA** |
+| TRELLIS.2 (código e pesos 4B), o-voxel | MIT (Microsoft) | Sim |
+| BiRefNet (código e pesos) | MIT | Sim (termos dos dados de treino não auditados) |
+| CuMesh, **cubvh** (submódulo do CuMesh), **xatlas** (submódulo do CuMesh), FlexGEMM, utils3d, CuMesh | MIT | Sim |
+| Z-Image-Turbo (opcional) | Apache-2.0 | Sim |
+| flash-attn, PyTorch, pytorch-triton | BSD / MIT | Sim |
+| DINOv3 (encoder do TRELLIS.2; `timm/vit_large_patch16_dinov3`) | Licença própria da Meta (19/08/2025): uso, cópia e modificação **royalty-free**; sem cláusula não comercial. Exige cumprir leis de controle comercial e **proíbe usos finais militares/de guerra, ITAR e "desenvolvimento ou uso de armas"**; a licença deve acompanhar qualquer redistribuição | **Sim, com condições** — revisão jurídica; evitar gerar armas com este pipeline |
+| **nvdiffrast** e **nvdiffrec** | NVIDIA Source Code License (1-Way Commercial): "only may be used or intended for use non-commercially", definido como "research or evaluation purposes only" | **NÃO** sem licença da NVIDIA |
+| `plyfile` (GPL), `easydict` (LGPL-3.0), `lpips` (metadado "UNKNOWN"), `tqdm` (MPL-2.0) — presentes na imagem do Hank | GPL/LGPL/MPL | Uso interno ok; **só importam se a imagem for redistribuída**; `lpips` é BSD-2 no repositório, metadado incompleto |
+| RMBG-2.0 (padrão do TRELLIS.2, CC BY-NC) | Não comercial | **Não usado**: o pipeline do Hank já o troca por BiRefNet |
 
-**Bloqueio de licença.** O `to_glb` do o-voxel (que gera as texturas PBR do master) e os previews/baking do `meshpost.py` usam o nvdiffrast. Isso é
-adequado para **avaliação/pesquisa** (o piloto), mas a produção em massa de assets comerciais do CITY+++ exige **ou** uma licença comercial da NVIDIA
-**ou** trocar o nvdiffrast (rasterização para baking e previews) por alternativa livre. Esta análise não é parecer jurídico; a decisão é do dono do projeto.
+Onde o nvdiffrast/nvdiffrec são usados no TRELLIS.2: `to_glb` do o-voxel (rasterização de UV para baking, **único ponto do caminho imagem→3D**), e os renderizadores
+de preview (`mesh_renderer`, `pbr_mesh_renderer`, `trellis2_texturing`; o nvdiffrec só aparece no `pbr_mesh_renderer`, para iluminação por mapa de ambiente). O
+`meshpost.py` do Hank também usa nvdiffrast para previews e normal map, mas isso é código do jogo dele, que não reaproveitamos (usamos o Blender).
+
+### O que foi feito para sair da dependência (código no nosso projeto)
+
+* `generators/trellis2/assetforge_trellis2/uvraster.py`: rasterizador de UV em PyTorch puro (MIT), copiado **sem alteração** de
+  `andrakis/TRELLIS.2-stableprojectorz` (o fork de TRELLIS.2 que tem exatamente a troca que precisamos), com a atribuição em `THIRD_PARTY_LICENSES.md`.
+* `to_glb.py`: cópia do `to_glb` original do o-voxel (MIT) com **um bloco trocado** (a rasterização usa `rasterize_uv`); renomeada `to_glb_commercial`.
+* `license_guard.py`: troca nvdiffrast/nvdiffrec por *stubs* que importam normalmente mas **lançam erro ao serem usados**, e registra toda tentativa de uso. Uma
+  execução que termina com `--commercial` prova que o caminho não precisou deles (`licence_guard_violations` vazio no `metrics.json`).
+* `deployment/Dockerfile.trellis2`: imagem derivada da do Hank **sem nvdiffrast e nvdiffrec** (escrita, **não construída**).
+* Resultados separados por proveniência: `experimental/` (usou nvdiffrast, **não comercial**) e `commercial_candidate/`. Nada é marcado
+  `commercial_ready` enquanto restarem itens em aberto (DINOv3, termos dos dados do BiRefNet, GPL/LGPL se a imagem for redistribuída).
+
+**Remover o nvdiffrast não libera o pipeline sozinho**: as pendências acima continuam.
 
 ## 4. Desenho proposto (após o piloto aprovado)
 
