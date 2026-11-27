@@ -55,6 +55,7 @@ export function CloudAgent({ onCreated }: { onCreated: (ids: string[], preview?:
   const [pics, setPics] = useState<Pic[]>([]);
   const [err, setErr] = useState<string | null>(null);
   const [category, setCategory] = useState("house");
+  const [provider, setProvider] = useState("");
   const [iters, setIters] = useState<number | null>(null);
   const [target, setTarget] = useState<number | null>(null);
   const [polish, setPolish] = useState<PolishKey>("polished");
@@ -120,6 +121,7 @@ export function CloudAgent({ onCreated }: { onCreated: (ids: string[], preview?:
           params: {
             reference_ids: ids,
             category,
+            provider: provider || undefined,
             construction_stage: stage,
             texture_resolution: pl.texture,
             wear: pl.wear,
@@ -143,6 +145,9 @@ export function CloudAgent({ onCreated }: { onCreated: (ids: string[], preview?:
         A IA na nuvem (Gemini ou Grok) lê as referências e escreve a especificação completa; o kit monta em Blender, renderiza, a IA compara com as
         referências e corrige, até atingir a nota ou o limite de rodadas.
       </div>
+      <label>Provedor<select value={provider} onChange={(e) => setProvider(e.target.value)}>
+        <option value="">Pool automático</option><option value="gemini">Gemini</option><option value="grok">Grok</option>
+      </select></label>
       {s && !s.configured && (
         <div className="st-warn">Nenhuma chave de API cadastrada. <Link to="/ai">Cadastre uma chave do Gemini</Link> (a chave fica só no servidor).</div>
       )}

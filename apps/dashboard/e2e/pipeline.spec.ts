@@ -5,7 +5,10 @@ test("login -> describe -> generate -> queue -> library -> 3D viewer -> download
   await page.goto("/");
   await page.getByLabel("Senha").fill("e2e-admin-password");
   await page.getByRole("button", { name: "Entrar" }).click();
-  await expect(page.getByText("Pronto para um novo modelo 3D?")).toBeVisible();
+  await expect(page).toHaveURL(/\/engines$/);
+  await expect(page.getByLabel("Motor", { exact: true })).toHaveValue("trellis2-gguf");
+  await expect(page.getByLabel("Aplicar decimação na exportação")).not.toBeChecked();
+  await expect(page.getByRole("navigation").getByRole("link")).toHaveCount(6);
 
   // wait for the worker to register and heartbeat
   await page.goto("/workers");

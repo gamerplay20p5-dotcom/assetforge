@@ -55,6 +55,8 @@ def generate(args: argparse.Namespace) -> None:
         details["decoded_faces_before_export"] = len(kwargs["faces"])
         print(json.dumps(details), flush=True)
         kwargs["texture_size"] = args.texture_size
+        if args.skip_decimation:
+            kwargs["decimation_target"] = None
         return to_glb_commercial(**kwargs)
 
     rembg.AssetForgePreMattedViews = PreMattedViews
@@ -107,6 +109,7 @@ def main() -> None:
     run.add_argument("--structure-guidance", type=float, default=7.5)
     run.add_argument("--shape-guidance", type=float, default=7.5)
     run.add_argument("--cpu-offload", action="store_true")
+    run.add_argument("--skip-decimation", action="store_true")
     args = parser.parse_args()
     if args.mode == "download":
         download_models(args.models)

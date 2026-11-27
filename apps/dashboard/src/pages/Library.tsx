@@ -55,6 +55,7 @@ export function Library() {
   const [category, setCategory] = useState("");
   const [review, setReview] = useState("");
   const [favOnly, setFavOnly] = useState(false);
+  const [experimentsOnly, setExperimentsOnly] = useState(false);
   const [sort, setSort] = useState("-created_at");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [notice, setNotice] = useState<string | null>(null);
@@ -65,7 +66,7 @@ export function Library() {
     setSelected(new Set());
     if (assetId && r.deleted.includes(assetId)) nav("/library");
   });
-  const query = `/assets?limit=200&sort=${sort}${q ? `&q=${encodeURIComponent(q)}` : ""}${category ? `&category=${category}` : ""}${review ? `&review_status=${review}` : ""}${favOnly ? "&favorite=true" : ""}`;
+  const query = `/assets?limit=200&sort=${sort}${q ? `&q=${encodeURIComponent(q)}` : ""}${category ? `&category=${category}` : ""}${review ? `&review_status=${review}` : ""}${favOnly ? "&favorite=true" : ""}${experimentsOnly ? "&tag=city-experimentos" : ""}`;
   const list = useQuery({ queryKey: ["assets", query], queryFn: () => api<{ total: number; items: Asset[]; facets: { category: Record<string, number> } }>(query), refetchInterval: 8000 });
   const items = list.data?.items ?? [];
   const toggle = (id: string) =>
@@ -122,6 +123,9 @@ export function Library() {
           </select>
           <label className="check">
             <input type="checkbox" checked={favOnly} onChange={(e) => setFavOnly(e.target.checked)} /> favoritos
+          </label>
+          <label className="check">
+            <input type="checkbox" checked={experimentsOnly} onChange={(e) => setExperimentsOnly(e.target.checked)} /> Experimentos CITY+++
           </label>
           <div className="spacer" />
           <span className="muted">{list.data?.total ?? 0} assets</span>
@@ -259,6 +263,7 @@ function AssetDetail({ id, onClose }: { id: string; onClose: () => void }) {
   if (asset.error instanceof ApiError && asset.error.status === 404) return <Panel title="Asset"><Empty>Asset não encontrado.</Empty></Panel>;
   if (!a) return <Panel title="Asset"><Empty>Carregando…</Empty></Panel>;
   const m = a.manifest;
+  const archive = m?.generation_params.archive as { worker: string; requested_resolution: number; effective_resolution: number | null; wall_seconds: number } | undefined;
   const ver = a.version_info?.version ?? a.current_version;
   const lodFile = m?.lods?.[lod]?.file ?? "model.glb";
   const glb = token ? fileUrl(a.id, lodFile, token, ver) : null;
@@ -267,7 +272,7 @@ function AssetDetail({ id, onClose }: { id: string; onClose: () => void }) {
     <Panel
       title={
         <span>
-          {a.name} <span className="muted mono">v{ver}</span>
+          {a.name} <span className="muted mono">v{ver}{m?.generator_id === "asset.prepare" ? " · Derivado" : m?.generator_id === "experimental.reconstruct" ? " · Master" : ""}</span>
         </span>
       }
       actions={
@@ -329,7 +334,7 @@ function AssetDetail({ id, onClose }: { id: string; onClose: () => void }) {
           {stats && (
             <div className="row wrap muted" style={{ marginTop: 6, fontSize: 12 }}>
               <span className={over ? "check-warn" : ""}>{stats.triangles.toLocaleString()} triângulos {m?.triangle_budget ? `(orçamento ${m.triangle_budget.join("–")})` : ""}</span>
-              <span>· {stats.size.map((s) => s.toFixed(1)).join(" × ")} m</span>
+              <span>· {stats.size.map((s) => s.toFixed(1)).join(" × ")} {m?.generator_id === "experimental.reconstruct" ? "u." : "m"}</span>
               <span>· {stats.meshes} malhas/materiais</span>
             </div>
           )}
@@ -341,9 +346,19 @@ function AssetDetail({ id, onClose }: { id: string; onClose: () => void }) {
             <dt>Categoria</dt>
             <dd>{a.category}</dd>
             <dt>Dimensões</dt>
-            <dd>{a.dimensions_m?.map((d) => d.toFixed(2)).join(" × ")} m (L×A×P)</dd>
+            <dd>{a.dimensions_m?.map((d) => d.toFixed(2)).join(" × ")} {m.generator_id === "experimental.reconstruct" ? "unidades do motor" : "m"} (L×A×P)</dd>
             <dt>Pivô</dt>
             <dd>{m.generator_id === "experimental.reconstruct" ? "Sistema de coordenadas original do motor" : "Centro da base (Y-up)"}</dd>
+            {m.provenance.weights_revision && <>
+              <dt>Pesos</dt><dd className="mono">{m.provenance.weights} @ {m.provenance.weights_revision}</dd>
+            </>}
+            {m.provenance.master_sha256 && <><dt>SHA-256 do master</dt><dd className="mono">{m.provenance.master_sha256}</dd></>}
+            {m.provenance.source_version && <><dt>Origem do derivado</dt><dd>Master v{m.provenance.source_version}</dd></>}
+            {archive && <>
+              <dt>Worker original</dt><dd>{archive.worker === "4090" ? "RTX 4090" : "DGX Spark"}</dd>
+              <dt>Resolução</dt><dd>{archive.requested_resolution} solicitada · {archive.effective_resolution ?? "—"} efetiva</dd>
+              <dt>Tempo de geração</dt><dd>{archive.wall_seconds.toLocaleString("pt-BR")} s</dd>
+            </>}
             <dt>Triângulos</dt>
             <dd>
               {m.triangle_count.toLocaleString()} (LOD0){m.triangle_budget && ` · orçamento ${m.triangle_budget.join("–")}`}
@@ -455,11 +470,13 @@ function AssetDetail({ id, onClose }: { id: string; onClose: () => void }) {
           <Heart size={14} fill={a.favorite ? "currentColor" : "none"} /> Favorito
         </button>
         {m?.generator_id === "experimental.reconstruct" ? <Link className="btn"
-          to={`/engines?${new URLSearchParams({ asset: a.id, name: a.name, engine: a.engine, version: String(ver) })}`}>
-          <RefreshCw size={14} /> Nova versão
-        </Link> : <button onClick={() => regen.mutate()} disabled={regen.isPending}>
+          to={`/engines?${new URLSearchParams({ asset: a.id, version: String(ver) })}`}>
+          <RefreshCw size={14} /> Repetir geração
+        </Link> : m?.generator_id !== "asset.prepare" && <button onClick={() => regen.mutate()} disabled={regen.isPending}>
           <RefreshCw size={14} /> Nova versão
         </button>}
+        {m && m.generator_id !== "asset.prepare" && ["building", "vehicle", "npc", "prop"].includes(a.category) &&
+          <Link className="btn" to={`/prepare?${new URLSearchParams({ asset: a.id, version: String(ver) })}`}>Preparar para Unity</Link>}
       </div>
       <div className="row wrap" style={{ marginTop: 8 }}>
         <a className="btn" href={fileUrl(a.id, "model.glb", token, ver, true)}>

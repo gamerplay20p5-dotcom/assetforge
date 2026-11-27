@@ -113,6 +113,16 @@ class ServerClient:
             raise RuntimeError(f"reference {ref_id} unavailable: {r.status_code}")
         dest.write_bytes(r.content)
 
+    def download_master(self, job_id: str, token: str, dest: Path) -> None:
+        headers = {**self._headers, "X-Lease-Token": token}
+        with self.http.stream("GET", f"{self.base}/worker/jobs/{job_id}/master", headers=headers) as resp:
+            if resp.status_code == 409:
+                raise LeaseLost("preparation lease expired")
+            resp.raise_for_status()
+            with dest.open("wb") as stream:
+                for chunk in resp.iter_bytes(1024 * 1024):
+                    stream.write(chunk)
+
     def complete(self, job_id: str, token: str, result: dict) -> dict:
         r = self.request("POST", f"/worker/jobs/{job_id}/complete", json={"lease_token": token, "result": result})
         if r.status_code >= 400:

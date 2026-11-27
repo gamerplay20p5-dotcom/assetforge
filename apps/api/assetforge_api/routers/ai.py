@@ -281,7 +281,8 @@ async def worker_ai(job_id: str, body: WorkerAiIn, request: Request, worker: Wor
         raise HTTPException(422, "too many images")
     r = _router(request, db)
     try:
-        ans = await run_in_threadpool(r.generate_json, body.task, llm_spec.SYSTEM, prompt, images, schema, llm_spec.PROMPT_VERSION, job_id)
+        ans = await run_in_threadpool(r.generate_json, body.task, llm_spec.SYSTEM, prompt, images, schema,
+                                      llm_spec.PROMPT_VERSION, job_id, provider=job.params.get("provider"))
     except AiRejected as exc:
         raise HTTPException(502, f"a IA recusou o pedido: {str(exc)[:600]}") from exc
     except NoKeyAvailable as exc:

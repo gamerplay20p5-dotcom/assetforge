@@ -12,7 +12,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from ..db import utcnow
-from ..models import Asset, Batch, Job, JobLog, User, Worker
+from ..models import Asset, AssetVersion, Batch, Job, JobLog, User, Worker
 from ..scheduler import cancel_job, requirements_for
 from ..scheduler.core import new_asset_id
 from ..schemas import BatchCreate, JobPatch, iso, job_out
@@ -34,17 +34,30 @@ def create_job(db: Session, spec: JobCreate, user: User, settings, batch_id: str
         asset_id = spec.asset_id
     else:
         asset_id = new_asset_id()
+    if spec.job_type == "asset.prepare":
+        version = db.scalar(select(AssetVersion).where(AssetVersion.asset_id == asset_id,
+                                                       AssetVersion.version == spec.params["source_version"]))
+        if version is None or not any(f["name"] == "model.glb" for f in version.files):
+            raise HTTPException(404, "Versão do master indisponível.")
+        if version.manifest.get("generator_id") == "asset.prepare":
+            raise HTTPException(422, "Selecione uma versão original para a preparação.")
+        if version.manifest.get("category") != spec.params["category"]:
+            raise HTTPException(422, "A categoria precisa corresponder à do master.")
     if spec.job_type == "ai.image_to_3d":
         ref = spec.params.get("reference_id")
         if not (settings.storage_root / "references" / f"{ref}.png").is_file():
             raise HTTPException(404, f"reference image {ref} not found (upload it first)")
     needs_matte = False
+    needs_replay_worker = False
     if spec.job_type == RECONSTRUCT:
+        needs_replay_worker = any(spec.params.get(k) for k in ("prepared_inputs", "use_native_threads")) or any(
+            spec.params.get(k) is None for k in ("structure_guidance", "shape_guidance")) or (
+            spec.params["engine"] == "pixal3d-python" and spec.params.get("skip_decimation"))
         for ref in spec.params["references"].values():
             path = settings.storage_root / "references" / f"{ref}.png"
             if not path.is_file():
                 raise HTTPException(404, f"reference image {ref} not found")
-            if not needs_matte and spec.params["engine"] != "trellis2-gguf":
+            if not needs_matte and spec.params["engine"] != "trellis2-gguf" and not spec.params.get("prepared_inputs"):
                 with Image.open(path) as image:
                     alpha = image.getchannel("A") if "A" in image.getbands() else None
                     needs_matte = alpha is None or alpha.getextrema() == (255, 255)
@@ -67,6 +80,10 @@ def create_job(db: Session, spec: JobCreate, user: User, settings, batch_id: str
             raise HTTPException(422, "worker does not support the selected engine")
         if needs_matte and "engine.reference-prep" not in (worker.capabilities or {}).get("features", []):
             raise HTTPException(422, "O worker escolhido ainda requer PNG recortado para este motor. Selecione o worker automático.")
+        if needs_replay_worker and "engine.archive-inputs" not in (worker.capabilities or {}).get("features", []):
+            raise HTTPException(422, "O worker ainda não suporta estas opções de reprodução.")
+        if spec.job_type == "asset.prepare" and "asset.prepare" not in (worker.capabilities or {}).get("features", []):
+            raise HTTPException(422, "O worker precisa ter Blender e a preparação de assets.")
     if spec.depends_on:
         found = set(db.scalars(select(Job.id).where(Job.id.in_(spec.depends_on))))
         missing = set(spec.depends_on) - found
@@ -86,6 +103,8 @@ def create_job(db: Session, spec: JobCreate, user: User, settings, batch_id: str
     )
     if needs_matte:
         job.requirements = {**job.requirements, "features": [*job.requirements["features"], "engine.reference-prep"]}
+    if needs_replay_worker:
+        job.requirements = {**job.requirements, "features": [*job.requirements["features"], "engine.archive-inputs"]}
     db.add(job)
     db.flush()
     emit_event(db, "job.created", job.id, name=job.name, batch_id=batch_id)

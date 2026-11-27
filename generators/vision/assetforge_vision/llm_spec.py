@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-PROMPT_VERSION = "spec-v2"
+PROMPT_VERSION = "spec-v3"
 SIDES = ["front", "back", "left", "right"]
 FEATURES = ["porch", "portico", "chimney", "dormer", "balcony", "panel", "shrubs", "balcony_stack", "glass_strip", "pilaster", "canopy", "roof_screen"]
 HEX = {"type": "string", "pattern": "^#[0-9A-Fa-f]{6}$"}
@@ -95,7 +95,7 @@ CRITIQUE_SCHEMA: dict[str, Any] = {
 }
 
 SYSTEM = (
-    "You are the architectural modeller of AssetForge, a procedural kit that builds Premium Stylized low/mid-poly game buildings in Blender. "
+    "You are the architectural modeller of AssetForge's procedural building agent. The goal is fidelity to the same real structure across the supplied views. "
     "You never write code. You only fill the JSON document of the given schema; the kit turns it into geometry."
 )
 
@@ -122,7 +122,13 @@ Composition rules (very important):
   not floating beside it). Keep the main shaft centred at cx=0, cz=0 unless the reference clearly shows an offset.
 - Balcony columns, vertical glass strips, pilasters, awnings and rooftop equipment are FEATURES on the facade, not extra wings. A dark/coloured vertical
   band on the facade = feature (balcony_stack / glass_strip / pilaster) plus palette, not a different volume.
-- Count storeys from the reference (window rows), do not guess round numbers.
+- Use repeating window rows to count storeys of the main shaft. Count a double-height lobby once and keep roof screens separate from occupied storeys.
+- Before filling the spec, reconcile the silhouette, volume breakpoints and facade grids across the views. Use the clearest view for each measurement.
+- Preserve the ratio of width, height and visible depth, the spacing and alignment of openings, and the relative dimensions of major facade elements.
+- Choose one consistent front facade. Tie side assignments across the images using matching corners, bands and features. Use the category as a hint only.
+- Ignore streets, people, trees, ground shadows and perspective distortion. Set ground=false unless a platform is physically part of the building.
+- For occluded facades use a conservative continuation of visible materials and structure. Explain inferred sides, estimated dimensions and any salient
+  detail the schema cannot express in notes. Do not invent balconies, rooftop equipment, annexes or wall openings.
 
 Worked example (a 19-storey residential slab: beige walls, olive balcony column, central glass strip, shop ground floor with canopy, penthouse):
 {"name":"Torre residencial","category":"apartment","wall_kind":"plaster","roof_kind":"plaster","palette":{"wall":"#E8D1AC","trim":"#EFE1C6","roof":"#8A8A86","door":"#3A3E44","frame":"#3A3E44","accent":"#878B55","glass":"#566069"},
@@ -136,7 +142,7 @@ Worked example (a 19-storey residential slab: beige walls, olive balcony column,
 This is only an example of the format and level of detail; describe what the REFERENCE shows.
 
 Reproduce the reference as faithfully as the kit allows: storey count, proportions (estimate real sizes; a storey is ~2.8-3.2 m), window rhythm,
-roof shape, materials and colours, porches/balconies/garage and the rooftop. Prefer several wings over forcing one box."""
+roof shape, materials and colours, porches/balconies/garage and the rooftop. Add wings only for visibly distinct attached masses."""
 
 
 def spec_prompt(n_images: int, category_hint: str = "", validation_error: str = "", previous: dict | None = None) -> str:

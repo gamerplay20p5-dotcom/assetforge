@@ -24,7 +24,7 @@ def to_glb_commercial(
     aabb: Union[list, tuple, np.ndarray, torch.Tensor],
     voxel_size: Union[float, list, tuple, np.ndarray, torch.Tensor] = None,
     grid_size: Union[int, list, tuple, np.ndarray, torch.Tensor] = None,
-    decimation_target: int = 1000000,
+    decimation_target: int | None = 1000000,
     texture_size: int = 2048,
     remesh: bool = False,
     remesh_band: float = 1,
@@ -49,7 +49,7 @@ def to_glb_commercial(
         aabb: (2, 3) tensor of minimum and maximum coordinates of the volume
         voxel_size: (3,) tensor of size of each voxel
         grid_size: (3,) tensor of number of voxels in each dimension
-        decimation_target: target number of vertices for mesh simplification
+        decimation_target: target vertices for simplification, or None to skip decimation
         texture_size: size of the texture for baking
         remesh: whether to perform remeshing
         remesh_band: size of the remeshing band
@@ -137,9 +137,10 @@ def to_glb_commercial(
     # --- Branch 1: Standard Pipeline (Simplification & Cleaning) ---
     if not remesh:
         # Step 1: Aggressive simplification (3x target)
-        mesh.simplify(decimation_target * 3, verbose=verbose)
-        if verbose:
-            print(f"After inital simplification: {mesh.num_vertices} vertices, {mesh.num_faces} faces")
+        if decimation_target is not None:
+            mesh.simplify(decimation_target * 3, verbose=verbose)
+            if verbose:
+                print(f"After initial simplification: {mesh.num_vertices} vertices, {mesh.num_faces} faces")
         
         # Step 2: Clean up topology (duplicates, non-manifolds, isolated parts)
         mesh.remove_duplicate_faces()
@@ -150,9 +151,10 @@ def to_glb_commercial(
             print(f"After initial cleanup: {mesh.num_vertices} vertices, {mesh.num_faces} faces")
             
         # Step 3: Final simplification to target count
-        mesh.simplify(decimation_target, verbose=verbose)
-        if verbose:
-            print(f"After final simplification: {mesh.num_vertices} vertices, {mesh.num_faces} faces")
+        if decimation_target is not None:
+            mesh.simplify(decimation_target, verbose=verbose)
+            if verbose:
+                print(f"After final simplification: {mesh.num_vertices} vertices, {mesh.num_faces} faces")
         
         # Step 4: Final Cleanup loop
         mesh.remove_duplicate_faces()
@@ -186,9 +188,10 @@ def to_glb_commercial(
             print(f"After remeshing: {mesh.num_vertices} vertices, {mesh.num_faces} faces")
         
         # Simplify and clean the remeshed result (similar logic to above)
-        mesh.simplify(decimation_target, verbose=verbose)
-        if verbose:
-            print(f"After simplifying: {mesh.num_vertices} vertices, {mesh.num_faces} faces")
+        if decimation_target is not None:
+            mesh.simplify(decimation_target, verbose=verbose)
+            if verbose:
+                print(f"After simplifying: {mesh.num_vertices} vertices, {mesh.num_faces} faces")
     
     if use_tqdm:
         pbar.update(1)

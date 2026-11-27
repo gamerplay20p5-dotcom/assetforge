@@ -122,6 +122,8 @@ def capabilities(cfg: WorkerConfig, blender_bin: str | None, ai: dict | None = N
     bver = blender_version(blender_bin)
     if bver:
         features += ["blender", "agent.building"]  # cloud-AI agent: the AI is reached through the API, the worker builds + renders
+        if Path("/app/scripts/engines/prepare_game.py").is_file():
+            features.append("asset.prepare")
     vm = psutil.virtual_memory()
     gpus = detect_gpus() if cfg.kind in ("intel", "hybrid") else []
     runtimes = ai_runtimes()
@@ -131,7 +133,7 @@ def capabilities(cfg: WorkerConfig, blender_bin: str | None, ai: dict | None = N
         features += ai["features"]
         runtimes["validated"] = ai.get("validated", [])
     return {
-        "kind": cfg.kind, "features": features, "job_types": [GENERATOR_ID] + ([f for f in features if f.startswith(("ai.", "agent."))]), "blender_version": bver,
+        "kind": cfg.kind, "features": features, "job_types": [GENERATOR_ID] + [f for f in features if f.startswith(("ai.", "agent.", "asset."))], "blender_version": bver,
         "formats": ["glb"] + (["blend", "fbx"] if bver else []),
         "os": f"{platform.system()} {platform.release()}", "python": sys.version.split()[0],
         "cpu_model": platform.processor() or platform.machine(), "cpu_cores_total": psutil.cpu_count(logical=True),

@@ -244,6 +244,8 @@ class Agent:
             if job["job_type"] == RECONSTRUCT:
                 for view, ref in job["params"]["references"].items():
                     self.client.download_reference(ref, workdir / f"{view}.png")
+            if job["job_type"] == "asset.prepare":
+                self.client.download_master(job_id, token, workdir / "master.glb")
             (workdir / "job.json").write_text(json.dumps(job), encoding="utf-8")
             threading.Thread(target=flusher, daemon=True).start()
             log.info("job %s started: %s", job_id, job["name"])

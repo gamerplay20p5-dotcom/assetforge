@@ -36,6 +36,8 @@ def requirements_for(job_type: str, formats: list[str], vram_mb: int = 7000, pro
                      cpu3d_ram_mb: int = 16384, params: dict | None = None) -> dict:
     if job_type == RECONSTRUCT:
         return {"features": [f"engine.{params['engine']}"], **estimate(params, unified=False)}
+    if job_type == "asset.prepare":
+        return {"features": ["asset.prepare", "blender"], "cpu_cores": 4, "ram_mb": 4096, "vram_mb": 0}
     if job_type == "ai.image_to_3d" and provider in ("sf3d", "triposr"):
         # CPU-only providers: no VRAM; reserve cores/RAM of the node. Needs Blender (post-processing) and that provider's container.
         return {"features": ["ai.image_to_3d", f"provider.{provider}", "blender"], "cpu_cores": cpu3d_cores, "ram_mb": cpu3d_ram_mb, "vram_mb": 0}

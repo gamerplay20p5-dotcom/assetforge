@@ -1,7 +1,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bot, Boxes, Cpu, Gauge, ImagePlus, Layers, ListChecks, LogOut, Moon, Pause, Play, Sparkles, Sun, Triangle } from "lucide-react";
+import { Bot, Boxes, Cpu, Gauge, Layers, LogOut, Moon, Pause, Play, Sun, Triangle } from "lucide-react";
 import { useEffect, useState } from "react";
-import { NavLink, Navigate, Route, Routes, useLocation } from "react-router-dom";
+import { Link, NavLink, Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { api, getToken, setToken, useDownloadToken } from "./api";
 import { Dashboard } from "./pages/Dashboard";
 import { Generator } from "./pages/Generator";
@@ -13,6 +13,9 @@ import { Library } from "./pages/Library";
 import { WorkersManager } from "./pages/WorkersManager";
 import { AiSettings } from "./pages/AiSettings";
 import { Login } from "./pages/Login";
+import { CloudAgent } from "./pages/CloudAgent";
+import { Preparation } from "./pages/Preparation";
+import { Panel } from "./components/ui";
 
 function useTheme() {
   const [theme, setTheme] = useState<string>(() => {
@@ -69,21 +72,41 @@ function useLiveEvents(enabled: boolean) {
 }
 
 const NAV = [
-  { to: "/", label: "Imagem → 3D", icon: ImagePlus, end: true },
-  { to: "/engines", label: "Motores", icon: Triangle },
-  { to: "/generator", label: "Procedural", icon: Sparkles },
+  { to: "/dashboard", label: "Visão geral", icon: Gauge },
+  { to: "/engines", label: "Reconstrução 3D", icon: Triangle },
+  { to: "/construction", label: "Agente de construções", icon: Bot },
+  { to: "/prepare", label: "Preparação de assets", icon: Layers },
   { to: "/library", label: "Biblioteca", icon: Boxes },
-  { to: "/queue", label: "Fila", icon: ListChecks },
-  { to: "/batch", label: "Lotes", icon: Layers },
-  { to: "/workers", label: "Workers", icon: Cpu },
-  { to: "/ai", label: "IA na nuvem", icon: Bot },
-  { to: "/dashboard", label: "Painel", icon: Gauge },
+  { to: "/infra", label: "Infraestrutura", icon: Cpu },
 ];
+
+function Construction() {
+  const navigate = useNavigate();
+  return <section className="stack">
+    <Panel title="Agente de construções">
+      <p className="muted">Gemini ou Grok interpretam as referências e preenchem a especificação de um kit de construção.</p>
+      <Link to="/generator">Abrir kits manuais</Link>
+    </Panel>
+    <CloudAgent onCreated={() => navigate("/queue")} />
+  </section>;
+}
+
+function Infrastructure() {
+  return <Panel title="Infraestrutura">
+    <div className="row wrap">
+      <Link className="btn" to="/workers">Workers</Link>
+      <Link className="btn" to="/queue">Fila</Link>
+      <Link className="btn" to="/batch">Lotes</Link>
+      <Link className="btn" to="/ai">Provedores de IA</Link>
+    </div>
+  </Panel>;
+}
 
 export function App() {
   const [authed, setAuthed] = useState<boolean>(!!getToken());
   const [theme, toggleTheme] = useTheme();
-  const flush = useLocation().pathname === "/";
+  const pathname = useLocation().pathname;
+  const flush = pathname === "/legacy";
   const qc = useQueryClient();
   useEffect(() => {
     const off = () => setAuthed(false);
@@ -118,8 +141,9 @@ export function App() {
           </div>
         </div>
         <nav className="nav">
-          {NAV.map(({ to, label, icon: Icon, end }) => (
-            <NavLink key={to} to={to} end={end} className={({ isActive }) => (isActive ? "active" : "")}>
+          {NAV.map(({ to, label, icon: Icon }) => (
+            <NavLink key={to} to={to} aria-label={label} title={label}
+              className={({ isActive }) => isActive || (to === "/infra" && ["/workers", "/queue", "/batch", "/ai"].includes(pathname)) ? "active" : ""}>
               <Icon size={17} />
               <span className="label">{label}</span>
             </NavLink>
@@ -158,9 +182,13 @@ export function App() {
         </header>
         <main className={`content ${flush ? "flush" : ""}`}>
           <Routes>
-            <Route path="/" element={<Studio />} />
+            <Route path="/" element={<Navigate to="/engines" replace />} />
             <Route path="/engines" element={<EngineLab />} />
-            <Route path="/image3d" element={<Navigate to="/" replace />} />
+            <Route path="/legacy" element={<Studio />} />
+            <Route path="/image3d" element={<Navigate to="/legacy" replace />} />
+            <Route path="/construction" element={<Construction />} />
+            <Route path="/prepare" element={<Preparation />} />
+            <Route path="/infra" element={<Infrastructure />} />
             <Route path="/dashboard" element={<Dashboard />} />
             <Route path="/generator" element={<Generator />} />
             <Route path="/batch" element={<BatchStudio />} />

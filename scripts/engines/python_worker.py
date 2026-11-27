@@ -57,7 +57,10 @@ def main() -> None:
                         cmd = [sys.executable, str(runner), "generate", "--views", str(work / "views"),
                                "--models", str(models), "--dinov3", str(dino), "--output", str(work / "out/model.glb")]
                         for name in ("resolution", "max_tokens", "texture_size", "seed", "structure_guidance", "shape_guidance"):
-                            cmd += [f"--{name.replace('_', '-')}", str(params[name])]
+                            if params[name] is not None:
+                                cmd += [f"--{name.replace('_', '-')}", str(params[name])]
+                        if params.get("skip_decimation"):
+                            cmd.append("--skip-decimation")
                         processes[work] = subprocess.Popen(cmd, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
                 except (OSError, ValueError, KeyError) as exc:
                     with suppress(FileNotFoundError):

@@ -178,7 +178,7 @@ def main():
         parser.error("Provide one descending screen-relative height per LOD, with optional 0 for no culling")
     source_hash = digest(master)
     bpy.ops.wm.read_factory_settings(use_empty=True)
-    bpy.ops.import_scene.gltf(filepath=str(master), merge_vertices=True)
+    bpy.ops.import_scene.gltf(filepath=str(master), merge_vertices=False)
     objects = [o for o in bpy.context.scene.objects if o.type == "MESH"]
     if not objects or any(o.type == "ARMATURE" or o.animation_data for o in bpy.context.scene.objects):
         raise ValueError("This import path expects a static master")

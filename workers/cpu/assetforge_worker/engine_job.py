@@ -7,6 +7,7 @@ import hashlib
 import math
 import os
 import re
+import shutil
 import subprocess
 import time
 from datetime import UTC, datetime
@@ -39,11 +40,35 @@ def matte_view(raw: Path, output: Path) -> None:
     cutout.replace(output)
 
 
+def camera_pose(azimuth: float) -> list[list[float]]:
+    angle = math.radians(azimuth)
+    c, s = math.cos(angle), math.sin(angle)
+    return [[c, 0, s, 3.119 * s], [s, 0, -c, -3.119 * c], [0, 1, 0, 0], [0, 0, 0, 1]]
+
+
 def prepare_views(work: Path, params: ReconstructionParams, emit) -> tuple[Path, dict]:
     poses = {"front": 0, "right": 90, "back": 180, "three_quarter": params.three_quarter_angle}
     names = ENGINES[params.engine]["views"]
     directory = work / "views"
     directory.mkdir()
+    if params.prepared_inputs:
+        frames = []
+        projection = params.archived_projection
+        for index, view in enumerate(names):
+            filename = f"view{index}.png"
+            shutil.copyfile(work / f"{view}.png", directory / filename)
+            if projection:
+                matrix = projection.transforms[view]
+                if view == "three_quarter" and params.archive_azimuth_override is not None:
+                    matrix = camera_pose(params.archive_azimuth_override)
+                frames.append({"file_path": filename, "name": view,
+                               "transform_matrix": matrix})
+        if projection:
+            (directory / "transforms.json").write_text(json.dumps(
+                {"camera_angle_x": projection.camera_angle_x, "mesh_scale": params.mesh_scale, "frames": frames}),
+                encoding="utf-8")
+        emit({"type": "log", "message": "Referências arquivadas reutilizadas sem recorte ou reenquadramento."})
+        return directory, {"archived_inputs": True}
     images, report, hashes = [], {}, set()
     masks = work / "masks"
     masks.mkdir()
@@ -81,10 +106,7 @@ def prepare_views(work: Path, params: ReconstructionParams, emit) -> tuple[Path,
         canvas.alpha_composite(r, dest=offset)
         filename = f"view{index}.png"
         canvas.save(directory / filename)
-        angle = math.radians(poses[view])
-        c, s = math.cos(angle), math.sin(angle)
-        frames.append({"file_path": filename, "name": view,
-                       "transform_matrix": [[c, 0, s, 3.119 * s], [s, 0, -c, -3.119 * c], [0, 1, 0, 0], [0, 0, 0, 1]]})
+        frames.append({"file_path": filename, "name": view, "transform_matrix": camera_pose(poses[view])})
     (directory / "transforms.json").write_text(json.dumps(
         {"camera_angle_x": math.radians(20), "mesh_scale": params.mesh_scale, "frames": frames}), encoding="utf-8")
     heights = [(box[3] - box[1]) / image.height for image, box in images]
@@ -108,11 +130,16 @@ def cpp_command(work: Path, out: Path, params: ReconstructionParams, views: Path
         options = ["--pixal3d-weights", "mv"]
     if params.skip_decimation:
         options += ["--decim", "0"]
+    if not params.use_native_threads:
+        options += ["--threads", str(max(1, threads))]
+    for flag, value in (("--gss", params.structure_guidance), ("--gsh", params.shape_guidance)):
+        if value is not None:
+            options += [flag, str(value)]
     models = Path(os.environ.get("ASSETFORGE_ENGINE_MODELS", "/models")) / CPP_WEIGHTS[params.engine]
     return ["trellis-cli", *inputs, "--models", str(models), "--require-gpu",
             "--res", str(params.resolution), "--max-tokens", str(params.max_tokens), "--seed", str(params.seed),
-            "--atlas", str(params.texture_size), "--gss", str(params.structure_guidance), "--gsh", str(params.shape_guidance),
-            "--threads", str(max(1, threads)), *options, "-o", str(out)]
+            "--atlas", str(params.texture_size),
+            *options, "-o", str(out)]
 
 
 def execute(work: Path, params: ReconstructionParams, views: Path | None, model: Path, threads: int, emit) -> dict:

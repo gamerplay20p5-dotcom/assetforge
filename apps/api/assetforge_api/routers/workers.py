@@ -12,6 +12,7 @@ from pathlib import Path
 from assetforge_validation import read_glb_json
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response, status
 from fastapi.concurrency import run_in_threadpool
+from fastapi.responses import FileResponse
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -50,6 +51,19 @@ admin_router = APIRouter(prefix="/workers", tags=["workers"])
 worker_router = APIRouter(prefix="/worker", tags=["worker-protocol"])
 
 REQUIRED_FILES = {"model.glb", "thumbnail.png", "manifest.json", "validation.json"}
+
+
+@worker_router.get("/jobs/{job_id}/master")
+def preparation_master(job_id: str, request: Request, x_lease_token: str = Header(),
+                       worker: Worker = Depends(current_worker), db: Session = Depends(get_db)):
+    job = _lease_job(db, job_id, worker, x_lease_token)
+    if job.job_type != "asset.prepare":
+        raise HTTPException(404, "this job has no source master")
+    directory = request.app.state.storage.asset_dir(job.asset_id, job.params["source_version"])
+    master = safe_join(directory, "model.glb")
+    if not master.is_file():
+        raise HTTPException(404, "source master unavailable")
+    return FileResponse(master, media_type="model/gltf-binary")
 
 
 # =============================================================================== admin

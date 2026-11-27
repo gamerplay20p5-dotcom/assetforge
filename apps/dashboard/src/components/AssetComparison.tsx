@@ -15,7 +15,7 @@ export function AssetComparison({ asset, version, token }: { asset: Asset; versi
   const [otherVersion, setOtherVersion] = useState<number>();
   const [renders, setRenders] = useState<string[]>([]);
   const params = asset.manifest?.generation_params ?? {};
-  const refs = params.references as Record<string, string> | undefined ??
+  const refs = (params.original_references ?? params.references) as Record<string, string> | undefined ??
     (typeof params.reference_id === "string" ? { front: params.reference_id } : {});
   const references = Object.entries(refs);
   const target = refs[reference] ?? references[0]?.[1];

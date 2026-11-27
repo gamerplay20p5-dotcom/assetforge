@@ -37,6 +37,12 @@ def main() -> int:
             result = run_reconstruction(job, workdir, emit, threads)
             (workdir / "result.json").write_text(json.dumps(result), encoding="utf-8")
             return 0
+        if job["job_type"] == "asset.prepare":
+            from .preparation import run_preparation
+
+            result = run_preparation(job, workdir, emit, threads)
+            (workdir / "result.json").write_text(json.dumps(result), encoding="utf-8")
+            return 0
         if job["job_type"] == "agent.building":
             from assetforge_export.agent_pipeline import QuotaWait, run_agent_job
 
