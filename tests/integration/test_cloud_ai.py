@@ -66,6 +66,7 @@ class Stub(BaseHTTPRequestHandler):
             self._fault(key)
         elif self.headers.get("x-goog-api-key"):  # Gemini (the SDK picks the API version; the auth header identifies it)
             self._send(200, {"models": [{"name": "models/gemini-2.5-flash", "displayName": "Gemini 2.5 Flash", "supportedGenerationMethods": ["generateContent"]},
+                                        {"name": "models/gemini-3.5-flash-lite", "supportedGenerationMethods": ["generateContent"]},
                                         {"name": "models/text-embedding-004", "supportedGenerationMethods": ["embedContent"]}]})
         elif self.path.endswith("/models"):
             self._send(200, {"data": [{"id": "grok-4"}]})
@@ -150,11 +151,12 @@ def test_quota_details_and_pacific_day():
 # ---------------------------------------------------------------------------------------------------------- admin
 def test_keys_are_tested_before_saving_stored_encrypted_and_never_returned(app, client, admin, stub):
     probe = client.post(f"{API}/ai/models", headers=admin, json={"provider": "gemini", "api_key": "AIzaGOODKEY0001", "base_url": stub}).json()
-    assert probe["ok"] and probe["suggested"] == "gemini-2.5-flash" and [m["name"] for m in probe["models"]] == ["gemini-2.5-flash"]
+    assert probe["ok"] and probe["suggested"] == "gemini-3.5-flash-lite"
+    assert [m["name"] for m in probe["models"]] == ["gemini-2.5-flash", "gemini-3.5-flash-lite"]  # embedding-only models are hidden
     bad = client.post(f"{API}/ai/keys", headers=admin, json={"provider": "gemini", "api_key": "AIzabadKEY00001", "base_url": stub})
     assert bad.status_code == 400  # a key that does not work is never stored
     k = _key(client, admin, stub)
-    assert k["model"] == "gemini-2.5-flash" and k["key_hint"] == "…0001" and "api_key" not in k and "key_enc" not in k
+    assert k["model"] == "gemini-3.5-flash-lite" and k["key_hint"] == "…0001" and "api_key" not in k and "key_enc" not in k
     listing = client.get(f"{API}/ai/keys", headers=admin)
     assert "AIzaGOODKEY0001" not in listing.text and "key_enc" not in listing.text
     with app.state.db.session() as db:

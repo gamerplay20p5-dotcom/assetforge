@@ -99,8 +99,8 @@ function AddKey({ onDone }: { onDone: () => void }) {
               <select value={model} onChange={(e) => setModel(e.target.value)}>
                 {models.map((m) => <option key={m.name} value={m.name}>{m.display && m.display !== m.name ? `${m.display} (${m.name})` : m.name}</option>)}
               </select>
-              {provider === "gemini" && !models.some((m) => m.name === "gemini-3.8-flash") && (
-                <span className="hint">O gemini-3.8-flash não aparece para esta chave; foi sugerido o melhor disponível.</span>
+              {provider === "gemini" && !models.some((m) => m.name === "gemini-3.5-flash-lite") && (
+                <span className="hint">O gemini-3.5-flash-lite (o mesmo do bot HTS) não aparece para esta chave; foi sugerido o melhor disponível.</span>
               )}
             </label>
             <label className="field">Limite por minuto

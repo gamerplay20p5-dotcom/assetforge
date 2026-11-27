@@ -178,7 +178,8 @@ class GrokProvider:
 
 PROVIDERS = {"gemini": GeminiProvider, "grok": GrokProvider}
 MODEL_PREFERENCE = {  # tried in this order when a key has no model chosen; only names the key really lists are used
-    "gemini": ["gemini-3.8-flash", "gemini-3-flash", "gemini-2.5-flash", "gemini-2.0-flash", "gemini-2.5-flash-lite"],
+    # gemini-3.5-flash-lite first: the model the user's HTS bot already uses successfully with the same kind of free key
+    "gemini": ["gemini-3.5-flash-lite", "gemini-3.5-flash", "gemini-3-flash", "gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.0-flash"],
     "grok": ["grok-4", "grok-4-fast", "grok-2-vision"],
 }
 

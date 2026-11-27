@@ -42,8 +42,9 @@ por `HouseSpec.from_dict` antes de virar geometria.
 
 * SDK oficial `google-genai` com *Structured Outputs* (`response_mime_type=application/json` + `response_json_schema`).
 * Crie a chave em <https://aistudio.google.com/> → *Get API key*. Projeto **sem faturamento** = nível gratuito.
-* Modelo: o painel lista os modelos da sua chave e sugere, nesta ordem, `gemini-3.8-flash`, `gemini-3-flash`, `gemini-2.5-flash`… — só o que a
-  chave realmente lista. (A existência do `gemini-3.8-flash` não foi verificada sem uma chave; se não aparecer, o melhor disponível é escolhido.)
+* Modelo: o painel lista os modelos da sua chave e sugere, nesta ordem, `gemini-3.5-flash-lite` (o mesmo que o bot HTS já usa),
+  `gemini-3.5-flash`, `gemini-3-flash`, `gemini-2.5-flash`… — só o que a chave realmente lista. Dá para trocar o modelo de cada chave no
+  painel (o benchmark compara modelos com as mesmas referências).
 * **Aviso:** imagens enviadas ao nível gratuito da API Gemini **podem ser usadas pelo Google para melhorar seus produtos**. Não envie imagens
   confidenciais.
 
