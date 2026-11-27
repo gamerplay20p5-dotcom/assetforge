@@ -242,3 +242,15 @@ Imagens Docker: `assetforge-pixal3d:cuda89` (4090), `:cuda120` (Spark, **não se
 6. **Cor e textura**: comparar a base color com a referência (método do piloto 1: valores primeiro, depois o Blender). O single-view mostrou cor bem mais próxima.
 7. Kit procedural, Gemini + procedural e híbrido competem com as **mesmas** referências e câmeras (ainda não rodados nesta fase).
 8. **Scheduler e workers de produção** (Spark e 4090, FIFO, consumo real de recursos) só depois do piloto aprovado: provider HTTP em container separado (ver a seção 4 da Fase 1). Não iniciar produção comercial sem aprovação; a licença do DINOv3 segue pendente de revisão jurídica.
+
+### Primeiro comparativo real das referências do dono — `bldg_skyscraper_residential_001`, RTX 4090, 1024 (medido; folha: `reports_out/engines/analysis/sheets/bldg_skyscraper_residential_001.jpg`)
+
+| Motor | Tempo | Pico RAM (acima da base) | Pico VRAM | Triângulos | Componentes | Inclinação estimada | Observação visual (impressão do assistente, NÃO aprovação) |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| **Pixal3D multi-view Q8 (4 vistas)** | 219,0 s | +4,8 GB | 8,4 GB | 982.020 | 1 | 1,9° | **Melhor**: colunas verde-oliva, pilastras e varandas, **janelas em todas as faces (traseira inclusive)**; cor um pouco mais escura/dourada que a referência |
+| TRELLIS.2 Q8 (vista frontal) | 160,0 s | +4,1 GB | 8,1 GB | 295.794 | 1 | 2,3° | boa frente; **traseira inventada e lisa**; sem verde-oliva |
+| Pixal3D single-view Q8 (RGBA frontal) | 149,1 s | +3 GB | 7,3 GB | 955.714 | 1 | **88,6°** (modelo "deitado") | **Falhou**: modelo fora de eixo (acima do `--max-tilt 40`, o nivelamento recusou corrigir) e textura estragada. Na torre o mesmo motor funcionou, então é **instável conforme a imagem** |
+
+* Aprendizados: (1) o multi-view foi o único a reproduzir a traseira; (2) o single-view do Pixal3D exige a imagem no enquadramento de câmera (FOV 20°) e é sensível: investigar com `--fov`, recorte normalizado (o `prep_views.py` gera `mv4/view00_front_azim000.png` já normalizado a 85 %, usar como entrada do `--sv-image`) e vista com elevação; (3) a correção de orientação só vale para inclinações pequenas, não resolve modelo deitado.
+* **Sem vencedor declarado**: só 1 ativo analisado; aguardar a bateria completa (as duas cadeias seguem rodando) e a aprovação visual do dono.
+* Ainda sem Gemini nestes modelos (rodar `scripts/ai/gemini_compare.py` na central; ver §Gemini comparar).
