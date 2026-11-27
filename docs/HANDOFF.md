@@ -3,6 +3,51 @@
 Escrito para: outro agente de código (Codex) que vai continuar o trabalho sem o histórico da conversa. Idioma do projeto, da UI e dos docs: **PT-BR**.
 Commits em Conventional Commits; PRs em português **e** inglês. Atribuição nos commits: `Co-Authored-By: <modelo> <noreply@anthropic.com>` se feitos por Claude.
 
+## Integração experimental de motores · 27/11/2026
+
+A aba **Motores** cria jobs de TRELLIS.2 GGUF, Pixal3D Single-View, Multi-View e Python. O kit procedural continua disponível pelo gerador existente. A aba valida as vistas, expõe os parâmetros de inferência e lista os workers que anunciam o motor. Pixal3D SV e MV usam PNGs com transparência. Os motores GGUF permitem pular a decimação nativa do exportador. A Biblioteca carrega o GLB no visualizador, compara vistas originais ou duas versões e registra a revisão humana por versão. As avaliações Gemini usam a configuração de IA da central e têm parecer próprio. Os quatro motores e seus pesos continuam experimentais, com revisão de licença comercial pendente.
+
+O worker NVIDIA corre em Docker e anuncia temperatura, utilização e memória. A admissão usa histórico por motor, categoria, resolução, tokens e textura, com reservas transitórias após falhas. Na Spark, a reserva usa RAM unificada e o executor Python compartilha a fila com os GGUF por um volume local. O executor Python fica sem rede e usa pesos montados somente para leitura. O GGUF da Spark inclui o patch da grade CUDA registrado neste HANDOFF.
+
+| Cenário TRELLIS.2 GGUF, 1024 efetivos · seed 1 · textura 4096 | RTX 4090 | DGX Spark |
+| --- | --- | --- |
+| Dois NPCs com as mesmas imagens | 2/2, 69 e 72 s | 2/2, 231 e 230 s |
+| Três simultâneos | Falhas nativas 139, inclusive com `OMP_NUM_THREADS=1` | — |
+| Quatro simultâneos, uma thread por processo | 3/4, três GLBs entre 109 e 120 s | — |
+| Operário pela fila do AssetForge, TRELLIS.2 | 50,0 s, 4.938 tokens | 340,6 s, 4.848 tokens, sobreposto a SV e MV |
+
+No ensaio de três e quatro jobs da RTX 4090, a telemetria continuou com mais de 15 GiB livres de VRAM e pico de 73 °C no ensaio de uma thread. Uma falha apresentou `double free or corruption (!prev)`. A origem da instabilidade nativa ainda está em investigação. Três conclusões em uma rajada de quatro são úteis para medir vazão e insuficientes para afirmar estabilidade dessa configuração. `scripts/engines/benchmark_capacity.sh` reproduz a carga de NPCs e registra o tempo, o código de saída e a telemetria. Cada rodada deve usar um diretório novo.
+
+Na fila isolada, a Spark publicou três masters válidos de 1024 efetivos no mesmo lote. TRELLIS.2, Pixal3D SV e Pixal3D MV levaram 340,6 s, 331,0 s e 378,2 s, respectivamente, com a inferência sobreposta. O checkpoint DINOv3 existente estava em modo 0600 e o UID do executor Python não conseguia abrir o arquivo. Uma cópia local do AssetForge foi montada somente para leitura. O novo teste publicou o GLB com 1024 efetivos em 265,6 s. A RTX 4090 também publicou a segunda versão do operário via Pixal3D SV em 60,3 s. Foram seis gerações concluídas pela fila.
+
+### Validação visual
+
+Dez pareceres Gemini foram produzidos com os renders arquivados e a referência frontal, passando por `AiRouter` e pelo pool central. A avaliação depende das vistas e do enquadramento. Cada linha abaixo usa um exemplo real da categoria.
+
+| Modelo de teste | TRELLIS.2 GGUF | Pixal3D SV | Pixal3D MV | Pixal3D Python |
+| --- | ---: | ---: | ---: | ---: |
+| Residencial | 7,5 | 3,5 | 6,5 | 6,5 |
+| Caminhão industrial | 6,5 | 8,5 | 2,5 | — |
+| NPC operário | 8,5 | 9,2 | 8,5 | — |
+
+O piloto de derivados em Blender manteve os SHA-256 dos masters. O residencial passou de 930.515 para 725.222 triângulos com dissolução planar e preservação de bordas de UV e material. O caminhão passou de 960.926 para 817.861 com tolerância angular menor. A limpeza de componentes do operário gerou 966.377 triângulos a partir de 967.602. Os três candidatos conservaram os hashes das texturas incorporadas. A busca por placa de chão separada no residencial não encontrou componente dentro do critério. O atlas de impostor do caminhão foi exportado com oito vistas de 256 px e fundo transparente. Os candidatos precisam de validação visual e de desempenho na Unity antes de definir LODs ou uma distância de troca.
+
+A retopologia do operário falhou nas malhas voxelizadas com células de 0,006, 0,009 e 0,013 da maior dimensão. A célula de 0,018 gerou um proxy de 10.286 triângulos com cor, normal tangente e rugosidade reprojetadas a 512 px. As tentativas preservaram o master. O proxy é uma amostra para benchmark e revisão de silhueta.
+
+Os pareceres, derivados, atlas e capturas de tela foram reunidos localmente em `reports_out/engines/phase3/`. Em Playwright, o dashboard ofereceu os workers compatíveis, abriu um GLB com a imagem original, renderizou duas versões lado a lado, capturou uma vista e registrou aprovação e rejeição no ambiente isolado. A versão foi devolvida a pendente ao final do teste.
+
+### Docker
+
+Em 27/11, o dashboard e a API experimental foram publicados na central. O Compose recriou somente o contêiner da API e o endpoint de prontidão confirmou banco e armazenamento. Os workers `assetforge-4090` e `assetforge-spark` registraram heartbeat no ambiente principal. Na central, `~/assetforge-phase3/live.override.yml` seleciona a imagem testada e a tag `assetforge-central:before-phase3` guarda a imagem imediatamente anterior. As credenciais de registro são privadas.
+
+O commit `8027a48` trata a falha de autenticação do servidor CPU3D em Windows. Bytes pendentes de um POST recusado causavam fechamento abrupto do TCP e o cliente podia receber `WinError 10053` antes do 401. A resposta é enviada e o sentido de escrita é fechado primeiro, seguido de drenagem limitada. A regressão de autenticação passou seis vezes em Windows.
+
+Use `deployment/docker-compose.engines.yml` nos hosts com Compose. A variável `ENGINE_IMAGE` aponta para a imagem CUDA já construída para a arquitetura. `ENGINE_MODELS_DIR` aponta para os subdiretórios `trellis2-q8`, `pixal3d-sv-q8` e `pixal3d-mv-q8`. Passe a URL da API, nome do worker e token de primeiro registro por `ENGINE_WORKER_ENV_FILE` em arquivo privado. O nome do worker e o volume persistente identificam a credencial após o registro.
+
+Na Spark, ative `--profile pixal3d-python` e informe `PIXAL3D_MODELS_DIR`, `PIXAL3D_DINOV3_DIR` e `PIXAL3D_CACHE_DIR`. O UID 10002 precisa ler as configurações e pesos e gravar somente no cache e no volume de execução. O cache de NAF deve estar preparado para uso offline. Na RTX 4090, onde o plugin Compose estava ausente, o equivalente é `docker run` com `--gpus all --ipc host --init`, pesos em `/models:ro`, volume persistente em `/state` e arquivo de ambiente privado.
+
+Para avaliação de LODs, execute `scripts/engines/derive_master.py` e `scripts/engines/impostor_atlas.py` dentro da imagem Blender de revisão. Monte os masters somente para leitura e grave em outro volume. A retopologia experimental usa QuadriFlow, com voxelização opcional e reprojeção de cor, normal tangente e rugosidade quando disponível. Candidatos que falham na retopologia ficam sem publicação. O atlas inclui azimutes, extensão do enquadramento, centro e layout para a integração futura na Unity.
+
 ## Continuidade do AssetForge em 2026-11-27
 
 Esta seção registra o estado depois da retomada. Os dados mais antigos ficam abaixo para referência histórica.
