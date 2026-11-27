@@ -5,6 +5,16 @@ Commits em Conventional Commits; PRs em português **e** inglês. Atribuição n
 
 ## Reteste da memória da RTX 4090 · 27/11/2026
 
+### Após o ajuste de AI Overclock / Tuning para Manual
+
+O SSH voltou com a chave já cadastrada após a reinicialização. O SMBIOS continuou reportando quatro módulos DDR4 de 32 GiB configurados a 2.666 MT/s. O Linux reportou 126.227 MiB utilizáveis.
+
+O mesmo contêiner executou `memtester 4G 1`. Os 4.096 MiB foram alocados e bloqueados. O `Checkerboard` completou e as duas divergências foram registradas em `Bit Flip`, nos offsets `0x732d4a68` e `0x7ceb7558`. Em ambas, o XOR foi `0x02000000`, igual ao bit divergente do reteste anterior. O monitor encerrou o contêiner aos 275 s, às 19h31min08s de Brasília. A menor memória disponível foi 120.327 MiB.
+
+A falha em 4 GiB bloqueou a progressão para 16, 32 e 64 GiB, os benchmarks de concorrência e os pilotos Python. Os três serviços da RTX mantiveram o tempo de execução e os dois workers reportaram heartbeat à central. Os logs estão em `~/assetforge-city-validation/ram-manual-20261127T222633Z/` e a cópia local verificada por SHA-256 está em `reports_out/engines/rtx4090-memory-manual/`.
+
+### Reteste anterior ao ajuste Manual
+
 O acesso SSH ao host `htsllm2` foi restabelecido com verificação estrita. Tanto o acesso direto quanto o caminho pela central apresentaram a chave ED25519 que já estava cadastrada. A divergência encontrada anteriormente não apareceu nessas duas conexões. A confirmação por e-mail foi solicitada a Hank e estava pendente ao encerrar o reteste.
 
 O SMBIOS reportou quatro módulos DDR4 de 32 GiB, configurados a **2.666 MT/s**, com 128 GiB instalados. O Linux reportou 126.227 MiB utilizáveis, ante 126.326 MiB na leitura anterior. A frequência efetiva da configuração anterior não foi registrada. A inspeção usou a tabela SMBIOS em modo somente leitura.
