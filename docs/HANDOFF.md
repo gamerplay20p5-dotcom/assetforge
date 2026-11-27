@@ -260,3 +260,119 @@ Imagens Docker: `assetforge-pixal3d:cuda89` (4090), `:cuda120` (Spark, **não se
 * A cadeia da Spark foi **reiniciada** com `MAXTOK=131072` (`chain_city.sh` agora aceita a variável `MAXTOK`, padrão 49152) para que o pedido de 1536 seja realmente 1536. Comando: `MAXTOK=131072 nohup bash chain_city.sh assetforge-pixal3d:cuda121 spark 1536 <ativos>`. Resultados antigos da Spark (resolução reduzida) foram descartados.
 * Ao analisar cada run, conferir no `raw.log` as linhas `backing off` e `-> quantized @resNNNN` para a **resolução efetiva**. Na 4090 em 1024 não há recuo (a torre usa 31.965 tokens e o prédio residencial 23.079, abaixo de 49.152).
 * Memória: o 1536 real é mais pesado; o guarda de RAM do `run_cpp.sh` (`MIN_AVAIL_GB`, padrão 10) para só o container do AssetForge. A Spark tem ≈ 121 GB de memória unificada.
+
+---
+
+# ESTADO EXATO PARA CONTINUAR (consolidado em 2026-11-27 ~02:00 CST na Spark / 07:50 UTC; **este bloco substitui qualquer estado anterior deste arquivo**)
+
+**Antes de tudo**: o Codex deve **estudar o projeto inteiro antes de modificar qualquer arquivo** (ler este HANDOFF do início ao fim, `docs/CLOUD_AI.md`, `docs/TRELLIS2_INTEGRATION.md`, `docs/GPU.md`, `docs/VISION.md`, `scripts/engines/*`, `scripts/trellis2/*`), **recuperar os resultados das baterias existentes** (comandos abaixo) e continuar exatamente daqui, **sem repetir testes já feitos**.
+**Não** iniciar baterias novas desnecessárias antes de concluir as atuais. **Não** tornar os kits procedurais obrigatórios (eles competem como mais um motor). **Preservar a RTX 4090 e a Spark como workers ativos de geração 3D.** **Não** iniciar o Projeto Dragão de Três Cabeças.
+O **Pixal3D multi-view é o principal candidato, mas NÃO foi escolhido definitivamente.** Nenhum vencedor está declarado: a aprovação visual é do dono.
+
+## 1. Processos em execução agora (estado exato)
+
+| Máquina | Processo | O que faz | Estado |
+| --- | --- | --- | --- |
+| **4090** (`afforge@192.168.1.203`) | `bash chain_city.sh assetforge-pixal3d:cuda89 4090 1024 <6 ativos>` (PID 105691 no momento da escrita) | 6 ativos × 3 motores (t2q8, sv, mv4), res. 1024, um job por vez | Faltavam: `npc_worker_001` (sv, mv4), `veh_civilian_001` (t2q8, sv, mv4), `veh_industrial_001` (t2q8, sv, mv4). Container `assetforge-engine` ativo. |
+| **Spark** (`henrylawrencecahill@192.168.1.252`) | `bash chain_city.sh assetforge-pixal3d:cuda121 spark 1536 <6 ativos>` (PID 1010572) | Os mesmos 6 ativos × 3 motores; t2q8 e mv4 pedem **1536** (resolução efetiva menor, ver §3); sv sempre **1024** | **Reiniciada do zero** às ~02:00 (CST da Spark) depois de duas falhas (ver §5). Nenhum resultado válido ainda. |
+
+* O container GPU do AssetForge tem sempre o nome `assetforge-engine`; só existe um por máquina (lock `~/assetforge-engines/.lock`).
+* Qwen (`vlm-gpu`) e TripoSR (`triposr-gpu`) seguem ativos na 4090, ociosos (~506 MiB de VRAM, ~2 GB de RAM): **não** foram suspensos nem interferiram. O run do Hank (`clonez-mesh`) na Spark continua **parado por decisão do dono** (cron inerte).
+* Tempo restante estimado (não medido): 4090 ≈ 15–30 min; Spark ≈ 1–2 h.
+
+### Como acompanhar e recuperar (cada máquina)
+
+```
+ssh -i ~/.ssh/id_ed25519_asc -o BatchMode=yes <usuário>@<ip> 'cat ~/assetforge-engines/chain_city.status; docker ps --format "{{.Names}}" | grep engine'
+# linhas "<ativo>_<motor>_<res>_<máquina> EXIT=<código>"; "CITY_CHAIN_DONE" = terminou. Códigos: 0 ok · 3 lock ocupado (a cadeia repete) · 4 guarda de memória/Hank · 133/1/outro = falha (ver raw.log)
+ssh ... 'tr "\r" "\n" < ~/assetforge-engines/out/<run>/raw.log | grep -v "\[flow\]" | tail -30'   # log de um run
+bash scripts/engines/fetch_results.sh          # (PC do dono, Git Bash, raiz do repo) baixa todos os runs OK das duas máquinas -> reports_out/engines/results/<run>/
+.venv/Scripts/python scripts/engines/analyze_city.py --results reports_out/engines/results --refs reports_out/engines/city_inputs --out reports_out/engines/analysis
+```
+
+Para parar uma cadeia com segurança: `pkill -f '^bash chain_city.sh'` (padrão ANCORADO; sem o `^` o pkill mata a própria sessão SSH) e `docker stop assetforge-engine`. Reiniciar: `cd ~/assetforge-engines && nohup bash chain_city.sh <imagem> <rótulo> <res> <ativos...> &` (pula o que já deu certo, repete em código 3).
+Resultados antigos/falhos ficam em `~/assetforge-engines/old/`.
+
+## 2. Ativos: processados e pendentes (lote CITY+++ piloto; 15 designs existem, **6 foram escolhidos** para esta bateria)
+
+Escolhidos: `bldg_skyscraper_residential_001`, `bldg_skyscraper_commercial_001`, `npc_civilian_001`, `npc_worker_001`, `veh_civilian_001`, `veh_industrial_001`. **Não escolhidos (pendentes para uma 2ª fase)**: `bldg_skyscraper_residential_002`, `bldg_skyscraper_special_001`, `npc_civilian_002`, `npc_government_001`, `npc_public_service_001`, `npc_worker_002`, `veh_civilian_002`, `veh_emergency_001`, `veh_public_transport_001` (entradas já preparadas em `reports_out/engines/city_inputs/` e nas máquinas em `~/assetforge-engines/refs/city/`).
+Também usada como referência extra: a torre `reports_out/engines/refs/tower.png` (imagem do dono; sem multi-view).
+
+**RTX 4090 (res. 1024) — concluídos com sucesso (todos `exit=0`):** `bldg_skyscraper_residential_001` (t2q8, sv, mv4), `bldg_skyscraper_commercial_001` (t2q8, sv, mv4), `npc_civilian_001` (t2q8, sv, mv4), `npc_worker_001` (t2q8). Torre (imagem única): t2q8 1024, t2q8 "1536", sv 1024.
+**Pendentes na 4090:** `npc_worker_001` sv e mv4, `veh_civilian_001` ×3, `veh_industrial_001` ×3. **Spark:** os 6 ativos × 3 motores (nada concluído).
+**Ainda NÃO baixados/analisados localmente:** tudo depois de `bldg_skyscraper_residential_001` (rodar `fetch_results.sh` + `analyze_city.py`). Analisado e visto: só `bldg_skyscraper_residential_001` (folha em `reports_out/engines/analysis/sheets/`) e a torre.
+
+## 3. Resoluções solicitadas × efetivamente usadas (lidas dos `raw.log`)
+
+* **1024 (todos os runs da 4090)**: efetiva = **1024**, sem recuo (`backing off` = 0). Tokens HR por ativo: torre 31.965 (t2q8), residencial_001 23.079 (mv4).
+* **"1536" da torre (TRELLIS.2 Q8, 4090, `--max-tokens` padrão 49.152): efetiva = 1152.** O limite recuou 1536 → 1408 → 1280 → 1152 (`res1536 -> 75244 tokens >= 49152, backing off`). **Não foi 1536.** (O "1536 funciona" dito antes estava errado e foi corrigido.)
+* **1536 real não é alcançável neste commit**: com `--max-tokens 131072` o `trellis-cli` na Spark quantizou em `@res1536 (grid 96) = 63460 tokens` e **abortou** com `GGML_ASSERT(grid_z < USHRT_MAX)` em `thirdparty/ggml/src/ggml-cuda/cpy.cu:229` (código 133). Portanto **não subir `--max-tokens` acima de ~49 mil**; a resolução efetiva fica entre 1152 e 1280 conforme o ativo. Corrigir exigiria patch no ggml (kernel de cópia com `gridDim.z > 65535`) — **não feito**; reportar upstream/patch é uma pendência.
+* **Pixal3D single-view: só `--res 1024`** (`--sv-image supports --res 1024 only in this release`). Pixal3D multi-view aceita 1024 e 1536 (e 512 não).
+* **Regra**: sempre registrar a resolução efetiva por run (`grep -E "backing off|quantized @res" raw.log`); nunca reduzir em silêncio.
+
+## 4. Pesos e commits exatos
+
+* **Motor C++**: `raven38/pixal3d.cpp` commit **`d1b4926452f9e09702b891db5f05acc845e153ed`** (MIT); ggml vendorizado `pwilkin/ggml` commit **`737e88f25d4f62254f3b7a726fd9663036cc94da`** (branch `trellis-patches`, MIT); base `pwilkin/trellis.cpp` (MIT). Imagem: `deployment/Dockerfile.pixal3d-cuda` (Ubuntu 24.04, CUDA 13.1.0, `CUDA_ARCHS=89` na 4090 → tag `cuda89`; `121` na Spark → tag `cuda121`; `cuda120` da Spark NÃO serve).
+* **Pesos GGUF** (em `~/assetforge-models/` das duas máquinas, ≈ 9,4 + 7,6 + 7,6 GB; baixados por `~/assetforge-engines/download_weights.sh`):
+  * `trellis2-q8/` = HF `ilintar/trellis2-gguf` pasta `q8`, revisão **`a57397bd3d351599d9729fc144b3f87c3f87d65b`** (licença "other" = a do modelo-fonte MIT; contém `birefnet.gguf` e `dinov3.gguf`). SHA256 de `shape_flow_1024.gguf` = `997e9fc10ab95fda11c4cd1cbaf425101980ac36a2ef80e9c83e0b9c4bfc9680` (na 4090).
+  * `pixal3d-mv-q8/` = HF `raven38/pixal3d-q8_0-v1`, revisão **`1c4f4bdddb5fef1dc5efa512d4b88e899b10bd91`** (MIT + `dinov3.gguf` sob a licença DINOv3). SHA256 de `pixal3d_shape_flow_1024_mv.gguf` = `50cd892247d73d4750b720d5612cef03cc0c02ec806b9e37d0d54d7ec579a94b`.
+  * `pixal3d-sv-q8/` = HF `raven38/pixal3d-sv-q8_0-v1`, revisão **`46d399ac986f45a0d7f5b1ca5058614d8729a131`**. SHA256 de `pixal3d_shape_flow_1024_sv.gguf` = `7cb1ecb189719edbbb991d16271ad0f8ab8bf54154df7795830aadba27f0efae`.
+  * `trellis2-q4/` (≈ 6,1 GB, mesma origem, pasta `q4`) baixado, **ainda não testado**.
+  * Fonte dos modelos originais: `TencentARC/Pixal3D` (MIT) revisão `b0cb2e1b794cab9aa0ac38a95d794a4d9337437f`, código `TencentARC/Pixal3D` commit `f7cf38429b0bd264f1995f0f8743a88b1c728b94`; `microsoft/TRELLIS.2-4B` revisão `af44b45f2e35a493886929c6d786e563ec68364d` (MIT).
+* **TRELLIS.2 Python (piloto 1, Spark)**: imagem do Hank `clonez-mesh:1`, pesos em `~/clonez-models` (PINS em `AssetPipeline/mesh/meshgen.py`; TRELLIS.2 commit `75fbf0183001ed9876c8dbb35de6b68552ee08bd`).
+* **Repositório AssetForge** no momento desta escrita: branch `feat/engines-comparison` (= `docs/trellis2-analysis`, PR #1); ver `git log`.
+
+## 5. Resultados de memória, tempo e qualidade (4090, res. 1024, atlas 4096, seed 1; RAM = pico do sistema acima da base; todos medidos)
+
+| Ativo | Motor | Tempo | RAM Δ | VRAM pico | Triângulos (após decimação padrão) |
+| --- | --- | --- | --- | --- | --- |
+| bldg_skyscraper_residential_001 | t2q8 / sv / **mv4** | 160,0 / 149,1 / **219,0** s | 4,1 / 3,7 / 4,8 GB | 8,1 / 7,3 / 8,4 GB | 295.794 / 955.714 / 982.020 |
+| bldg_skyscraper_commercial_001 | t2q8 / sv / **mv4** | 74,5 / 96,1 / **133,1** s | 2,2 / 2,0 / 2,2 GB | 5,1 / 4,7 / 5,3 GB | 282.142 / 983.554 / 974.768 |
+| npc_civilian_001 | t2q8 / sv / **mv4** | 51,8 / 61,1 / **77,7** s | 2,5 / 1,3 / 1,8 GB | 3,0 / 3,9 / 3,9 GB | 282.968 / 889.856 / 990.614 |
+| npc_worker_001 | t2q8 | 57,3 s | 3,0 GB | 3,9 GB | 297.618 |
+| Torre (1 imagem) | t2q8 1024 / sv / t2q8 "1536"=1152 | 232,6 / 127,1 / 336,5 s | 6,6 / 3,1 / 7,9 GB | 12,0 / 7,2 / 14,6 GB | 297.650 / 931.734 / 293.090 |
+| (ref.) Torre, TRELLIS.2 **Python** | Spark | ≈ 285 s + ~50 s de textura | 69–75 GB (sistema) | n/d | ≈ 453 mil |
+
+* O C++ Q8 usa **uma ordem de grandeza menos memória** que o Python (≤ 15 GB de VRAM e ≤ 8 GB de RAM contra 69–75 GB) e cabe folgado na 4090 (24 GB VRAM / 22 GB RAM).
+* Defaults de decimação: TRELLIS.2 ≈ 300 mil faces; Pixal3D ≈ 1 milhão (atlas 4096). Para "não limitar o master" no TRELLIS.2 usar `--decim 0` (não testado; pode gerar dezenas de milhões de faces).
+* **Qualidade** (apenas `bldg_skyscraper_residential_001` e a torre foram vistos; impressão visual do assistente, NÃO aprovação):
+  * **mv4 (Pixal3D multi-view, 4 vistas)**: melhor: reproduz a **traseira** com janelas, colunas verde-oliva, pilastras e varandas; de pé (inclinação 1,9°), 1 componente.
+  * **t2q8**: boa frente; **traseira inventada e lisa**; sem verde-oliva; 1 componente (a torre tinha 19 em 1024).
+  * **sv (Pixal3D single-view)**: na torre deu cor e detalhe excelentes mas **inclinado ~9,9°** (corrigível com `level_glb.py`); no `residential_001` **falhou** (modelo deitado, 88,6°, textura estragada). **Instável conforme a imagem.**
+  * Cor: o Pixal3D (sv e mv4) fica muito mais perto da referência que o TRELLIS.2 Python/Q8 (que sai dourado/escuro).
+* **Pendente de análise**: os demais ativos já gerados (rodar `fetch_results.sh` + `analyze_city.py`), contagem de componentes soltos, **estabilidade** (repetir 3× o mesmo motor/ativo; as repetições `tower_*_r2/_r3` da 4090 foram recusadas por lock e **não rodaram**; os diretórios `out/tower_t2q8_1024_r2_4090` e `_r3_4090` são lixo sem resultado), Gemini (só conselho, `scripts/ai/gemini_compare.py`) e aprovação visual do dono.
+
+## 6. Problemas encontrados e soluções (lista completa desta fase)
+
+1. CMake 3.22 falha em `FetchContent ... DOWNLOAD_EXTRACT_TIMESTAMP` → base **Ubuntu 24.04**.
+2. Link `undefined reference to cuMemCreate...` → **stub libcuda** (`LIBRARY_PATH=/usr/local/cuda/lib64/stubs` + `-Wl,-rpath-link`).
+3. `COPY /src/build/bin` inexistente → coletar `.so` com `find` para `/out`.
+4. Spark é **sm_121**: build `120` dá `no kernel image is available` → usar `CUDA_ARCHS=121`.
+5. `pkill -f 'docker build'` mata a própria sessão SSH → padrão ancorado `'^docker build'`.
+6. `.sh` com CRLF quebra no Linux → `sed -i 's/\r$//'`; `.gitattributes` força LF.
+7. Container como root deixa arquivos que não dá para apagar → `--user $(id -u):$(id -g)` (já no `run_cpp.sh`).
+8. Substituir `run_cpp.sh` com ele em execução corrompe o bash → copiar para `.new` e `mv`.
+9. Lock herdado (fd 9) pelo guarda recusava o job seguinte (código 3 em cascata) → `9>&-` no guarda e no `docker run`; cadeia repete em 3.
+10. `tar czf C:\...` interpreta `C:` como host → usar caminho relativo.
+11. Blender grava em `C:\` quando recebe caminho relativo → **sempre caminhos absolutos** (o dono deve apagar `C:\reports_out` e `C:\view_*.png` que sobraram).
+12. Heredoc longo no shell quebra com aspas → escrever arquivos com a ferramenta de escrita e depois `cat >>`.
+13. `--sv-image` só aceita `--res 1024`; `--max-tokens` alto → `GGML_ASSERT(grid_z < USHRT_MAX)` (ver §3).
+14. Single-view instável (ver §5); `level_glb.py` não corrige modelo deitado (recusa acima de `--max-tilt 40`).
+
+## 7. Política de utilização máxima SEGURA do hardware (sem limitações artificiais)
+
+* **Sem tetos artificiais** de resolução, complexidade do master, VRAM ou RAM: usar a capacidade real de cada máquina (4090: os 24 GB de VRAM; Spark: até a memória unificada disponível). Não reduzir qualidade em silêncio: registrar sempre a resolução efetiva.
+* **Segurança (não é limite de qualidade)**: (a) **um job pesado por máquina por vez** (lock `~/assetforge-engines/.lock`); (b) o guarda do `run_cpp.sh` para **só o nosso container** se a RAM disponível cair abaixo de `MIN_AVAIL_GB` (padrão 10 GB; na 4090 há 22 GB de RAM no total) ou se o run do Hank (`clonez-mesh`) voltar; (c) nunca encerrar/alterar processos de outros projetos; (d) Qwen e TripoSR ficam disponíveis enquanto não interferirem — se algum job deles disputar a GPU, **pedir autorização** antes de suspendê-los, preservando os dados; (e) sem mudar BIOS/firmware/driver/kernel sem autorização; (f) Spark: usar a conta do Hank só para ler código/pesos dele e para rodar os nossos containers em `~/assetforge-engines`.
+* Meta: manter **ambas as máquinas trabalhando** quando houver demanda. O scheduler de produção (FIFO, compatibilidade, disponibilidade e consumo real) **ainda não existe**: ver §8.
+
+## 8. Pendências (ordem sugerida; nada disto foi iniciado além do dito)
+
+1. **Concluir as baterias atuais**, recuperar e analisar (§1), comparar por categoria (arranha-céus/NPCs/veículos) e levar ao dono para **aprovação visual**. Rodar Gemini (só conselho).
+2. **Estabilidade**: 3 repetições do mesmo motor/ativo (mesma seed e seeds diferentes) em cada máquina.
+3. **Pixal3D Python na Spark** (resolução nativa 1536, `inference.py`/`inference_mv.py`; base `clonez-mesh:1` + MoGe, natten, utils3d; usar `assetforge_trellis2.to_glb_commercial` no lugar do `to_glb` com nvdiffrast) — **não iniciado**; é o caminho para 1536 real sem o limite do ggml.
+4. **Otimização não destrutiva e LODs** (15k/7,5k/2,5k/500) a partir dos masters ≈ 1M de triângulos do Pixal3D. Preservar o master. O colapso do Blender destrói masters feitos de cascas soltas (ver piloto 1); verificar componentes dos masters (os do Pixal3D deram 1 componente), testar decimação com preservação de arestas, normal map assado em Blender (`scripts/trellis2/bake_normals.py`), reprojeção de texturas, UVs e PBR, e comparar todos os LODs com as mesmas câmeras/luz.
+5. **Cor/textura**: comparar base color com a referência (valores primeiro, depois iluminação/gerenciamento de cor do Blender) nos masters do Pixal3D.
+6. **Licenciamento** (nenhum pipeline está liberado para uso comercial): DINOv3 (licença da Meta: uso comercial permitido com condições, sem usos militares/armas; **revisão jurídica pendente**; vem dentro dos GGUF); termos dos dados do BiRefNet; `plyfile` (GPL)/`easydict` (LGPL) na imagem do Hank se for redistribuída; confirmar licença dos pesos GGUF de terceiros (`raven38`, `ilintar`: o arquivo `LICENSE.md` do repositório diz "MIT + DINOv3"). O `pixal3d.cpp` **não usa nvdiffrast/nvdiffrec**; o caminho Python usa e foi substituído por `assetforge_trellis2`. Separar ativos experimentais dos produzidos por pipeline comercialmente compatível (`experimental/` × `commercial_candidate/`).
+7. **Corrigir/reportar o limite do ggml** (`cpy.cu:229`) para habilitar 1536 real no C++ (patch ou issue upstream).
+8. **Workers de produção** (Spark e 4090 ativos) com scheduler FIFO por compatibilidade/disponibilidade/consumo real, provider HTTP em container separado (como `triposr-gpu`), cancelamento/retomada, histórico de versões, upload em massa, painel com visualização interativa — **só depois** da aprovação do piloto. **Não iniciar produção comercial sem aprovação.**
+9. Kits procedurais, Gemini + procedural e híbrido devem competir com as **mesmas** referências/câmeras/luz (ainda não rodados nesta fase); **não são obrigatórios**.
