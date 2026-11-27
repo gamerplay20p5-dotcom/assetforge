@@ -214,14 +214,14 @@ Depois: Gemini (só conselho) com `scripts/ai/gemini_compare.py` (rodar num cont
 | Execução | Máquina | Res. | Tempo | Pico RAM (acima da base) | Pico VRAM | Triângulos / componentes |
 | --- | --- | --- | --- | --- | --- | --- |
 | Torre · TRELLIS.2 Q8 | 4090 | 1024 | 232,6 s | +6,6 GB | 12,0 GB | 297.650 / 19 (UV) |
-| Torre · TRELLIS.2 Q8 | 4090 | **1536** | 336,5 s | +7,9 GB | 14,6 GB | ver `out/tower_t2q8_1536_4090` |
+| Torre · TRELLIS.2 Q8 (pedido 1536) | 4090 | **1152 efetiva** (1536 recuou 1536→1408→1280→1152 pelo limite de 49.152 tokens) | 336,5 s | +7,9 GB | 14,6 GB | 293.090 / 1 |
 | Torre · Pixal3D single-view Q8 | 4090 | 1024 | **127,1 s** | +3,1 GB | **7,2 GB** | 931.734 |
 | Residencial_001 · TRELLIS.2 Q8 | 4090 | 1024 | 160,0 s | +4,1 GB | 8,1 GB | 295.794 / **1 componente** |
 | (referência) Torre · TRELLIS.2 **Python** | Spark | 1024 | ≈ 285 s + 50 s de textura | 69–75 GB (sistema) | n/d | ≈ 453 mil |
 
 * **Pixal3D single-view é ≈ 45 % mais rápido que o TRELLIS.2 Q8 e usa ≈ 40 % menos VRAM**. Cor e detalhe de fachada ficam **mais fiéis** à referência (bege com verde-oliva, caixilhos, pilastras), mas o modelo sai **no referencial da câmera, inclinado** (≈ 9,9° na torre).
 * **Correção de orientação** (`scripts/engines/level_glb.py`): estima a inclinação do eixo dominante e grava um GLB NOVO só com um nó pai (rotação + translação: de pé, pivô na base). Vértices e texturas ficam byte a byte iguais ao original, então o master é preservado. Torre single-view: profundidade 0,655 → 0,535; o TRELLIS.2 já vinha ≈ 1,2°. Limite de segurança `--max-tilt 40`.
-* **TRELLIS.2 Q8 em 1536 funciona em C++** (o Python original não coube/foi reduzido a 1024): 336 s e 14,6 GB de VRAM.
+* **CORREÇÃO**: o "TRELLIS.2 Q8 1536" da torre NÃO rodou em 1536: o limite de 49.152 tokens recuou a resolução para **1152** (log: `res1536 -> 75244 tokens >= 49152, backing off`). O 1536 real exige `--max-tokens` ≥ ~75k (a torre) e provavelmente mais para outros ativos. O `trellis-cli` loga o recuo, mas é preciso ler o `raw.log` (`grep -i backing`). Resolução efetiva deve ser sempre registrada.
 * O TRELLIS.2 com **uma** vista inventa a traseira lisa; esperado. O multi-view é o teste que deve resolver isso.
 * Erro do runner já corrigido: processos filhos do guarda herdavam o `flock` (fd 9) e o job seguinte era recusado (código 3 em cascata). Agora o guarda e o `docker run` fecham o fd 9 e a cadeia repete em código 3.
 
@@ -254,3 +254,9 @@ Imagens Docker: `assetforge-pixal3d:cuda89` (4090), `:cuda120` (Spark, **não se
 * Aprendizados: (1) o multi-view foi o único a reproduzir a traseira; (2) o single-view do Pixal3D exige a imagem no enquadramento de câmera (FOV 20°) e é sensível: investigar com `--fov`, recorte normalizado (o `prep_views.py` gera `mv4/view00_front_azim000.png` já normalizado a 85 %, usar como entrada do `--sv-image`) e vista com elevação; (3) a correção de orientação só vale para inclinações pequenas, não resolve modelo deitado.
 * **Sem vencedor declarado**: só 1 ativo analisado; aguardar a bateria completa (as duas cadeias seguem rodando) e a aprovação visual do dono.
 * Ainda sem Gemini nestes modelos (rodar `scripts/ai/gemini_compare.py` na central; ver §Gemini comparar).
+
+### Correção de rumo (resolução efetiva) e reinício da Spark
+
+* A cadeia da Spark foi **reiniciada** com `MAXTOK=131072` (`chain_city.sh` agora aceita a variável `MAXTOK`, padrão 49152) para que o pedido de 1536 seja realmente 1536. Comando: `MAXTOK=131072 nohup bash chain_city.sh assetforge-pixal3d:cuda121 spark 1536 <ativos>`. Resultados antigos da Spark (resolução reduzida) foram descartados.
+* Ao analisar cada run, conferir no `raw.log` as linhas `backing off` e `-> quantized @resNNNN` para a **resolução efetiva**. Na 4090 em 1024 não há recuo (a torre usa 31.965 tokens e o prédio residencial 23.079, abaixo de 49.152).
+* Memória: o 1536 real é mais pesado; o guarda de RAM do `run_cpp.sh` (`MIN_AVAIL_GB`, padrão 10) para só o container do AssetForge. A Spark tem ≈ 121 GB de memória unificada.
