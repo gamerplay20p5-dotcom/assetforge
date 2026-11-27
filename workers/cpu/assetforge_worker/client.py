@@ -119,9 +119,11 @@ class ServerClient:
             raise RuntimeError(f"server rejected the result: {r.status_code} {r.text[:500]}")
         return r.json()
 
-    def fail(self, job_id: str, token: str, error: str, retryable: bool) -> None:
-        self.request("POST", f"/worker/jobs/{job_id}/fail",
-                     json={"lease_token": token, "error": error[:3900], "retryable": retryable})
+    def fail(self, job_id: str, token: str, error: str, retryable: bool, quota_wait_s: float | None = None) -> None:
+        body: dict = {"lease_token": token, "error": error[:3900], "retryable": retryable}
+        if quota_wait_s is not None:
+            body["quota_wait_s"] = quota_wait_s
+        self.request("POST", f"/worker/jobs/{job_id}/fail", json=body)
 
     def cancelled(self, job_id: str, token: str) -> None:
         self.request("POST", f"/worker/jobs/{job_id}/cancelled", json={"lease_token": token})

@@ -362,7 +362,8 @@ def complete(job_id: str, body: CompleteIn, request: Request, worker: Worker = D
 def fail(job_id: str, body: FailIn, request: Request, worker: Worker = Depends(current_worker),
          db: Session = Depends(get_db)) -> dict:
     job = _lease_job(db, job_id, worker, body.lease_token)
-    new_status = fail_or_retry(db, job, request.app.state.settings, error=body.error, retryable=body.retryable)
+    new_status = fail_or_retry(db, job, request.app.state.settings, error=body.error, retryable=body.retryable,
+                               quota_wait_s=body.quota_wait_s if job.job_type == "agent.building" else None)
     request.app.state.storage.drop_staging(job.id)
     db.commit()
     return {"status": new_status}

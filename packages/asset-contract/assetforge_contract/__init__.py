@@ -9,6 +9,7 @@ from .budgets import (
 from .models import (
     AI_JOB_TYPES,
     CONTRACT_VERSION,
+    AgentParams,
     AiParams,
     AssetManifest,
     BuildingParams,
@@ -24,6 +25,7 @@ from .models import (
 
 __all__ = [
     "AI_JOB_TYPES",
+    "AgentParams",
     "AiParams",
     "CATEGORY_BUDGETS",
     "CONTRACT_VERSION",

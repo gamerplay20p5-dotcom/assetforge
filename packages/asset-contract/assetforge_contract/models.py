@@ -64,7 +64,7 @@ class BuildingParams(StrictModel):
         default=None, description="Full architectural spec (JSON) for the house kit; overrides `archetype`. Validated by the generator")
 
 
-JobType = Literal["procedural.building", "ai.text_to_3d", "ai.image_to_3d"]
+JobType = Literal["procedural.building", "ai.text_to_3d", "ai.image_to_3d", "agent.building"]
 AI_JOB_TYPES = ("ai.text_to_3d", "ai.image_to_3d")
 
 
@@ -107,6 +107,38 @@ class AiParams(StrictModel):
         return v
 
 
+class AgentParams(StrictModel):
+    """Cloud-AI assisted procedural modelling: the AI (Gemini/Grok via the API's key pool) writes a full HouseSpec from 1-4 references, the kit
+    builds it in Blender, the AI compares renders with the references and corrects the spec, up to ``max_iterations`` times."""
+
+    reference_ids: list[str] = Field(min_length=1, max_length=4)
+    category: str = Field(default="house", max_length=48, description="hint; the AI may pick another building category")
+    max_iterations: int | None = Field(default=None, ge=0, le=5, description="correction rounds after the first build (default: panel setting)")
+    target_score: float | None = Field(default=None, ge=0, le=10, description="stop when the AI rates fidelity >= this (0-10)")
+    construction_stage: int | None = Field(default=None, ge=1, le=6)
+    texture_resolution: Literal[512, 1024, 2048] = 1024
+    wear: float | None = Field(default=None, ge=0, le=1)
+    seed: int = Field(default=1, ge=0, le=2**31 - 1)
+
+    @field_validator("reference_ids")
+    @classmethod
+    def _ids(cls, v: list[str]) -> list[str]:
+        import re
+
+        if any(not re.fullmatch(r"ref_[0-9a-f]{12}", r) for r in v):
+            raise ValueError("invalid reference id")
+        return list(dict.fromkeys(v))
+
+    @field_validator("category")
+    @classmethod
+    def _cat(cls, v: str) -> str:
+        from .budgets import CATEGORY_BUDGETS
+
+        if v not in CATEGORY_BUDGETS:
+            raise ValueError(f"unknown category {v!r}")
+        return v
+
+
 class JobCreate(StrictModel):
     """Request to generate one asset. ``params`` is validated against the model of ``job_type``."""
 
@@ -129,6 +161,8 @@ class JobCreate(StrictModel):
     def _validate_params(self) -> "JobCreate":
         if self.job_type == "procedural.building":
             self.params = BuildingParams.model_validate(self.params).model_dump(mode="json")
+        elif self.job_type == "agent.building":
+            self.params = AgentParams.model_validate(self.params).model_dump(mode="json")
         else:
             ai = AiParams.model_validate(self.params)
             if self.job_type == "ai.text_to_3d" and ai.provider != "intel":

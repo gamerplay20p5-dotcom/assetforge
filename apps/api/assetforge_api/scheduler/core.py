@@ -35,6 +35,9 @@ def requirements_for(job_type: str, formats: list[str], vram_mb: int = 7000, pro
     if job_type == "ai.image_to_3d" and provider in ("sf3d", "triposr"):
         # CPU-only providers: no VRAM; reserve cores/RAM of the node. Needs Blender (post-processing) and that provider's container.
         return {"features": ["ai.image_to_3d", f"provider.{provider}", "blender"], "cpu_cores": cpu3d_cores, "ram_mb": cpu3d_ram_mb, "vram_mb": 0}
+    if job_type == "agent.building":
+        # cloud AI is reached through the API; the worker only needs Blender (build + review renders) and some CPU
+        return {"features": ["agent.building", "blender"], "cpu_cores": 4, "ram_mb": 4096, "vram_mb": 0}
     if job_type.startswith("ai."):
         # generative jobs need a ComfyUI/Intel-GPU node, Blender for post-processing, and reserve VRAM
         return {"features": [job_type, "comfyui", "blender"], "cpu_cores": 2, "ram_mb": 8192, "vram_mb": vram_mb}
@@ -160,7 +163,7 @@ def _close_attempt(db: Session, job: Job, outcome: str, error: str | None, now: 
 
 
 def fail_or_retry(db: Session, job: Job, settings: Settings, *, error: str, retryable: bool, outcome: str = "failed",
-                  now: datetime | None = None) -> str:
+                  now: datetime | None = None, quota_wait_s: float | None = None) -> str:
     """Close the current attempt, then re-queue (with backoff) or mark the job terminal. Returns new status."""
     now = now or utcnow()
     worker = db.get(Worker, job.worker_id) if job.worker_id else None
@@ -172,6 +175,13 @@ def fail_or_retry(db: Session, job: Job, settings: Settings, *, error: str, retr
         job.status, job.finished_at, job.error = "cancelled", now, "cancelled by request"
         server_log(db, job, "job cancelled")
         emit_event(db, "job.cancelled", job.id)
+    elif quota_wait_s is not None and job.max_attempts < 60:
+        # waiting for the AI quota to renew is not a failure of the job: re-queue it and give the attempt back (bounded)
+        job.status, job.not_before, job.worker_id = "queued", now + timedelta(seconds=max(quota_wait_s, 30.0)), None
+        job.max_attempts += 1
+        job.error = error
+        server_log(db, job, f"AI quota exhausted; resuming automatically in {int(max(quota_wait_s, 30.0))}s: {error[:300]}", "warning")
+        emit_event(db, "job.requeued", job.id, reason="ai_quota")
     elif retryable and job.attempts < job.max_attempts:
         delay = settings.retry_backoff_seconds * (2 ** (job.attempts - 1))
         job.status, job.not_before, job.worker_id = "queued", now + timedelta(seconds=delay), None

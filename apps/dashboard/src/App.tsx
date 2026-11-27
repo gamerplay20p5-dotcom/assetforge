@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Boxes, Cpu, Gauge, ImagePlus, Layers, ListChecks, LogOut, Moon, Pause, Play, Sparkles, Sun, Triangle } from "lucide-react";
+import { Bot, Boxes, Cpu, Gauge, ImagePlus, Layers, ListChecks, LogOut, Moon, Pause, Play, Sparkles, Sun, Triangle } from "lucide-react";
 import { useEffect, useState } from "react";
 import { NavLink, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { api, getToken, setToken, useDownloadToken } from "./api";
@@ -10,6 +10,7 @@ import { BatchStudio } from "./pages/BatchStudio";
 import { QueueManager } from "./pages/QueueManager";
 import { Library } from "./pages/Library";
 import { WorkersManager } from "./pages/WorkersManager";
+import { AiSettings } from "./pages/AiSettings";
 import { Login } from "./pages/Login";
 
 function useTheme() {
@@ -73,6 +74,7 @@ const NAV = [
   { to: "/queue", label: "Fila", icon: ListChecks },
   { to: "/batch", label: "Lotes", icon: Layers },
   { to: "/workers", label: "Workers", icon: Cpu },
+  { to: "/ai", label: "IA na nuvem", icon: Bot },
   { to: "/dashboard", label: "Painel", icon: Gauge },
 ];
 
@@ -163,6 +165,7 @@ export function App() {
             <Route path="/library" element={<Library />} />
             <Route path="/library/:assetId" element={<Library />} />
             <Route path="/workers" element={<WorkersManager />} />
+            <Route path="/ai" element={<AiSettings />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </main>

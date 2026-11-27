@@ -8,6 +8,7 @@ import { Viewer3D, type ViewerStats } from "../components/Viewer3D";
 import { ErrorNote, Thumb } from "../components/ui";
 import { KitGenerator } from "./KitGenerator";
 import { VisionHouse } from "./VisionHouse";
+import { AgentRounds, CloudAgent } from "./CloudAgent";
 import { MAX_IMAGE_MB, PRESETS, PROVIDERS, STAGE_LABEL, checkImageFile, parseLods, type PresetKey } from "../imageTo3d";
 import { formatDuration, timeAgo } from "../lib";
 import type { Asset, Job, Worker } from "../types";
@@ -27,7 +28,7 @@ export function Studio() {
   const input = useRef<HTMLInputElement>(null);
 
   // ---- generate form
-  const [mode, setMode] = useState<"kit" | "vision" | "image">("kit");
+  const [mode, setMode] = useState<"kit" | "vision" | "cloud" | "image">("kit");
   const modeRef = useRef(mode);
   modeRef.current = mode;
   const [items, setItems] = useState<Item[]>([]);
@@ -179,9 +180,10 @@ export function Studio() {
   const glb = a && token ? fileUrl(a.id, lodFile, token, ver) : null;
   const generating = !!j && ACTIVE.has(j.status);
   const jp = j?.params as Record<string, unknown> | undefined;
+  const firstRef = typeof jp?.reference_id === "string" ? jp.reference_id : Array.isArray(jp?.reference_ids) ? (jp.reference_ids[0] as string) : null;
   const animSource: string | null =
-    typeof jp?.reference_id === "string" && token
-      ? `/api/v1/references/${jp.reference_id}?token=${encodeURIComponent(token)}`
+    firstRef && token
+      ? `/api/v1/references/${firstRef}?token=${encodeURIComponent(token)}`
       : typeof jp?.archetype === "string"
         ? `/kit/${jp.archetype}.jpg`
         : lastPreview;
@@ -198,12 +200,15 @@ export function Studio() {
         <div className="mode-seg" role="tablist" aria-label="Como gerar">
           <button role="tab" aria-selected={mode === "kit"} className={mode === "kit" ? "on" : ""} onClick={() => setMode("kit")}>Casas do kit</button>
           <button role="tab" aria-selected={mode === "vision"} className={mode === "vision" ? "on" : ""} onClick={() => setMode("vision")}>Imagem → casa (IA)</button>
+          <button role="tab" aria-selected={mode === "cloud"} className={mode === "cloud" ? "on" : ""} onClick={() => setMode("cloud")}>IA na nuvem</button>
           <button role="tab" aria-selected={mode === "image"} className={mode === "image" ? "on" : ""} onClick={() => setMode("image")} title="Experimental">TripoSR</button>
         </div>
         {mode === "kit" ? (
           <KitGenerator onCreated={(ids, pv) => { setAssetId(null); setLastPreview(pv ?? null); setJobId(ids[0] ?? null); }} />
         ) : mode === "vision" ? (
           <VisionHouse onCreated={(ids, pv) => { setAssetId(null); setLastPreview(pv ?? null); setJobId(ids[0] ?? null); }} />
+        ) : mode === "cloud" ? (
+          <CloudAgent onCreated={(ids, pv) => { setAssetId(null); setLastPreview(pv ?? null); setJobId(ids[0] ?? null); }} />
         ) : (
           <>
         <div className="st-title"><Sparkles size={16} /> Gerar modelo 3D</div>
@@ -454,6 +459,9 @@ export function Studio() {
                       ))}
                     </div>
                   </>
+                )}
+                {a.files?.some((f) => f.name === "agent/history.json") && token && (
+                  <AgentRounds url={fileUrl(a.id, "agent/history.json", token, ver)} fileUrlFor={(p) => fileUrl(a.id, p, token, ver)} />
                 )}
                 <div className="st-label">Baixar</div>
                 <div className="row wrap">

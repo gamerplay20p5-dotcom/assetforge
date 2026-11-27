@@ -2,7 +2,7 @@
 
 Usage: python -m assetforge_worker.run_job <workdir> [--engine auto|trimesh|blender]
 Reads <workdir>/job.json, writes <workdir>/result.json and streams JSON-line events on stdout.
-Exit codes: 0 success, 10 deliberate pipeline failure (do not retry), 1 unexpected error.
+Exit codes: 0 success, 10 deliberate pipeline failure (do not retry), 11 cloud-AI quota exhausted (re-queue later), 1 unexpected error.
 
 The job document is validated by pydantic models inside the pipeline; no code from the job or from
 uploaded files is ever executed.
@@ -31,6 +31,19 @@ def main() -> int:
     job = json.loads((workdir / "job.json").read_text(encoding="utf-8"))
     threads = int(job.get("requirements", {}).get("cpu_cores", 1))
     try:
+        if job["job_type"] == "agent.building":
+            from assetforge_export.agent_pipeline import QuotaWait, run_agent_job
+
+            try:
+                result = run_agent_job(job, workdir, emit, blender_bin=os.environ.get("BLENDER_BIN") or None, threads=threads,
+                                       blender_timeout=float(os.environ.get("ASSETFORGE_BLENDER_TIMEOUT", "900")))
+            except QuotaWait as exc:  # not a failure: the parent re-queues the job until the AI quota renews
+                emit({"type": "log", "level": "warning", "message": str(exc)})
+                (workdir / "error.txt").write_text(str(exc), encoding="utf-8")
+                (workdir / "quota.json").write_text(json.dumps({"retry_after_s": exc.retry_after_s}), encoding="utf-8")
+                return 11
+            (workdir / "result.json").write_text(json.dumps(result), encoding="utf-8")
+            return 0
         if job["job_type"].startswith("ai."):
             from assetforge_export.ai_pipeline import run_ai_job
 

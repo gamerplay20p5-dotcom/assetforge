@@ -92,6 +92,7 @@ class FailIn(BaseModel):
     lease_token: str
     error: str = Field(max_length=4000)
     retryable: bool = True
+    quota_wait_s: float | None = Field(default=None, ge=0, le=172800, description="cloud AI quota exhausted: re-queue after this wait without using an attempt")
 
 
 class TokenOnly(BaseModel):

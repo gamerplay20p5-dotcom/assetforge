@@ -220,3 +220,57 @@ class Setting(Base):
     __tablename__ = "settings"
     key: Mapped[str] = mapped_column(String(64), primary_key=True)
     value: Mapped[dict] = mapped_column(JSONType, default=dict)
+
+
+# ------------------------------------------------------------------------------------------------ cloud AI (keys never leave the server)
+class AiKey(Base):
+    """One API key of a cloud AI provider. The key itself is stored ENCRYPTED (Fernet, derived from the server secret) and never returned."""
+
+    __tablename__ = "ai_keys"
+    id: Mapped[str] = mapped_column(String(24), primary_key=True, default=lambda: new_id("aik_"))
+    provider: Mapped[str] = mapped_column(String(16))  # gemini | grok
+    label: Mapped[str] = mapped_column(String(80), default="")
+    key_enc: Mapped[str] = mapped_column(Text)
+    key_hint: Mapped[str] = mapped_column(String(16), default="")
+    model: Mapped[str] = mapped_column(String(120), default="")
+    priority: Mapped[int] = mapped_column(Integer, default=100)  # lower = tried first
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    allow_paid: Mapped[bool] = mapped_column(Boolean, default=False)  # needed for providers without a free tier while free-only mode is on
+    rpm_limit: Mapped[int] = mapped_column(Integer, default=5)
+    rpd_limit: Mapped[int] = mapped_column(Integer, default=100)
+    cooldown_until: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+    last_error: Mapped[str] = mapped_column(String(400), default="")
+    base_url: Mapped[str] = mapped_column(String(200), default="")  # only for tests / self-hosted gateways
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+
+
+class AiRequest(Base):
+    """History of every call (tokens, latency, outcome); also the source of the per-minute/per-day counters."""
+
+    __tablename__ = "ai_requests"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    ts: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, index=True)
+    key_id: Mapped[str] = mapped_column(String(24), default="", index=True)
+    provider: Mapped[str] = mapped_column(String(16), default="")
+    model: Mapped[str] = mapped_column(String(120), default="")
+    task: Mapped[str] = mapped_column(String(32), default="")
+    job_id: Mapped[str] = mapped_column(String(32), default="")
+    status: Mapped[str] = mapped_column(String(16), default="ok")  # ok | cache | quota | auth | error
+    prompt_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    output_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    total_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    latency_ms: Mapped[int] = mapped_column(Integer, default=0)
+    error: Mapped[str] = mapped_column(String(400), default="")
+
+
+class AiCache(Base):
+    """Cached answers keyed by sha256(task, prompt version, model, schema, image hashes, payload)."""
+
+    __tablename__ = "ai_cache"
+    key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    model: Mapped[str] = mapped_column(String(120), default="")
+    task: Mapped[str] = mapped_column(String(32), default="")
+    prompt_version: Mapped[str] = mapped_column(String(32), default="")
+    response: Mapped[dict] = mapped_column(JSONType, default=dict)
+    hits: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)

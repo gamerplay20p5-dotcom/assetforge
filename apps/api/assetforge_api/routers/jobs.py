@@ -36,6 +36,17 @@ def create_job(db: Session, spec: JobCreate, user: User, settings, batch_id: str
         ref = spec.params.get("reference_id")
         if not (settings.storage_root / "references" / f"{ref}.png").is_file():
             raise HTTPException(404, f"reference image {ref} not found (upload it first)")
+    if spec.job_type == "agent.building":
+        from ..ai.router import get_ai_settings
+
+        ai_cfg = get_ai_settings(db)
+        if spec.params.get("max_iterations") is None:
+            spec.params["max_iterations"] = int(ai_cfg["agent_iterations"])
+        if spec.params.get("target_score") is None:
+            spec.params["target_score"] = float(ai_cfg["target_score"])
+        for ref in spec.params.get("reference_ids", []):
+            if not (settings.storage_root / "references" / f"{ref}.png").is_file():
+                raise HTTPException(404, f"reference image {ref} not found (upload it first)")
     if spec.worker_id and db.get(Worker, spec.worker_id) is None:
         raise HTTPException(404, f"worker {spec.worker_id} not found")
     if spec.depends_on:

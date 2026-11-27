@@ -19,6 +19,14 @@ export const STAGE_LABEL: Record<string, string> = {
   postprocess: "Otimizando: reduzindo polígonos e gerando LODs",
   validate_outputs: "Validando o resultado",
   package: "Empacotando os arquivos",
+  ai_spec: "A IA está lendo as referências e escrevendo a especificação",
+  agent_loop: "Agente: renderizando, comparando com as referências e corrigindo",
+  generate_geometry: "Montando a geometria",
+  optimize: "Limpando a malha",
+  validate_geometry: "Validando a geometria",
+  textures: "Pintando as texturas",
+  export: "Exportando (Blender)",
+  thumbnail: "Renderizando a miniatura",
 };
 
 export function parseLods(text: string): number[] | null {

@@ -40,6 +40,10 @@ Emit = Callable[[dict], None]
 
 
 def plan_for(job_type: str) -> list[tuple[str, float]]:
+    if job_type == "agent.building":
+        from .agent_pipeline import AGENT_PLAN
+
+        return AGENT_PLAN
     return AI_PLANS.get(job_type, STAGE_PLAN)
 
 

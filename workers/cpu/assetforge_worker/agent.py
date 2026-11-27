@@ -227,7 +227,10 @@ class Agent:
             env = {**os.environ, "PYTHONUNBUFFERED": "1", "OMP_NUM_THREADS": str(job["requirements"].get("cpu_cores", 1))}
             if self.blender:
                 env["BLENDER_BIN"] = self.blender
-            retryable, error = True, None
+            if job["job_type"] == "agent.building":  # the child reaches the cloud AI only through the API proxy, with this lease
+                env.update(ASSETFORGE_AGENT_AI_URL=f"{self.client.base}/worker/jobs/{job_id}/ai", ASSETFORGE_AGENT_WORKER_TOKEN=self.client.token or "",
+                           ASSETFORGE_AGENT_LEASE=token)
+            retryable, error, quota_wait = True, None, None
             try:
                 run_supervised(cmd, timeout=self.cfg.job_timeout_s, on_line=on_line, should_cancel=cancel.is_set,
                                cwd=workdir, env=env)
@@ -251,11 +254,13 @@ class Agent:
                 err_file = workdir / "error.txt"
                 error = err_file.read_text(encoding="utf-8") if err_file.is_file() else str(exc)
                 retryable = exc.code != 10  # deliberate validation failures are deterministic
+                if exc.code == 11 and (workdir / "quota.json").is_file():
+                    quota_wait = json.loads((workdir / "quota.json").read_text(encoding="utf-8")).get("retry_after_s") or 300.0
             done.set()
             flush()
             if error:
                 log.error("job %s failed: %s", job_id, error[:300])
-                self._report_failure(job_id, token, error, retryable)
+                self._report_failure(job_id, token, error, retryable, quota_wait)
                 return
             result = json.loads((workdir / "result.json").read_text(encoding="utf-8"))
             for f in result["files"]:
@@ -273,9 +278,9 @@ class Agent:
                 self.active.pop(job_id, None)
             shutil.rmtree(workdir, ignore_errors=True)
 
-    def _report_failure(self, job_id: str, token: str, error: str, retryable: bool) -> None:
+    def _report_failure(self, job_id: str, token: str, error: str, retryable: bool, quota_wait_s: float | None = None) -> None:
         try:
-            self.client.fail(job_id, token, error, retryable)
+            self.client.fail(job_id, token, error, retryable, quota_wait_s)
         except Exception as exc:  # noqa: BLE001
             log.warning("could not report failure of %s: %s", job_id, exc)
 
