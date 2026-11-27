@@ -3,6 +3,21 @@
 Escrito para: outro agente de código (Codex) que vai continuar o trabalho sem o histórico da conversa. Idioma do projeto, da UI e dos docs: **PT-BR**.
 Commits em Conventional Commits; PRs em português **e** inglês. Atribuição nos commits: `Co-Authored-By: <modelo> <noreply@anthropic.com>` se feitos por Claude.
 
+## Reteste da memória da RTX 4090 · 27/11/2026
+
+O acesso SSH ao host `htsllm2` foi restabelecido com verificação estrita. Tanto o acesso direto quanto o caminho pela central apresentaram a chave ED25519 que já estava cadastrada. A divergência encontrada anteriormente não apareceu nessas duas conexões. A confirmação por e-mail foi solicitada a Hank e estava pendente ao encerrar o reteste.
+
+O SMBIOS reportou quatro módulos DDR4 de 32 GiB, configurados a **2.666 MT/s**, com 128 GiB instalados. O Linux reportou 126.227 MiB utilizáveis, ante 126.326 MiB na leitura anterior. A frequência efetiva da configuração anterior não foi registrada. A inspeção usou a tabela SMBIOS em modo somente leitura.
+
+| Teste em Docker | Resultado | Evidência |
+| --- | --- | --- |
+| Antes da alteração, `memtester 4G 1` | Falhou | 12 mensagens de falha. A execução percorreu os padrões seguintes. |
+| Após a alteração, `memtester 4G 1` | Falhou em 179 s | 4.096 MiB alocados e bloqueados. O monitor encerrou o contêiner ao detectar erros em `Checkerboard`. Seis divergências ficaram registradas antes da parada. |
+
+As seis divergências do reteste ocorreram em endereços distintos e repetiram a diferença de um bit (`0x02000000`) entre `0xaaaaaaaaaaaaaaaa` e `0xaaaaaaaaa8aaaaaa`, já presente em uma falha anterior. As contagens vêm de ciclos com condições de parada diferentes. A execução começou às 18h46min50s e terminou às 18h49min49s, horário de Brasília. A menor memória disponível foi de 119.732 MiB. O encerramento foi comandado pelo monitor por `memory_mismatch`. Os serviços `assetforge-4090-worker`, `vlm-gpu` e `triposr-gpu` mantiveram o tempo de execução. A central continuou pronta e recebeu heartbeat dos dois workers.
+
+O reteste de 4 GiB bloqueou a progressão para 16, 32 e 64 GiB, a nova rodada de concorrência e os pilotos Pixal3D Python e TRELLIS.2 Python na RTX. Os logs e a telemetria ficaram em `~/assetforge-city-validation/ram-retest-20261127T214650Z/`. A cópia local fica em `reports_out/engines/rtx4090-memory-retest/` e reúne também o memtester anterior e a pilha original do GDB. O SHA-256 do arquivo de evidências coincidiu após a transferência.
+
 ## Preparação para CITY+++ · 27/11/2026
 
 ### Workers e memória
@@ -51,10 +66,10 @@ O worker NVIDIA corre em Docker e anuncia temperatura, utilização e memória. 
 | --- | --- | --- |
 | Dois NPCs com as mesmas imagens | 2/2, 69 e 72 s | 2/2, 231 e 230 s |
 | Três simultâneos | Falhas nativas 139, inclusive com `OMP_NUM_THREADS=1` | — |
-| Quatro simultâneos, uma thread por processo | 3/4, três GLBs entre 109 e 120 s | — |
+| Quatro simultâneos, uma thread por processo | 4/4, quatro GLBs entre 109 e 120 s | — |
 | Operário pela fila do AssetForge, TRELLIS.2 | 50,0 s, 4.938 tokens | 340,6 s, 4.848 tokens, sobreposto a SV e MV |
 
-No ensaio de três e quatro jobs da RTX 4090, a telemetria continuou com mais de 15 GiB livres de VRAM e pico de 73 °C no ensaio de uma thread. Uma falha apresentou `double free or corruption (!prev)`. A origem da instabilidade nativa ainda está em investigação. Três conclusões em uma rajada de quatro são úteis para medir vazão e insuficientes para afirmar estabilidade dessa configuração. `scripts/engines/benchmark_capacity.sh` reproduz a carga de NPCs e registra o tempo, o código de saída e a telemetria. Cada rodada deve usar um diretório novo.
+Nos ensaios de três e quatro jobs da RTX 4090, a telemetria continuou com mais de 15 GiB livres de VRAM e pico de 73 °C no ensaio de uma thread. Uma falha apresentou `double free or corruption (!prev)`. A leitura final dos quatro `result.txt` da rodada de quatro jobs confirma 4/4, corrigindo a leitura provisória de 3/4. O ensaio de três jobs teve falhas nativas. `scripts/engines/benchmark_capacity.sh` reproduz a carga de NPCs e registra o tempo, o código de saída e a telemetria. Cada rodada deve usar um diretório novo.
 
 Na fila isolada, a Spark publicou três masters válidos de 1024 efetivos no mesmo lote. TRELLIS.2, Pixal3D SV e Pixal3D MV levaram 340,6 s, 331,0 s e 378,2 s, respectivamente, com a inferência sobreposta. O checkpoint DINOv3 existente estava em modo 0600 e o UID do executor Python não conseguia abrir o arquivo. Uma cópia local do AssetForge foi montada somente para leitura. O novo teste publicou o GLB com 1024 efetivos em 265,6 s. A RTX 4090 também publicou a segunda versão do operário via Pixal3D SV em 60,3 s. Foram seis gerações concluídas pela fila.
 
