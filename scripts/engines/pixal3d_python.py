@@ -47,7 +47,8 @@ def generate(args: argparse.Namespace) -> None:
             extractor.naf_model = torch.hub.load("/opt/NAF", "naf", pretrained=True, device=device, source="local")
             extractor.naf_model.eval().requires_grad_(False)
 
-    details = {"requested_resolution": args.resolution, "max_tokens": args.max_tokens, "seed": args.seed}
+    details = {"requested_resolution": args.resolution, "max_tokens": args.max_tokens, "seed": args.seed,
+               "cpu_offload": args.cpu_offload}
 
     def bake(**kwargs):
         details["effective_resolution"] = int(kwargs["grid_size"])
@@ -76,6 +77,7 @@ def generate(args: argparse.Namespace) -> None:
             seed=args.seed,
             model_path=str(model_dir),
             max_num_tokens=args.max_tokens,
+            low_vram=args.cpu_offload,
             resolution=args.resolution,
             ss_guidance_strength=args.structure_guidance,
             shape_slat_guidance_strength=args.shape_guidance,
@@ -104,6 +106,7 @@ def main() -> None:
     run.add_argument("--texture-size", type=int, default=4096)
     run.add_argument("--structure-guidance", type=float, default=7.5)
     run.add_argument("--shape-guidance", type=float, default=7.5)
+    run.add_argument("--cpu-offload", action="store_true")
     args = parser.parse_args()
     if args.mode == "download":
         download_models(args.models)
