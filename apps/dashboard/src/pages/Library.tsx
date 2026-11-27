@@ -1,9 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, Download, Grid3x3, Heart, List, Package, RefreshCw, Trash2, X } from "lucide-react";
 import { useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { ApiError, api, fileUrl, getToken, packageUrl, useDownloadToken } from "../api";
 import { Viewer3D, type ViewerStats } from "../components/Viewer3D";
+import { AssetComparison } from "../components/AssetComparison";
 import { Empty, ErrorNote, Panel, Thumb } from "../components/ui";
 import { formatBytes, timeAgo } from "../lib";
 import type { Asset } from "../types";
@@ -54,6 +55,7 @@ export function Library() {
   const [category, setCategory] = useState("");
   const [review, setReview] = useState("");
   const [favOnly, setFavOnly] = useState(false);
+  const [experimentsOnly, setExperimentsOnly] = useState(false);
   const [sort, setSort] = useState("-created_at");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [notice, setNotice] = useState<string | null>(null);
@@ -64,7 +66,7 @@ export function Library() {
     setSelected(new Set());
     if (assetId && r.deleted.includes(assetId)) nav("/library");
   });
-  const query = `/assets?limit=200&sort=${sort}${q ? `&q=${encodeURIComponent(q)}` : ""}${category ? `&category=${category}` : ""}${review ? `&review_status=${review}` : ""}${favOnly ? "&favorite=true" : ""}`;
+  const query = `/assets?limit=200&sort=${sort}${q ? `&q=${encodeURIComponent(q)}` : ""}${category ? `&category=${category}` : ""}${review ? `&review_status=${review}` : ""}${favOnly ? "&favorite=true" : ""}${experimentsOnly ? "&tag=city-experimentos" : ""}`;
   const list = useQuery({ queryKey: ["assets", query], queryFn: () => api<{ total: number; items: Asset[]; facets: { category: Record<string, number> } }>(query), refetchInterval: 8000 });
   const items = list.data?.items ?? [];
   const toggle = (id: string) =>
@@ -121,6 +123,9 @@ export function Library() {
           </select>
           <label className="check">
             <input type="checkbox" checked={favOnly} onChange={(e) => setFavOnly(e.target.checked)} /> favoritos
+          </label>
+          <label className="check">
+            <input type="checkbox" checked={experimentsOnly} onChange={(e) => setExperimentsOnly(e.target.checked)} /> Experimentos CITY+++
           </label>
           <div className="spacer" />
           <span className="muted">{list.data?.total ?? 0} assets</span>
@@ -217,7 +222,7 @@ function AssetDetail({ id, onClose }: { id: string; onClose: () => void }) {
   const qc = useQueryClient();
   const token = useDownloadToken();
   const [version, setVersion] = useState<number | undefined>(undefined);
-  const [tab, setTab] = useState<"preview" | "info" | "validation" | "versions" | "files">("preview");
+  const [tab, setTab] = useState<"preview" | "compare" | "info" | "validation" | "versions" | "files">("preview");
   const [wire, setWire] = useState(false);
   const [bounds, setBounds] = useState(false);
   const [rotate, setRotate] = useState(false);
@@ -226,7 +231,7 @@ function AssetDetail({ id, onClose }: { id: string; onClose: () => void }) {
   const asset = useQuery({ queryKey: ["asset", id, version], queryFn: () => api<Asset>(`/assets/${id}${version ? `?version=${version}` : ""}`) });
   const a = asset.data;
   const patch = useMutation({
-    mutationFn: (b: Record<string, unknown>) => api(`/assets/${id}`, { method: "PATCH", json: b }),
+    mutationFn: (b: Record<string, unknown>) => api(`/assets/${id}${version && b.review_status ? `?version=${version}` : ""}`, { method: "PATCH", json: b }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["asset", id] });
       qc.invalidateQueries({ queryKey: ["assets"] });
@@ -258,15 +263,16 @@ function AssetDetail({ id, onClose }: { id: string; onClose: () => void }) {
   if (asset.error instanceof ApiError && asset.error.status === 404) return <Panel title="Asset"><Empty>Asset não encontrado.</Empty></Panel>;
   if (!a) return <Panel title="Asset"><Empty>Carregando…</Empty></Panel>;
   const m = a.manifest;
+  const archive = m?.generation_params.archive as { worker: string; requested_resolution: number; effective_resolution: number | null; wall_seconds: number } | undefined;
   const ver = a.version_info?.version ?? a.current_version;
   const lodFile = m?.lods?.[lod]?.file ?? "model.glb";
   const glb = token ? fileUrl(a.id, lodFile, token, ver) : null;
-  const over = m && stats ? stats.triangles > m.triangle_budget[1] : false;
+  const over = m?.triangle_budget && stats ? stats.triangles > m.triangle_budget[1] : false;
   return (
     <Panel
       title={
         <span>
-          {a.name} <span className="muted mono">v{ver}</span>
+          {a.name} <span className="muted mono">v{ver}{m?.generator_id === "asset.prepare" ? " · Derivado" : m?.generator_id === "experimental.reconstruct" ? " · Master" : ""}</span>
         </span>
       }
       actions={
@@ -286,6 +292,7 @@ function AssetDetail({ id, onClose }: { id: string; onClose: () => void }) {
         {(
           [
             ["preview", "Preview 3D"],
+            ["compare", "Comparar"],
             ["info", "Geometria e materiais"],
             ["validation", "Validação"],
             ["versions", "Versões"],
@@ -297,6 +304,7 @@ function AssetDetail({ id, onClose }: { id: string; onClose: () => void }) {
           </button>
         ))}
       </div>
+      {tab === "compare" && <AssetComparison key={`${id}-${ver}`} asset={a} version={ver} token={token} />}
       {tab === "preview" && (
         <>
           <Viewer3D url={glb} wireframe={wire} showBounds={bounds} autoRotate={rotate} onStats={setStats} />
@@ -325,8 +333,8 @@ function AssetDetail({ id, onClose }: { id: string; onClose: () => void }) {
           </div>
           {stats && (
             <div className="row wrap muted" style={{ marginTop: 6, fontSize: 12 }}>
-              <span className={over ? "check-warn" : ""}>{stats.triangles.toLocaleString()} triângulos {m ? `(orçamento ${m.triangle_budget[0]}–${m.triangle_budget[1]})` : ""}</span>
-              <span>· {stats.size.map((s) => s.toFixed(1)).join(" × ")} m</span>
+              <span className={over ? "check-warn" : ""}>{stats.triangles.toLocaleString()} triângulos {m?.triangle_budget ? `(orçamento ${m.triangle_budget.join("–")})` : ""}</span>
+              <span>· {stats.size.map((s) => s.toFixed(1)).join(" × ")} {m?.generator_id === "experimental.reconstruct" ? "u." : "m"}</span>
               <span>· {stats.meshes} malhas/materiais</span>
             </div>
           )}
@@ -338,12 +346,22 @@ function AssetDetail({ id, onClose }: { id: string; onClose: () => void }) {
             <dt>Categoria</dt>
             <dd>{a.category}</dd>
             <dt>Dimensões</dt>
-            <dd>{a.dimensions_m?.map((d) => d.toFixed(2)).join(" × ")} m (L×A×P)</dd>
+            <dd>{a.dimensions_m?.map((d) => d.toFixed(2)).join(" × ")} {m.generator_id === "experimental.reconstruct" ? "unidades do motor" : "m"} (L×A×P)</dd>
             <dt>Pivô</dt>
-            <dd>centro da base (convenção 1 unidade = 1 m, Y-up)</dd>
+            <dd>{m.generator_id === "experimental.reconstruct" ? "Sistema de coordenadas original do motor" : "Centro da base (Y-up)"}</dd>
+            {m.provenance.weights_revision && <>
+              <dt>Pesos</dt><dd className="mono">{m.provenance.weights} @ {m.provenance.weights_revision}</dd>
+            </>}
+            {m.provenance.master_sha256 && <><dt>SHA-256 do master</dt><dd className="mono">{m.provenance.master_sha256}</dd></>}
+            {m.provenance.source_version && <><dt>Origem do derivado</dt><dd>Master v{m.provenance.source_version}</dd></>}
+            {archive && <>
+              <dt>Worker original</dt><dd>{archive.worker === "4090" ? "RTX 4090" : "DGX Spark"}</dd>
+              <dt>Resolução</dt><dd>{archive.requested_resolution} solicitada · {archive.effective_resolution ?? "—"} efetiva</dd>
+              <dt>Tempo de geração</dt><dd>{archive.wall_seconds.toLocaleString("pt-BR")} s</dd>
+            </>}
             <dt>Triângulos</dt>
             <dd>
-              {m.triangle_count.toLocaleString()} (LOD0) · orçamento {m.triangle_budget.join("–")}
+              {m.triangle_count.toLocaleString()} (LOD0){m.triangle_budget && ` · orçamento ${m.triangle_budget.join("–")}`}
             </dd>
             <dt>Gerador</dt>
             <dd className="mono">
@@ -451,9 +469,14 @@ function AssetDetail({ id, onClose }: { id: string; onClose: () => void }) {
         <button onClick={() => patch.mutate({ favorite: !a.favorite })} aria-pressed={a.favorite}>
           <Heart size={14} fill={a.favorite ? "currentColor" : "none"} /> Favorito
         </button>
-        <button onClick={() => regen.mutate()} disabled={regen.isPending}>
+        {m?.generator_id === "experimental.reconstruct" ? <Link className="btn"
+          to={`/engines?${new URLSearchParams({ asset: a.id, version: String(ver) })}`}>
+          <RefreshCw size={14} /> Repetir geração
+        </Link> : m?.generator_id !== "asset.prepare" && <button onClick={() => regen.mutate()} disabled={regen.isPending}>
           <RefreshCw size={14} /> Nova versão
-        </button>
+        </button>}
+        {m && m.generator_id !== "asset.prepare" && ["building", "vehicle", "npc", "prop"].includes(a.category) &&
+          <Link className="btn" to={`/prepare?${new URLSearchParams({ asset: a.id, version: String(ver) })}`}>Preparar para Unity</Link>}
       </div>
       <div className="row wrap" style={{ marginTop: 8 }}>
         <a className="btn" href={fileUrl(a.id, "model.glb", token, ver, true)}>

@@ -10,6 +10,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from .budgets import QualityProfile
+from .engines import ReconstructionParams
 
 CONTRACT_VERSION = "1.0.0"
 
@@ -64,7 +65,7 @@ class BuildingParams(StrictModel):
         default=None, description="Full architectural spec (JSON) for the house kit; overrides `archetype`. Validated by the generator")
 
 
-JobType = Literal["procedural.building", "ai.text_to_3d", "ai.image_to_3d", "agent.building"]
+JobType = Literal["procedural.building", "ai.text_to_3d", "ai.image_to_3d", "agent.building", "experimental.reconstruct", "asset.prepare"]
 AI_JOB_TYPES = ("ai.text_to_3d", "ai.image_to_3d")
 
 
@@ -112,6 +113,7 @@ class AgentParams(StrictModel):
     builds it in Blender, the AI compares renders with the references and corrects the spec, up to ``max_iterations`` times."""
 
     reference_ids: list[str] = Field(min_length=1, max_length=4)
+    provider: Literal["gemini", "grok"] | None = None
     category: str = Field(default="house", max_length=48, description="hint; the AI may pick another building category")
     max_iterations: int | None = Field(default=None, ge=0, le=5, description="correction rounds after the first build (default: panel setting)")
     target_score: float | None = Field(default=None, ge=0, le=10, description="stop when the AI rates fidelity >= this (0-10)")
@@ -139,6 +141,29 @@ class AgentParams(StrictModel):
         return v
 
 
+class PreparationParams(StrictModel):
+    source_version: int = Field(ge=1)
+    category: Literal["building", "vehicle", "npc", "prop"]
+    height_m: float = Field(gt=0, allow_inf_nan=False)
+    rotation_deg: tuple[float, float, float] = (0, 0, 0)
+    lod_ratios: list[float] = Field(default_factory=lambda: [1.0], min_length=1)
+    lod_heights: list[float] = Field(default_factory=lambda: [0.0], min_length=1)
+
+    @model_validator(mode="after")
+    def _validate_lods(self):
+        import math
+
+        if not all(map(math.isfinite, self.rotation_deg)):
+            raise ValueError("rotation requires finite angles")
+        if self.lod_ratios[0] != 1 or any(not 0 < b < a for a, b in zip(self.lod_ratios, self.lod_ratios[1:])):
+            raise ValueError("LOD ratios must start at 1 and decrease")
+        if (len(self.lod_heights) != len(self.lod_ratios)
+                or any(not 0 <= h < 1 for h in self.lod_heights)
+                or any(a <= b for a, b in zip(self.lod_heights, self.lod_heights[1:]))):
+            raise ValueError("Provide one descending screen height per LOD")
+        return self
+
+
 class JobCreate(StrictModel):
     """Request to generate one asset. ``params`` is validated against the model of ``job_type``."""
 
@@ -163,6 +188,20 @@ class JobCreate(StrictModel):
             self.params = BuildingParams.model_validate(self.params).model_dump(mode="json")
         elif self.job_type == "agent.building":
             self.params = AgentParams.model_validate(self.params).model_dump(mode="json")
+        elif self.job_type == "experimental.reconstruct":
+            if self.formats != ["glb"] or self.triangle_limit is not None:
+                raise ValueError("experimental reconstruction exports the master as GLB")
+            reconstruction = ReconstructionParams.model_validate(self.params)
+            optional_replay = {
+                field for field in ("prepared_inputs", "use_native_threads", "archived_projection", "archive_azimuth_override")
+                if not getattr(reconstruction, field)
+            }
+            self.params = reconstruction.model_dump(mode="json", exclude=optional_replay)
+        elif self.job_type == "asset.prepare":
+            if not self.asset_id or self.triangle_limit is not None:
+                raise ValueError("preparation requires an existing master and explicit LOD ratios")
+            self.formats = ["glb", "fbx", "blend"]
+            self.params = PreparationParams.model_validate(self.params).model_dump(mode="json")
         else:
             ai = AiParams.model_validate(self.params)
             if self.job_type == "ai.text_to_3d" and ai.provider != "intel":
@@ -274,7 +313,7 @@ class AssetManifest(StrictModel):
     animations: list[str] = Field(default_factory=list)
     construction_states: list[str] = Field(default_factory=list)
     triangle_count: int
-    triangle_budget: tuple[int, int]
+    triangle_budget: tuple[int, int] | None
     license: str = "CC0-1.0 (procedurally generated, no third-party assets)"
     provenance: dict[str, str] = Field(default_factory=dict)
     engine: str = "trimesh"

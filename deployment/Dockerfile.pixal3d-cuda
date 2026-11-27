@@ -1,0 +1,48 @@
+# AssetForge: pixal3d.cpp (TRELLIS.2 + Pixal3D single/multi-view, C++/GGML, GGUF weights) built for NVIDIA CUDA, from a PINNED commit.
+# Upstream: https://github.com/raven38/pixal3d.cpp (MIT, fork of pwilkin/trellis.cpp; vendored ggml MIT). No Python at run time and no nvdiffrast/nvdiffrec.
+# Mount weights read-only at /models (see docs/HANDOFF.md). DINOv3 inside the weight sets keeps its own licence.
+#
+#   docker build -f deployment/Dockerfile.pixal3d-cuda --build-arg CUDA_ARCHS=89 -t assetforge-pixal3d:cuda89 .       # RTX 4090 (203)
+#
+# NOTE: Ubuntu 24.04 base: the project uses FetchContent options (DOWNLOAD_EXTRACT_TIMESTAMP) that need CMake >= 3.24 (22.04 ships 3.22 and fails).
+ARG CUDA_VERSION=13.1.0
+FROM nvidia/cuda:${CUDA_VERSION}-devel-ubuntu24.04 AS build
+ARG PIXAL3D_COMMIT=d1b4926452f9e09702b891db5f05acc845e153ed
+ARG CUDA_ARCHS=89
+ARG BUILD_JOBS=6
+ARG ENGINE_BUILD_TYPE=Release
+ARG NATIVE_SANITIZER=""
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends git cmake ninja-build build-essential ca-certificates pkg-config python3 \
+    && rm -rf /var/lib/apt/lists/*
+RUN git clone https://github.com/raven38/pixal3d.cpp /src && cd /src && git checkout "${PIXAL3D_COMMIT}" && git submodule update --init --recursive
+WORKDIR /src
+# No GPU driver exists while building: link against CUDA's libcuda STUB (the real libcuda.so.1 is injected at run time by the NVIDIA container toolkit).
+ENV LIBRARY_PATH=/usr/local/cuda/lib64/stubs
+RUN ln -sf /usr/local/cuda/lib64/stubs/libcuda.so /usr/local/cuda/lib64/stubs/libcuda.so.1
+RUN cmake -B build -G Ninja -DCMAKE_BUILD_TYPE="${ENGINE_BUILD_TYPE}" -DGGML_CUDA=ON -DCMAKE_CUDA_ARCHITECTURES="${CUDA_ARCHS}" \
+        -DCMAKE_C_FLAGS="${NATIVE_SANITIZER}" -DCMAKE_CXX_FLAGS="${NATIVE_SANITIZER}" \
+        -DCMAKE_EXE_LINKER_FLAGS="${NATIVE_SANITIZER} -Wl,-rpath-link,/usr/local/cuda/lib64/stubs" \
+        -DCMAKE_SHARED_LINKER_FLAGS="${NATIVE_SANITIZER} -Wl,-rpath-link,/usr/local/cuda/lib64/stubs" \
+    && cmake --build build -j"${BUILD_JOBS}" --target trellis-cli trellis-server
+COPY deployment/ggml-cuda-transpose-grid.patch /tmp/ggml-cuda-transpose-grid.patch
+RUN git -C /src/thirdparty/ggml apply /tmp/ggml-cuda-transpose-grid.patch \
+    && cmake --build build -j"${BUILD_JOBS}" --target trellis-cli trellis-server
+RUN mkdir -p /out && find /src/build -name '*.so*' -exec cp -P {} /out/ \; && ls /out
+
+FROM build AS cuda-grid-check
+COPY tests/engines/cuda_grid_check.cpp /tmp/cuda_grid_check.cpp
+RUN c++ -std=c++17 -O2 -I/src/thirdparty/ggml/include -L/out \
+    -Wl,-rpath-link,/usr/local/cuda/lib64/stubs -o /usr/local/bin/cuda-grid-check \
+    /tmp/cuda_grid_check.cpp -lggml-cuda -lggml-base -lggml
+ENV LD_LIBRARY_PATH=/out
+ENTRYPOINT ["cuda-grid-check"]
+
+FROM nvidia/cuda:${CUDA_VERSION}-runtime-ubuntu24.04
+RUN apt-get update && apt-get install -y --no-install-recommends libgomp1 ca-certificates && rm -rf /var/lib/apt/lists/*
+COPY --from=build /src/build/trellis-cli /src/build/trellis-server /usr/local/bin/
+COPY --from=build /out/ /usr/local/lib/pixal3d/
+COPY --from=build /src/LICENSE /src/NOTICE /usr/share/doc/pixal3d/
+ENV LD_LIBRARY_PATH=/usr/local/lib/pixal3d
+WORKDIR /work
+CMD ["trellis-cli", "--help"]

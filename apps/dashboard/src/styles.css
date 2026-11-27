@@ -74,7 +74,7 @@ a {
 /* ---------- shell ---------- */
 .app {
   display: grid;
-  grid-template-columns: 78px 1fr;
+  grid-template-columns: 108px 1fr;
   height: 100%;
 }
 .sidebar {
@@ -1649,4 +1649,25 @@ tr.selected td {
   width: 100%;
   border-radius: 6px;
   display: block;
+}
+.engine-workbench, .engine-compare {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(240px, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+.engine-workbench form { display: grid; gap: 12px; }
+.engine-workbench .form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr)); gap: 12px; }
+.engine-workbench label { display: grid; align-content: start; gap: 5px; }
+.engine-worker-line { display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; padding: 8px 0; }
+.engine-worker-line small { grid-column: 1 / -1; }
+.engine-compare { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.engine-compare-heading { display: flex; align-items: center; gap: 6px; min-height: 36px; margin-bottom: 6px; }
+.engine-compare-heading h3 { margin: 0; }
+.engine-compare-heading select { min-width: 0; }
+.engine-compare img { max-width: 100%; max-height: 430px; display: block; margin-inline: auto; object-fit: contain; }
+.engine-compare .viewer { height: 340px; min-height: 270px; }
+.viewer-capture { position: absolute; bottom: 10px; left: 10px; z-index: 1; }
+@media (max-width: 950px) {
+  .engine-workbench, .engine-compare { grid-template-columns: minmax(0, 1fr); }
 }

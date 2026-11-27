@@ -1,0 +1,27 @@
+# DGX Spark pilot. Reuses the CUDA 12.9, PyTorch, and extension builds of the
+# local base image. All changes are made in a separate image.
+ARG PIXAL3D_BASE=clonez-mesh:1
+FROM ${PIXAL3D_BASE}
+
+ARG PIXAL3D_COMMIT=f7cf38429b0bd264f1995f0f8743a88b1c728b94
+ARG NAF_COMMIT=37f2dfc180f2de53d98bd601109c0da0dd6b0f43
+ARG NATTEN_BUILD_JOBS=6
+ARG PIXAL3D_CUDA_ARCH=12.0
+
+RUN git init /opt/Pixal3D \
+    && git -C /opt/Pixal3D fetch --depth=1 https://github.com/TencentARC/Pixal3D.git "${PIXAL3D_COMMIT}" \
+    && git -C /opt/Pixal3D checkout --detach FETCH_HEAD \
+    && git init /opt/NAF \
+    && git -C /opt/NAF fetch --depth=1 https://github.com/valeoai/NAF.git "${NAF_COMMIT}" \
+    && git -C /opt/NAF checkout --detach FETCH_HEAD
+RUN NATTEN_CUDA_ARCH="${PIXAL3D_CUDA_ARCH}" NATTEN_N_WORKERS="${NATTEN_BUILD_JOBS}" \
+    python -m pip install --no-build-isolation --no-deps natten==0.21.0
+RUN python -m pip install transformers==4.57.3 plyfile==1.1.3 \
+    && python -m pip install --no-deps --force-reinstall \
+       https://github.com/LDYang694/Storages/releases/download/20260430/utils3d-0.0.2-py3-none-any.whl
+
+ENV PYTHONPATH=/opt/Pixal3D:/assetforge/generators/trellis2 \
+    PYTHONUNBUFFERED=1 \
+    USER=assetforge \
+    TORCHINDUCTOR_CACHE_DIR=/tmp/torchinductor_assetforge
+WORKDIR /opt/Pixal3D

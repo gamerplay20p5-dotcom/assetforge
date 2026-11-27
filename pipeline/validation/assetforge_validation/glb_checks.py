@@ -43,7 +43,8 @@ def read_glb_json(path: Path) -> tuple[dict, int]:
 
 
 def validate_glb(path: Path, expected_triangles: int | None = None,
-                 expected_dims: tuple[float, float, float] | None = None, tol: float = 0.02) -> ValidationReport:
+                 expected_dims: tuple[float, float, float] | None = None, tol: float = 0.02,
+                 require_bottom_center: bool = True) -> ValidationReport:
     checks: list[ValidationCheck] = []
     metrics: dict[str, float | int | str] = {}
 
@@ -102,7 +103,8 @@ def validate_glb(path: Path, expected_triangles: int | None = None,
                 f"exported {np.round(dims, 3).tolist()} vs expected {np.round(expected_dims, 3).tolist()}")
         pivot_ok = (abs(bounds[0][1]) < 0.01 and abs((bounds[0][0] + bounds[1][0]) / 2) < 0.05
                     and abs((bounds[0][2] + bounds[1][2]) / 2) < 0.05)
-        add("pivot_bottom_center", "pass" if pivot_ok else "fail", f"bounds {np.round(bounds, 3).tolist()}")
+        add("pivot_bottom_center", "pass" if pivot_ok else "fail" if require_bottom_center else "warn",
+            f"bounds {np.round(bounds, 3).tolist()}")
     except Exception as exc:  # noqa: BLE001 - the validator must report, never crash the job
         add("reload_trimesh", "fail", f"trimesh could not load the file: {exc}")
     return ValidationReport(passed=not any(c.status == "fail" for c in checks), checks=checks, metrics=metrics)

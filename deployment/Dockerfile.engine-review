@@ -1,0 +1,16 @@
+# Optional review image: same Blender and Python as the AssetForge CPU worker.
+ARG REVIEW_BASE=assetforge-worker:local
+FROM debian:bookworm-slim AS build
+ARG MESHOPT_COMMIT=73583c335e541c139821d0de2bf5f12960a04941
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates cmake g++ git make \
+    && rm -rf /var/lib/apt/lists/*
+RUN git init /src \
+    && git -C /src fetch --depth=1 https://github.com/zeux/meshoptimizer.git "${MESHOPT_COMMIT}" \
+    && git -C /src checkout --detach FETCH_HEAD \
+    && cmake -S /src -B /tmp/build -DCMAKE_BUILD_TYPE=Release -DMESHOPT_BUILD_GLTFPACK=ON \
+    && cmake --build /tmp/build --target gltfpack -j 4
+
+FROM ${REVIEW_BASE}
+COPY --from=build /tmp/build/gltfpack /usr/local/bin/gltfpack
+COPY --from=build /src/LICENSE.md /usr/share/doc/gltfpack/LICENSE.md

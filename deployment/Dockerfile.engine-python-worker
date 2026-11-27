@@ -1,0 +1,8 @@
+ARG PYTHON_ENGINE_IMAGE=assetforge-pixal3d-python:spark
+FROM ${PYTHON_ENGINE_IMAGE}
+ENV HOME=/tmp PYTHONUNBUFFERED=1 HF_HUB_OFFLINE=1 ATTN_BACKEND=flash_attn \
+    TORCH_HOME=/cache/torch TORCHINDUCTOR_CACHE_DIR=/cache/inductor
+COPY scripts/engines/pixal3d_python.py scripts/engines/python_worker.py /app/
+COPY generators/trellis2/assetforge_trellis2 /assetforge/generators/trellis2/assetforge_trellis2
+USER 10002:10002
+ENTRYPOINT ["python", "/app/python_worker.py"]

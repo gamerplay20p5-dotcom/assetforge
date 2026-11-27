@@ -148,6 +148,10 @@ export function stateLabel(state: string): string {
 
 export function stageLabel(stage: string | null): string {
   const map: Record<string, string> = {
+    prepare: "Preparar referências",
+    conditioning: "Condicionar pelas imagens",
+    inference: "Reconstruir geometria",
+    surface: "Malha e texturas",
     generate_geometry: "Geometria",
     optimize: "Otimização",
     validate_geometry: "Validação de malha",

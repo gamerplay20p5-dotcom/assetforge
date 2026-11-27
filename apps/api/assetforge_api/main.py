@@ -7,7 +7,7 @@ import logging
 from contextlib import asynccontextmanager
 from datetime import timedelta
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -115,6 +115,8 @@ def create_app(settings: Settings | None = None, *, start_reaper: bool = True) -
 
         @app.get("/{full_path:path}", include_in_schema=False)
         def spa(full_path: str):
+            if full_path == "api" or full_path.startswith("api/"):
+                raise HTTPException(404, "API route not found")
             candidate = (settings.dashboard_dir / full_path).resolve()
             if full_path and settings.dashboard_dir.resolve() in candidate.parents and candidate.is_file():
                 return FileResponse(candidate)

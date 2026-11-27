@@ -20,18 +20,24 @@ from datetime import datetime, timedelta
 
 from sqlalchemy import or_, select, update
 from sqlalchemy.orm import Session
+from assetforge_contract.engines import RECONSTRUCT
 
 from ..config import Settings
 from ..db import utcnow
 from ..models import Asset, AssetVersion, Job, JobAttempt, JobLog, Worker, new_id
 from ..services import emit_event, get_setting
+from .engines import admission, estimate
 
 TERMINAL = ("succeeded", "failed", "cancelled")
 
 
 # ------------------------------------------------------------------------------ requirements
 def requirements_for(job_type: str, formats: list[str], vram_mb: int = 7000, provider: str | None = None, cpu3d_cores: int = 12,
-                     cpu3d_ram_mb: int = 16384) -> dict:
+                     cpu3d_ram_mb: int = 16384, params: dict | None = None) -> dict:
+    if job_type == RECONSTRUCT:
+        return {"features": [f"engine.{params['engine']}"], **estimate(params, unified=False)}
+    if job_type == "asset.prepare":
+        return {"features": ["asset.prepare", "blender"], "cpu_cores": 4, "ram_mb": 4096, "vram_mb": 0}
     if job_type == "ai.image_to_3d" and provider in ("sf3d", "triposr"):
         # CPU-only providers: no VRAM; reserve cores/RAM of the node. Needs Blender (post-processing) and that provider's container.
         return {"features": ["ai.image_to_3d", f"provider.{provider}", "blender"], "cpu_cores": cpu3d_cores, "ram_mb": cpu3d_ram_mb, "vram_mb": 0}
@@ -80,6 +86,8 @@ def incompatibility(job: Job, worker: Worker, res: Reserved) -> str | None:
     missing = [f for f in req.get("features", []) if f not in set(caps.get("features", []))]
     if missing:
         return f"missing capabilities: {', '.join(missing)}"
+    if job.job_type == RECONSTRUCT:
+        return None
     kinds = req.get("worker_kinds")
     if kinds and worker.kind not in kinds:
         return f"worker kind {worker.kind} not allowed"
@@ -120,11 +128,16 @@ def server_log(db: Session, job: Job, message: str, level: str = "info") -> None
 # ------------------------------------------------------------------------------ leasing
 def try_lease(db: Session, worker: Worker, settings: Settings, now: datetime | None = None) -> Job | None:
     now = now or utcnow()
+    adaptive = worker.kind == "nvidia"
+    if adaptive:
+        worker = db.scalar(select(Worker).where(Worker.id == worker.id).with_for_update()
+                           .execution_options(populate_existing=True))
     if worker.state != "enabled" or get_setting(db, "queue_paused", False):
         return None
     res = reserved_for(db, worker.id)
-    if res.jobs >= (worker.limits or {}).get("max_concurrent_jobs", 1):
+    if not adaptive and res.jobs >= (worker.limits or {}).get("max_concurrent_jobs", 1):
         return None
+    running = list(db.scalars(select(Job).where(Job.status == "running", Job.worker_id == worker.id))) if adaptive else []
     candidates = db.scalars(
         select(Job).where(Job.status == "queued", or_(Job.not_before.is_(None), Job.not_before <= now))
         .order_by(Job.priority.desc(), Job.created_at.asc()).limit(200)
@@ -134,12 +147,25 @@ def try_lease(db: Session, worker: Worker, settings: Settings, now: datetime | N
             continue
         if incompatibility(job, worker, res) is not None:
             continue
+        requirements = job.requirements
+        if job.job_type == RECONSTRUCT:
+            if not adaptive:
+                continue
+            requirements, _ = admission(db, job, worker, running, now)
+            if requirements is None:
+                continue
         if dependencies_state(db, job) != "ready":
             continue
+        asset_query = select(Asset.id).where(Asset.id == job.asset_id)
+        if db.scalar(asset_query):
+            if not db.scalar(asset_query.with_for_update(skip_locked=True)):
+                continue
+            if db.scalar(select(Job.id).where(Job.asset_id == job.asset_id, Job.status == "running").limit(1)):
+                continue
         token = secrets.token_hex(24)
         claimed = db.execute(
             update(Job).where(Job.id == job.id, Job.status == "queued").values(
-                status="running", worker_id=worker.id, lease_token=token,
+                status="running", worker_id=worker.id, lease_token=token, requirements=requirements,
                 lease_expires_at=now + timedelta(seconds=settings.lease_seconds), attempts=Job.attempts + 1,
                 started_at=now, finished_at=None, progress=0.0, stages={}, plan=[], current_stage=None,
                 cancel_requested=False, error=None, asset_version=next_version(db, job.asset_id),

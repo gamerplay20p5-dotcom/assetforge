@@ -217,6 +217,12 @@ def reduce_with_bake(high, target_tris: int, res: int, name: str):
         decimate(low, target_tris / welded)
         clean_loose(low)
     finalize_mesh(low)
+    project_with_bake(high, low, res, name)
+    return low
+
+
+def project_with_bake(high, low, res: int, name: str):
+    """Generate UVs and transfer base color, normals and available roughness onto a new surface."""
     smart_uv(low)
     rough, metal, rough_tex = source_pbr(high)
     mat = bpy.data.materials.new(name + "_mat")
@@ -237,7 +243,6 @@ def reduce_with_bake(high, target_tris: int, res: int, name: str):
     if rough_tex:  # real PBR source: keep the roughness detail too
         rough_node = bake_pass(high, low, "ROUGHNESS", res, name + "_roughness", extrusion)
         nt.links.new(rough_node.outputs["Color"], bsdf.inputs["Roughness"])
-    return low
 
 
 def main() -> None:
