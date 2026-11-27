@@ -22,11 +22,15 @@ from sqlalchemy.orm import Session
 from ..db import utcnow
 from ..models import AiCache, AiKey, AiRequest, Setting
 from .crypto import decrypt
-from .providers import PROVIDERS, AuthError, LlmResult, OutputError, ProviderError, QuotaError, make_provider, pick_model
+from .providers import PROVIDERS, AuthError, BadRequestError, LlmResult, OutputError, ProviderError, QuotaError, make_provider, pick_model
 
 log = logging.getLogger("assetforge.ai")
 DEFAULT_SETTINGS = {"free_only": True, "agent_iterations": 3, "target_score": 8.0}
 PACIFIC = ZoneInfo("America/Los_Angeles")
+
+
+class AiRejected(Exception):
+    """The provider rejected the request itself (HTTP 400); not a quota/key problem, so no fail-over and no waiting."""
 
 
 class NoKeyAvailable(Exception):
@@ -193,6 +197,9 @@ class AiRouter:
                 self._record(key, key.model, task, job_id, "auth", error=str(exc))
                 errors.append(f"{key.provider}:{key.label or key.id}: key rejected")
                 continue
+            except BadRequestError as exc:
+                self._record(key, key.model, task, job_id, "error", error=str(exc))
+                raise AiRejected(f"{key.provider}: {exc}") from exc
             except OutputError as exc:
                 self._record(key, key.model, task, job_id, "error", error=str(exc))
                 errors.append(f"{key.provider}:{key.label or key.id}: {exc}")

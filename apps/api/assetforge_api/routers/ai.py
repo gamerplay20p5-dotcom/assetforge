@@ -23,7 +23,7 @@ from sqlalchemy.orm import Session
 
 from ..ai.crypto import encrypt, hint
 from ..ai.providers import PROVIDERS, ProviderError, make_provider, pick_model
-from ..ai.router import AiRouter, NoKeyAvailable, _aware, day_start, get_ai_settings, is_paid, put_ai_settings
+from ..ai.router import AiRejected, AiRouter, NoKeyAvailable, _aware, day_start, get_ai_settings, is_paid, put_ai_settings
 from ..db import utcnow
 from ..models import AiKey, AiRequest, User, Worker
 from ..security import current_worker, get_db, require_admin, require_viewer
@@ -282,6 +282,8 @@ async def worker_ai(job_id: str, body: WorkerAiIn, request: Request, worker: Wor
     r = _router(request, db)
     try:
         ans = await run_in_threadpool(r.generate_json, body.task, llm_spec.SYSTEM, prompt, images, schema, llm_spec.PROMPT_VERSION, job_id)
+    except AiRejected as exc:
+        raise HTTPException(502, f"a IA recusou o pedido: {str(exc)[:600]}") from exc
     except NoKeyAvailable as exc:
         wait = max(30.0, (exc.retry_at - utcnow()).total_seconds()) if exc.retry_at else None
         return JSONResponse(status_code=429, content={"detail": str(exc)[:1500], "retry_after_s": wait})

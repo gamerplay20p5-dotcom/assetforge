@@ -25,6 +25,10 @@ class AuthError(ProviderError):
     pass
 
 
+class BadRequestError(ProviderError):
+    """HTTP 400: the request itself is wrong (e.g. schema too complex). Trying another key will not help and it is not a quota problem."""
+
+
 class OutputError(ProviderError):
     """The call worked but the answer is unusable (empty / not JSON). Not the key's fault: no cooldown."""
 
@@ -83,6 +87,8 @@ class GeminiProvider:
                 return QuotaError(msg, retry, daily)
             if code in (401, 403):
                 return AuthError(msg)
+            if code == 400:
+                return BadRequestError(msg)
             return ProviderError(msg)
         return ProviderError(f"{type(exc).__name__}: {str(exc)[:300]}")
 
@@ -102,7 +108,7 @@ class GeminiProvider:
     def generate_json(self, model: str, system: str, prompt: str, images: list[tuple[bytes, str]], schema: dict) -> LlmResult:
         t = self._types
         parts = [t.Part.from_bytes(data=b, mime_type=mime) for b, mime in images] + [prompt]
-        cfg = t.GenerateContentConfig(system_instruction=system, response_mime_type="application/json", response_json_schema=schema, temperature=0.2)
+        cfg = t.GenerateContentConfig(system_instruction=system, response_mime_type="application/json", response_json_schema=simplify_schema(schema), temperature=0.2)
         t0 = time.monotonic()
         try:
             r = self.client.models.generate_content(model=model, contents=parts, config=cfg)
@@ -111,6 +117,18 @@ class GeminiProvider:
         u = getattr(r, "usage_metadata", None)
         return LlmResult(_parse_json(r.text), r.text or "", model, int(getattr(u, "prompt_token_count", 0) or 0), int(getattr(u, "candidates_token_count", 0) or 0),
                          int(getattr(u, "total_token_count", 0) or 0), int((time.monotonic() - t0) * 1000))
+
+
+_STRIP = {"minimum", "maximum", "minItems", "maxItems", "pattern", "minLength", "maxLength"}
+
+
+def simplify_schema(node: Any) -> Any:
+    """Gemini refuses schemas with too many constraint states: drop numeric/length/pattern limits (the kit validates ranges itself)."""
+    if isinstance(node, dict):
+        return {k: simplify_schema(v) for k, v in node.items() if k not in _STRIP}
+    if isinstance(node, list):
+        return [simplify_schema(v) for v in node]
+    return node
 
 
 def _gemini_retry_info(details: Any) -> tuple[float | None, bool]:

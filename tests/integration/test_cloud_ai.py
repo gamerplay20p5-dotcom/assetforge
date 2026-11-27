@@ -54,6 +54,9 @@ class Stub(BaseHTTPRequestHandler):
                      "quotaId": "GenerateRequestsPerDayPerProjectPerModel-FreeTier" if daily else "GenerateRequestsPerMinutePerProjectPerModel-FreeTier"}]},
                 {"@type": "type.googleapis.com/google.rpc.RetryInfo", "retryDelay": "17s"}]}})
             return True
+        if "reject" in key:
+            self._send(400, {"error": {"code": 400, "status": "INVALID_ARGUMENT", "message": "The specified schema produces a constraint that has too many states"}})
+            return True
         if "bad" in key:
             self._send(403, {"error": {"code": 403, "status": "PERMISSION_DENIED", "message": "API key not valid"}})
             return True
@@ -269,3 +272,26 @@ def test_agent_job_defaults_come_from_panel_settings(client, admin):
     missing = client.post(f"{API}/jobs", headers=admin, json={"name": "a", "job_type": "agent.building", "params": {"reference_ids": ["ref_000000000000"]}})
     assert missing.status_code == 404
     _ = timedelta
+
+
+def test_request_rejected_by_the_provider_is_an_error_not_a_quota_wait(client, admin, stub, make_worker):
+    _key(client, admin, stub, api_key="AIzaGOODKEY0007")
+    k2 = _key(client, admin, stub, api_key="AIzaGOODKEY0008")
+    w, lease, ref = _agent_lease(client, admin, make_worker)
+    assert _ask(w, lease, ref).status_code == 200
+    with client.app.state.db.session() as db:
+        for k in db.query(AiKey).all():
+            k.key_enc = encrypt("k" * 40, "AIzarejectKEY01")
+        db.commit()
+    r = _ask(w, lease, ref, category_hint="hospital")
+    assert r.status_code == 502 and "too many states" in r.json()["detail"]  # no fail-over, no waiting
+    assert not any(k["cooldown_until"] for k in client.get(f"{API}/ai/keys", headers=admin).json())
+    assert k2["id"]
+
+
+def test_gemini_schema_is_simplified():
+    from assetforge_api.ai.providers import simplify_schema
+    from assetforge_vision import llm_spec
+
+    out = json.dumps(simplify_schema(llm_spec.CRITIQUE_SCHEMA))
+    assert all(x not in out for x in ('"minimum"', '"maxItems"', '"pattern"')) and '"enum"' in out
