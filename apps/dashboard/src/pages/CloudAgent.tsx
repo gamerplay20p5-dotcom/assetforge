@@ -38,6 +38,15 @@ const CATEGORIES: [string, string][] = [
   ["transport_station", "Estação"],
   ["university", "Universidade"],
 ];
+/** Not buildings: the cloud agent writes a procedural BUILDING spec, so these cannot be produced here. They belong to the 3D reconstruction engines (Pixal3D / TRELLIS.2),
+ *  which are not wired to this panel yet. Listed (disabled) so the roadmap is visible instead of silently missing. */
+const OTHER: [string, string][] = [
+  ["character", "NPC / personagem"],
+  ["vehicle", "Veículo"],
+  ["tree", "Vegetação / árvore"],
+  ["monument", "Monumento"],
+  ["prop", "Objeto urbano"],
+];
 const MAX_PICS = 4;
 
 export function CloudAgent({ onCreated }: { onCreated: (ids: string[], preview?: string | null) => void }) {
@@ -177,8 +186,14 @@ export function CloudAgent({ onCreated }: { onCreated: (ids: string[], preview?:
       <div className="st-fields">
         <label className="field" style={{ gridColumn: "1 / -1" }}>Tipo (dica para a IA)
           <select value={category} onChange={(e) => setCategory(e.target.value)}>
-            {CATEGORIES.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+            <optgroup label="Construções (kit procedural + IA)">
+              {CATEGORIES.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+            </optgroup>
+            <optgroup label="Outros — exigem o motor de reconstrução 3D (ainda não ligado ao painel)">
+              {OTHER.map(([k, l]) => <option key={k} value={k} disabled>{l} (em breve)</option>)}
+            </optgroup>
           </select>
+          <span className="hint">NPCs, veículos, vegetação, monumentos e objetos urbanos serão gerados pelos motores de reconstrução (Pixal3D / TRELLIS.2), não por este agente de construções.</span>
         </label>
         <label className="field">Rodadas de correção
           <select value={iters ?? ""} onChange={(e) => setIters(e.target.value === "" ? null : Number(e.target.value))}>
