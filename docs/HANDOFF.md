@@ -25,11 +25,13 @@ O teste de ponta a ponta passou por API, fila e Blender em Docker isolado na 206
 
 ### Agente de construções
 
-O prompt `spec-v3` pede conciliação das vistas, proporções dos volumes, ritmo de fachada, contagem de pavimentos e registro das inferências sobre lados ocultos. `scripts/ai/compare_building_providers.py` usa os mesmos PNGs na mesma ordem, registra os hashes e valida a especificação dos dois provedores no pool central. Gemini `gemini-3.5-flash-lite` produziu especificações válidas para o residencial e o comercial, com tempos de 5,10 s e 6,56 s. Os dois relatórios estão em `~/assetforge-phase3/agent-spec-v3-*.json` na 206. A comparação lado a lado depende da ativação do Grok no painel de IA. A revisão visual e as liberações comerciais permanecem pendentes.
+O prompt `spec-v3` pede conciliação das vistas, proporções dos volumes, ritmo de fachada, contagem de pavimentos e registro das inferências sobre lados ocultos. `scripts/ai/compare_building_providers.py` usa os mesmos PNGs na mesma ordem, registra os hashes e valida a especificação dos dois provedores no pool central. Gemini `gemini-3.5-flash-lite` produziu especificações válidas para o residencial e o comercial, com tempos de 5,10 s e 6,56 s. Os dois relatórios estão em `~/assetforge-phase3/agent-spec-v3-*.json` na 206. A comparação lado a lado depende da ativação do Grok no painel de IA. Na Biblioteca, o visualizador e a avaliação Gemini usam as referências originais quando presentes. A revisão visual e as liberações comerciais permanecem pendentes.
 
 ### Docker
 
-Na 206, `~/assetforge-phase3/archive40.override.yml` seleciona a API `assetforge-central:archive40-7818f98` e o worker CPU `assetforge-worker:archive40-118e531`. O rollback da central usa `~/assetforge-phase3/live.override.yml`. Na Spark, os workers GGUF e Python usam as imagens `archive40-118e531`. Os contêineres anteriores estão parados com sufixo `-before-archive40`. Os logs de importação e validação ficam em `~/assetforge-phase3/archive40-*` na 206. A alteração da RTX ficou restrita ao estado do worker na central.
+Na 206, `~/assetforge-phase3/archive40.override.yml` seleciona a API `assetforge-central:archive40-original-refs` e o worker CPU `assetforge-worker:archive40-118e531`. O rollback da central usa `~/assetforge-phase3/live.override.yml`. Na Spark, os workers GGUF e Python usam as imagens `archive40-118e531`. Os contêineres anteriores estão parados com sufixo `-before-archive40`. Os logs de importação e validação ficam em `~/assetforge-phase3/archive40-*` na 206. A alteração da RTX ficou restrita ao estado do worker na central.
+
+A suíte de backend passou com 253 testes em Docker. A rodada de regressão após o ajuste da avaliação Gemini passou com quatro testes. Os 11 testes Vitest e os três testes Playwright também passaram. O Playwright confirmou a alteração isolada da seed, a fila e o download HTTP do GLB.
 
 ## Reteste da memória da RTX 4090 · 27/11/2026
 

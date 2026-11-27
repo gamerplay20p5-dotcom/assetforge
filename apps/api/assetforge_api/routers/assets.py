@@ -185,7 +185,7 @@ def evaluate(asset_id: str, version: int, body: EvaluationIn, request: Request,
              user: User = Depends(require_operator), db: Session = Depends(get_db)) -> dict:
     selected = _version(db, asset_id, version)
     params = selected.manifest.get("generation_params", {})
-    refs = params.get("references") or {}
+    refs = params.get("original_references") or params.get("references") or {}
     front = refs.get("front") or params.get("reference_id") or next(iter(params.get("reference_ids") or []), None)
     if not front:
         raise HTTPException(422, "esta versão não tem imagem de referência")
