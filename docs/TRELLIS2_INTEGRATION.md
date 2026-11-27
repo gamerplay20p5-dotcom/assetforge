@@ -1,6 +1,6 @@
 # Integração do motor TRELLIS.2 do AssetPipeline (Hank) — análise / TRELLIS.2 integration analysis
 
-Estado: **análise concluída, nada integrado.** O piloto ainda não rodou (ver "Bloqueios"). Nenhum resultado abaixo é de teste: tudo vem da leitura do código
+Estado: **piloto em andamento (1 de 10 imagens medida), nada integrado.** Nenhum resultado abaixo é de teste: tudo vem da leitura do código
 e das licenças publicadas. / Status: analysis only; the pilot has not run.
 
 Fonte estudada (somente leitura, o repositório do Hank não foi alterado): `github.com/gamerplay20p5-dotcom/AssetPipeline` — `mesh/Dockerfile`,
@@ -73,3 +73,29 @@ adequado para **avaliação/pesquisa** (o piloto), mas a produção em massa de 
 2 casas, 2 arranha-céus, 2 veículos, 2 NPCs, 2 objetos urbanos; 1024_cascade e, se a memória permitir, 1536_cascade. Registrar por modelo: tempo total, pico
 de memória, triângulos (master e otimizado), texturas, falhas e fidelidade (comparação lado a lado + nota do Gemini como apoio, nunca como aprovação).
 Resultados só entram aqui depois de rodados.
+
+## 7. Piloto 1 — torre residencial (medido em 2026-11-27, DGX Spark, Docker `clonez-mesh:1`)
+
+Imagem: a torre de 19 andares usada como referência (a mesma em que o TripoSR falhou). Script: `scripts/trellis2/pilot_reconstruct.py` +
+`run_pilot.sh` (container separado; código e pesos do Hank montados **somente leitura**; saída em `~/assetforge-pilot`). Seed 1, 49.152 tokens, master 500 mil
+vértices / textura 4096. Rodou com o run do Hank parado por pedido do dono.
+
+| | 1024_cascade | 1536_cascade |
+| --- | --- | --- |
+| TRELLIS.2 | 424 s | 287 s |
+| `to_glb` (master) | 57 s | 52 s |
+| Total | 488 s | 344 s |
+| Pico de memória do sistema | 93,2 GB | 93,6 GB |
+| Pico alocado pelo PyTorch | 42,3 GB | 42,3 GB |
+| Triângulos do master | 453.489 | 453.440 |
+| Arquivo | 23,6 MB | 23,6 MB |
+| Falhas | nenhuma | nenhuma |
+
+Notas: carregar os modelos levou 78 s (pico 55,6 GB, residentes); recorte BiRefNet 1,4 s. **Os tempos não são comparáveis entre as duas colunas**: o 1536 rodou
+depois do 1024 no mesmo processo (kernels já compilados/aquecidos). Os dois picos quase iguais sugerem que o limite de tokens (49.152) limita ambos; não foi
+verificado no log.
+
+Avaliação visual (folha `reports_out/trellis_pilot/tower/sheet.jpg`, mesma câmera): massa geral, ritmo de janelas, coluna de varandas com lajes, cobertura e térreo de vitrine
+reconhecíveis e **muito mais próximos da referência que o TripoSR**. Diferenças visíveis: cores mais escuras/alaranjadas (a referência é bege claro com detalhes
+oliva), faixa central de vidro escura menos nítida, detalhes da marquise e da casa de máquinas simplificados. 1024 e 1536 ficaram visualmente quase iguais.
+**Ainda não avaliado:** qualidade após otimização (o master tem 453 mil triângulos; o orçamento de arranha-céu é 5–15 mil), comparação do Gemini, aprovação do usuário.

@@ -1,6 +1,6 @@
 """Blender (headless) multi-view renderer used for VISUAL APPROVAL of procedural assets.
 
-    blender -b -P blender_views.py -- model.glb out_prefix [samples] [size] [views]
+    blender -b -P blender_views.py -- model.glb out_prefix [samples] [size] [views] [plain] [frame_h] [portrait] [scale]
 
 Renders the model on a soft sky + grass ground from several perspectives (Cycles CPU). Nothing here is part of the exported asset.
 """
@@ -27,9 +27,15 @@ wanted = argv[4].split(",") if len(argv) > 4 else list(VIEWS)
 plain = len(argv) > 5 and argv[5] == "plain"  # neutral backdrop, fixed framing (stage sheets)
 frame_h = float(argv[6]) if len(argv) > 6 else 0.0  # full-house height so every stage uses the same camera
 portrait = len(argv) > 7 and argv[7] == "portrait"  # tall buildings
+model_scale = float(argv[8]) if len(argv) > 8 else 1.0  # render-only scale (e.g. TRELLIS.2 masters come in a unit box: pass the real height in metres)
 
 bpy.ops.wm.read_factory_settings(use_empty=True)
 bpy.ops.import_scene.gltf(filepath=glb)
+if model_scale != 1.0:
+    for o in bpy.context.scene.objects:
+        if o.parent is None:
+            o.scale = (o.scale[0] * model_scale, o.scale[1] * model_scale, o.scale[2] * model_scale)
+    bpy.context.view_layer.update()
 objs = [o for o in bpy.context.scene.objects if o.type == "MESH"]
 pts = [o.matrix_world @ Vector(c) for o in objs for c in o.bound_box]
 lo = Vector((min(p.x for p in pts), min(p.y for p in pts), min(p.z for p in pts)))
