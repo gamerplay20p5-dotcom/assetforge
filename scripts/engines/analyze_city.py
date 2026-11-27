@@ -131,11 +131,15 @@ def sheet(asset: str, runs: list[dict], refs: Path, out: Path) -> None:
         s = run["summary"] or {}
         requested = run["requested_resolution"]
         effective = run["effective_resolution"] or "?"
+        ram = s.get("peak_ram_delta_mb")
+        memory = f"+{ram} MiB" if isinstance(ram, int) else "N/D"
+        peak_gpu = s.get("peak_gpu_mb")
+        vram = f"{peak_gpu} MiB" if str(peak_gpu).isdecimal() else "N/D"
         cap = (
             f'{run["engine"]} | {run["machine"]} | res {requested} -> {effective} | '
             f'{run["triangles"]:,} tri | comp {run["components"]} | '
             f'eixo PCA {run["orientation"]["tilt_deg_estimated"]} deg | {s.get("wall_seconds", "?")} s | '
-            f'RAM +{s.get("peak_ram_delta_mb", "?")} MiB | VRAM {s.get("peak_gpu_mb", "NA")} MiB'
+            f'RAM host {memory} | VRAM {vram}'
         )
         d.text((6, y + 6), cap, fill=(240, 240, 240))
         for c, v in enumerate(VIEWS):
