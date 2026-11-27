@@ -171,3 +171,74 @@ inferida plana. **Impressão visual do assistente, não aprovação.** Falta: Ge
 4. **Pixal3D Python na Spark** (derivar da imagem `clonez-mesh:1`; trocar o `to_glb` por `assetforge_trellis2.to_glb_commercial`).
 5. Medir por etapa (usar `--profile`, `--profile-cond` e `mem.csv`), contar componentes soltos (`tools/glb_metrics.py` do pixal3d.cpp ou o nosso union-find), LODs/otimização, Gemini (`scripts/ai/gemini_compare.py`), kit procedural e Gemini+procedural com as **mesmas** referências/câmeras.
 6. Só depois: scheduler/workers de produção (Spark e 4090) respeitando FIFO e consumo real de recursos.
+
+---
+
+## FASE 2 — ATUALIZAÇÃO FINAL DESTA SESSÃO (2026-11-27/28) — leia isto primeiro
+
+### Referências enviadas pelo dono (já extraídas e preparadas — NÃO refazer)
+
+* Zips em `C:\Users\Malaio\Downloads\`: `CityPlusPlus_Lote_Piloto_40_Referencias.zip` (10 designs × 4 vistas), `CityPlusPlus_Lote_02_20_Referencias.zip` (5 designs × 4 vistas), `CityPlusPlus_52_PNGs_Individuais.zip` (casas e hospitais por etapa de obra).
+  Cada design tem as vistas `front`, `right`, `back` e `34` (3/4), 1254×1254, fundo cinza claro, estilo "Premium Stylized Low/Mid Poly". São 15 designs: arranha-céus (commercial_001, residential_001/002, special_001), NPCs (civilian_001/002, government_001, public_service_001, worker_001/002) e veículos (civilian_001/002, emergency_001, industrial_001, public_transport_001).
+  O manifesto avisa: as vistas são referências **independentes** e podem ter pequenas diferenças de escala, pose e módulos; conferir contra a frente.
+* Extraídas em `reports_out/engines/refs_city/{piloto40,lote02_20,png52}` (com `python -I`, sem caminhos suspeitos).
+* **Recorte BiRefNet em quadro cheio** (sem recropar), feito na Spark em Docker com a imagem e os pesos do Hank (somente leitura): `scripts/engines/matte_birefnet.py` → `reports_out/engines/city_rgba/` (60 PNGs RGBA).
+* **Entradas por motor**: `scripts/engines/prep_views.py` → `reports_out/engines/city_inputs/<ativo>/`: `front.png` (RGB original; TRELLIS.2), `sv_rgba.png` (RGBA; Pixal3D single-view), `mv4/` (front, right, back e 3/4 com `transforms.json`, azimutes 0/90/180/**45**) e `mv3/` (3 vistas).
+  Regras do pixal3d.cpp respeitadas: alfa real, sem recrop, mesma escala em todas as vistas, objeto a ≈85 % do quadro, centrado. Câmera canônica: distância 3,119, FOV 20°, elevação 0, mundo z-up, azimute 0 = frente e 90 = direita (convenção do `transforms.json` do exemplo oficial).
+  **Suposição não verificada**: a vista "34" é frente-direita a 45°. Se o multi-view sair torto, testar `mv3` ou trocar o azimute (315).
+* Já copiadas para `~/assetforge-engines/refs/city/` nas duas máquinas.
+
+### O que está rodando AGORA (não repetir; só acompanhar)
+
+Duas cadeias independentes, uma por máquina, **um job por vez em cada** (`scripts/engines/chain_city.sh`; ignora o que já terminou e tenta de novo quando o lock está ocupado):
+
+* **RTX 4090** (usuário `afforge` na máquina da 4090): `bash chain_city.sh assetforge-pixal3d:cuda89 4090 1024 <6 ativos>`. Os 6 ativos são `bldg_skyscraper_residential_001 bldg_skyscraper_commercial_001 npc_civilian_001 npc_worker_001 veh_civilian_001 veh_industrial_001`. Por ativo: **t2q8** (TRELLIS.2 Q8, vista frontal), **sv** (Pixal3D single-view Q8) e **mv4** (Pixal3D multi-view Q8, 4 vistas). Resolução **1024**.
+* **Spark** (conta do Hank): a mesma lista em **1536**, com a imagem `assetforge-pixal3d:cuda121`.
+* Acompanhar: `cat ~/assetforge-engines/chain_city.status` (linhas `<nome> EXIT=<código>`; `CITY_CHAIN_DONE` no fim). Resultados em `~/assetforge-engines/out/<ativo>_<motor>_<res>_<máquina>/` (`model.glb`, `summary.json`, `mem.csv`, `raw.log`).
+  Códigos: 0 ok · 3 lock ocupado (a cadeia repete) · 4 parado pelo guarda de memória · outro valor = falha do `trellis-cli` (ver `raw.log`).
+* O run do Hank na Spark segue **parado**. Qwen e TripoSR na 4090 seguem ativos (VRAM ociosa ≈ 506 MiB).
+* Duração estimada (não medida): 4090 ≈ 50–70 min; Spark em 1536 ≈ 1–2 h.
+
+### Como analisar quando terminar (comandos)
+
+```
+bash scripts/engines/fetch_results.sh     # baixa os runs concluídos das duas máquinas para reports_out/engines/results/
+.venv/Scripts/python scripts/engines/analyze_city.py --results reports_out/engines/results --refs reports_out/engines/city_inputs --out reports_out/engines/analysis
+```
+
+Por modelo: triângulos, componentes soltos, nivelamento (`level_glb.py`, não destrutivo) e 4 renders com as mesmas câmeras. Por ativo: folha em `reports_out/engines/analysis/sheets/<ativo>.jpg` e `analysis/all.json`.
+Depois: Gemini (só conselho) com `scripts/ai/gemini_compare.py` (rodar num container descartável na central, ver a seção "Gemini comparar" acima) e **aprovação visual do dono**. Não declarar vencedor só pela nota.
+
+### Resultados medidos nesta fase (todos reais)
+
+| Execução | Máquina | Res. | Tempo | Pico RAM (acima da base) | Pico VRAM | Triângulos / componentes |
+| --- | --- | --- | --- | --- | --- | --- |
+| Torre · TRELLIS.2 Q8 | 4090 | 1024 | 232,6 s | +6,6 GB | 12,0 GB | 297.650 / 19 (UV) |
+| Torre · TRELLIS.2 Q8 | 4090 | **1536** | 336,5 s | +7,9 GB | 14,6 GB | ver `out/tower_t2q8_1536_4090` |
+| Torre · Pixal3D single-view Q8 | 4090 | 1024 | **127,1 s** | +3,1 GB | **7,2 GB** | 931.734 |
+| Residencial_001 · TRELLIS.2 Q8 | 4090 | 1024 | 160,0 s | +4,1 GB | 8,1 GB | 295.794 / **1 componente** |
+| (referência) Torre · TRELLIS.2 **Python** | Spark | 1024 | ≈ 285 s + 50 s de textura | 69–75 GB (sistema) | n/d | ≈ 453 mil |
+
+* **Pixal3D single-view é ≈ 45 % mais rápido que o TRELLIS.2 Q8 e usa ≈ 40 % menos VRAM**. Cor e detalhe de fachada ficam **mais fiéis** à referência (bege com verde-oliva, caixilhos, pilastras), mas o modelo sai **no referencial da câmera, inclinado** (≈ 9,9° na torre).
+* **Correção de orientação** (`scripts/engines/level_glb.py`): estima a inclinação do eixo dominante e grava um GLB NOVO só com um nó pai (rotação + translação: de pé, pivô na base). Vértices e texturas ficam byte a byte iguais ao original, então o master é preservado. Torre single-view: profundidade 0,655 → 0,535; o TRELLIS.2 já vinha ≈ 1,2°. Limite de segurança `--max-tilt 40`.
+* **TRELLIS.2 Q8 em 1536 funciona em C++** (o Python original não coube/foi reduzido a 1024): 336 s e 14,6 GB de VRAM.
+* O TRELLIS.2 com **uma** vista inventa a traseira lisa; esperado. O multi-view é o teste que deve resolver isso.
+* Erro do runner já corrigido: processos filhos do guarda herdavam o `flock` (fd 9) e o job seguinte era recusado (código 3 em cascata). Agora o guarda e o `docker run` fecham o fd 9 e a cadeia repete em código 3.
+
+### Arquivos novos desta fase (branch `feat/engines-comparison`)
+
+`deployment/Dockerfile.pixal3d-cuda` · `scripts/engines/{run_cpp.sh, chain_city.sh, matte_birefnet.py, prep_views.py, level_glb.py, analyze_city.py, fetch_results.sh}` · `scripts/trellis2/*` (fase 1) · `.gitattributes` (LF em `*.sh`).
+
+Nas máquinas, em `~/assetforge-engines`: `refs/` (entradas), `out/` (resultados), `run_cpp.sh`, `chain_city.sh`, `download_weights.sh`, `city_inputs.tgz`, `build_pixal3d*.log`. Pesos em `~/assetforge-models/{trellis2-q8,trellis2-q4,pixal3d-mv-q8,pixal3d-sv-q8}` (≈ 31 GB em cada máquina).
+Imagens Docker: `assetforge-pixal3d:cuda89` (4090), `:cuda120` (Spark, **não serve**: a GB10 é sm_121) e `:cuda121` (Spark).
+
+### Próximas etapas (em ordem; NÃO repetir o que está acima)
+
+1. Esperar `CITY_CHAIN_DONE` nas duas máquinas, depois `fetch_results.sh` e `analyze_city.py`, e ler as folhas `analysis/sheets/*.jpg` e o `all.json`.
+2. Comparar a **fidelidade visual por categoria** (arranha-céus, NPCs, veículos): T2 Q8 × single-view × MV4, em 1024 e 1536. Contar componentes soltos e medir **estabilidade** (repetir 3× o mesmo motor/ativo; ainda não feito).
+3. **Multi-view com 3 vistas** (`mv3`) e a suposição do azimute 45° (ver acima); usar o exemplo oficial do Pixal3D como controle.
+4. **Pixal3D Python na Spark** (derivar de `clonez-mesh:1`; MoGe, natten, utils3d; trocar o `to_glb` por `assetforge_trellis2.to_glb_commercial`). **Não iniciado.**
+5. **Otimização não destrutiva e LODs** a partir dos masters do Pixal3D (≈ 930 mil triângulos). O colapso do Blender destrói masters feitos de cascas soltas; conferir primeiro os componentes dos masters do pixal3d.cpp (o T2 Q8 já dá 1). Testar decimação com preservação de arestas e normal map assado em Blender (`scripts/trellis2/bake_normals.py`).
+6. **Cor e textura**: comparar a base color com a referência (método do piloto 1: valores primeiro, depois o Blender). O single-view mostrou cor bem mais próxima.
+7. Kit procedural, Gemini + procedural e híbrido competem com as **mesmas** referências e câmeras (ainda não rodados nesta fase).
+8. **Scheduler e workers de produção** (Spark e 4090, FIFO, consumo real de recursos) só depois do piloto aprovado: provider HTTP em container separado (ver a seção 4 da Fase 1). Não iniciar produção comercial sem aprovação; a licença do DINOv3 segue pendente de revisão jurídica.

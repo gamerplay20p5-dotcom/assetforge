@@ -24,10 +24,11 @@ BASE_RAM=$(mem_used_mb); BASE_GPU=$(gpu_used_mb)
 echo "t_s,ram_used_mb,ram_avail_mb,gpu_used_mb" > "$OUT/mem.csv"
 START=$(date +%s.%N)
 docker run --rm --name assetforge-engine --gpus all --ipc host --user "$(id -u):$(id -g)" -e HOME=/tmp \
-  -v "$MODELS":/models:ro -v "$BASE/$IN_SUB":/in:ro -v "$OUT":/out "$IMAGE" trellis-cli "$@" > "$OUT/raw.log" 2>&1 &
+  -v "$MODELS":/models:ro -v "$BASE/$IN_SUB":/in:ro -v "$OUT":/out "$IMAGE" trellis-cli "$@" > "$OUT/raw.log" 2>&1 9>&- &
 PID=$!
 STOPPED=0
 (
+  exec 9>&-   # the guard must not inherit the lock: a lingering child would keep the NEXT job refused
   while kill -0 "$PID" 2>/dev/null; do
     t=$(awk -v a="$(date +%s.%N)" -v b="$START" 'BEGIN{printf "%.2f", a-b}')
     echo "$t,$(mem_used_mb),$(mem_avail_mb),$(gpu_used_mb)" >> "$OUT/mem.csv"
