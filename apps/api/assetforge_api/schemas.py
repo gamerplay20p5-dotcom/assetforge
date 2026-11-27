@@ -124,6 +124,10 @@ class AssetPatch(BaseModel):
     review_status: Literal["pending", "approved", "rejected"] | None = None
 
 
+class AssetDeleteRequest(BaseModel):
+    asset_ids: list[str] = Field(min_length=1, max_length=500)
+
+
 class DownloadRequest(BaseModel):
     asset_ids: list[str] = Field(min_length=1, max_length=500)
     version: int | None = None

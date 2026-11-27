@@ -58,6 +58,17 @@ class Storage:
     def asset_dir(self, asset_id: str, version: int) -> Path:
         return self.assets / self._check_id(asset_id) / f"v{int(version)}"
 
+    def asset_bytes(self, asset_id: str) -> int:
+        d = self.assets / self._check_id(asset_id)
+        return sum(f.stat().st_size for f in d.rglob("*") if f.is_file()) if d.is_dir() else 0
+
+    def delete_asset(self, asset_id: str) -> int:
+        """Remove every version of an asset from disk. Returns the bytes freed. The id is validated, so nothing outside ``assets/`` can be touched."""
+        d = self.assets / self._check_id(asset_id)
+        freed = self.asset_bytes(asset_id)
+        shutil.rmtree(d, ignore_errors=True)
+        return freed
+
     def drop_staging(self, job_id: str) -> None:
         shutil.rmtree(self.staging / self._check_id(job_id), ignore_errors=True)
 

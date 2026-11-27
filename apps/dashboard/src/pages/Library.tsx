@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check, Download, Grid3x3, Heart, List, Package, RefreshCw, X } from "lucide-react";
+import { Check, Download, Grid3x3, Heart, List, Package, RefreshCw, Trash2, X } from "lucide-react";
 import { useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { ApiError, api, fileUrl, getToken, packageUrl, useDownloadToken } from "../api";
@@ -7,6 +7,42 @@ import { Viewer3D, type ViewerStats } from "../components/Viewer3D";
 import { Empty, ErrorNote, Panel, Thumb } from "../components/ui";
 import { formatBytes, timeAgo } from "../lib";
 import type { Asset } from "../types";
+
+interface DeleteResult {
+  deleted: string[];
+  skipped: { id: string; name?: string; reason: string }[];
+  freed_bytes: number;
+}
+
+/** Confirmation + request shared by the grid ("Apagar selecionados") and the detail panel. Deleting is permanent: files leave the disk. */
+function useDeleteAssets(onDone: (r: DeleteResult) => void) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (ids: string[]) => api<DeleteResult>("/assets/delete", { method: "POST", json: { asset_ids: ids } }),
+    onSuccess: (r) => {
+      qc.invalidateQueries({ queryKey: ["assets"] });
+      qc.invalidateQueries({ queryKey: ["asset"] });
+      qc.invalidateQueries({ queryKey: ["summary"] });
+      onDone(r);
+    },
+  });
+}
+
+function confirmDelete(names: string[]): boolean {
+  const list = names.slice(0, 6).join(", ") + (names.length > 6 ? ` e mais ${names.length - 6}` : "");
+  return window.confirm(
+    `Apagar ${names.length === 1 ? "este modelo" : `${names.length} modelos`} (${list})?
+
+Todas as versões e arquivos (GLB, FBX, BLEND, texturas e ZIP) saem do disco. Isso não pode ser desfeito.`,
+  );
+}
+
+function deleteMessage(r: DeleteResult): string {
+  const parts = [];
+  if (r.deleted.length) parts.push(`${r.deleted.length} apagado(s), ${formatBytes(r.freed_bytes)} liberados`);
+  if (r.skipped.length) parts.push(`${r.skipped.length} não apagado(s): ${r.skipped.map((x) => `${x.name ?? x.id} (${x.reason})`).join("; ")}`);
+  return parts.join(" · ");
+}
 
 const REVIEW: Record<string, string> = { pending: "Pendente", approved: "Aprovado", rejected: "Rejeitado" };
 
@@ -20,6 +56,14 @@ export function Library() {
   const [favOnly, setFavOnly] = useState(false);
   const [sort, setSort] = useState("-created_at");
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [notice, setNotice] = useState<string | null>(null);
+  const me = useQuery({ queryKey: ["me"], queryFn: () => api<{ username: string; role: string }>("/auth/me") });
+  const canDelete = me.data?.role === "admin" || me.data?.role === "operator";
+  const del = useDeleteAssets((r) => {
+    setNotice(deleteMessage(r));
+    setSelected(new Set());
+    if (assetId && r.deleted.includes(assetId)) nav("/library");
+  });
   const query = `/assets?limit=200&sort=${sort}${q ? `&q=${encodeURIComponent(q)}` : ""}${category ? `&category=${category}` : ""}${review ? `&review_status=${review}` : ""}${favOnly ? "&favorite=true" : ""}`;
   const list = useQuery({ queryKey: ["assets", query], queryFn: () => api<{ total: number; items: Asset[]; facets: { category: Record<string, number> } }>(query), refetchInterval: 8000 });
   const items = list.data?.items ?? [];
@@ -43,6 +87,11 @@ export function Library() {
     a.click();
     URL.revokeObjectURL(a.href);
   };
+  const deleteSelected = () => {
+    const names = items.filter((a) => selected.has(a.id)).map((a) => a.name);
+    if (names.length && confirmDelete(names)) del.mutate([...selected]);
+  };
+  const allVisible = items.length > 0 && items.every((a) => selected.has(a.id));
   return (
     <div className={`lib-layout ${assetId ? "" : "no-detail"}`}>
       <div className="grid" style={{ gap: 12, minWidth: 0 }}>
@@ -78,10 +127,24 @@ export function Library() {
           <button className="icon" onClick={() => setView(view === "grid" ? "list" : "grid")} aria-label="Alternar grade/lista" title="Alternar grade/lista">
             {view === "grid" ? <List size={15} /> : <Grid3x3 size={15} />}
           </button>
+          <button disabled={!items.length} onClick={() => setSelected(allVisible ? new Set() : new Set(items.map((a) => a.id)))}>
+            {allVisible ? "Limpar seleção" : "Selecionar todos"}
+          </button>
           <button disabled={!selected.size} onClick={downloadZip}>
             <Package size={14} /> Baixar {selected.size || ""} (ZIP)
           </button>
+          {canDelete && (
+            <button className="danger" disabled={!selected.size || del.isPending} onClick={deleteSelected} title="Apaga do disco os modelos selecionados">
+              <Trash2 size={14} /> {del.isPending ? "Apagando…" : `Apagar ${selected.size || ""}`}
+            </button>
+          )}
         </div>
+        {notice && (
+          <div className="note" role="status">
+            {notice} <button className="icon ghost" onClick={() => setNotice(null)} aria-label="Fechar aviso"><X size={12} /></button>
+          </div>
+        )}
+        <ErrorNote error={del.error} />
         {items.length === 0 ? (
           <Empty>{list.isLoading ? "Carregando…" : "Nenhum asset encontrado."}</Empty>
         ) : view === "grid" ? (
@@ -169,6 +232,16 @@ function AssetDetail({ id, onClose }: { id: string; onClose: () => void }) {
       qc.invalidateQueries({ queryKey: ["assets"] });
     },
   });
+  const nav = useNavigate();
+  const me = useQuery({ queryKey: ["me"], queryFn: () => api<{ username: string; role: string }>("/auth/me") });
+  const canDelete = me.data?.role === "admin" || me.data?.role === "operator";
+  const del = useDeleteAssets((r) => {
+    if (r.deleted.includes(id)) {
+      nav("/library");
+      return;
+    }
+    window.alert(deleteMessage(r));
+  });
   const regen = useMutation({
     mutationFn: async () => {
       if (!a?.manifest) throw new Error("sem manifesto");
@@ -197,9 +270,16 @@ function AssetDetail({ id, onClose }: { id: string; onClose: () => void }) {
         </span>
       }
       actions={
-        <button className="icon ghost" onClick={onClose} aria-label="Fechar detalhe">
-          <X size={15} />
-        </button>
+        <span className="row" style={{ gap: 4 }}>
+          {canDelete && (
+            <button className="icon ghost danger" disabled={del.isPending} onClick={() => confirmDelete([a.name]) && del.mutate([a.id])} aria-label="Apagar este modelo" title="Apagar este modelo (remove os arquivos do disco)">
+              <Trash2 size={15} />
+            </button>
+          )}
+          <button className="icon ghost" onClick={onClose} aria-label="Fechar detalhe">
+            <X size={15} />
+          </button>
+        </span>
       }
     >
       <div className="tabs" role="tablist">

@@ -13,8 +13,8 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 from starlette.background import BackgroundTask
 
-from ..models import Asset, AssetVersion, User
-from ..schemas import AssetPatch, DownloadRequest, asset_out
+from ..models import Asset, AssetVersion, Job, User
+from ..schemas import AssetDeleteRequest, AssetPatch, DownloadRequest, asset_out
 from ..security import get_db, require_operator, require_viewer, user_or_download_token
 from ..services import audit, emit_event
 from ..storage import UnsafePath, safe_join
@@ -84,6 +84,51 @@ def patch_asset(asset_id: str, body: AssetPatch, user: User = Depends(require_op
     emit_event(db, "asset.updated", a.id, **{k: v for k, v in changes.items() if k != "tags"})
     db.commit()
     return asset_out(a)
+
+
+def _delete_assets(ids: list[str], request: Request, user: User, db: Session) -> dict:
+    """Delete assets (rows and files). An asset that a queued/running job is still producing is skipped, never half-deleted."""
+    storage = request.app.state.storage
+    deleted: list[str] = []
+    skipped: list[dict] = []
+    freed = 0
+    for aid in dict.fromkeys(ids):
+        a = db.get(Asset, aid)
+        if a is None:
+            skipped.append({"id": aid, "reason": "não encontrado"})
+            continue
+        busy = db.scalar(select(func.count(Job.id)).where(Job.asset_id == aid, Job.status.in_(("queued", "running", "cancelling"))))
+        if busy:
+            skipped.append({"id": aid, "name": a.name, "reason": "há uma geração em andamento para este modelo"})
+            continue
+        name, versions = a.name, len(a.versions)
+        try:
+            freed += storage.delete_asset(aid)
+        except UnsafePath:
+            skipped.append({"id": aid, "name": name, "reason": "identificador inválido"})
+            continue
+        for v in list(a.versions):
+            db.delete(v)
+        db.delete(a)
+        audit(db, user.username, "asset.delete", "asset", aid, name=name, versions=versions)
+        emit_event(db, "asset.deleted", aid)
+        deleted.append(aid)
+    db.commit()
+    return {"deleted": deleted, "skipped": skipped, "freed_bytes": freed}
+
+
+@router.post("/delete")
+def delete_assets(body: AssetDeleteRequest, request: Request, user: User = Depends(require_operator), db: Session = Depends(get_db)) -> dict:
+    """Delete several assets at once (the Library's 'Apagar selecionados')."""
+    return _delete_assets(body.asset_ids, request, user, db)
+
+
+@router.delete("/{asset_id}")
+def delete_asset(asset_id: str, request: Request, user: User = Depends(require_operator), db: Session = Depends(get_db)) -> dict:
+    r = _delete_assets([asset_id], request, user, db)
+    if not r["deleted"] and r["skipped"] and r["skipped"][0]["reason"] == "não encontrado":
+        raise HTTPException(404, "asset not found")
+    return r
 
 
 def _version(db: Session, asset_id: str, version: int | None) -> AssetVersion:
