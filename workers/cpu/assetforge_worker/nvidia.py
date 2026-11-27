@@ -49,4 +49,7 @@ def features(work_dir: Path) -> list[str]:
             names.append("pixal3d-python")
     except FileNotFoundError:
         pass
-    return [f"engine.{name}" for name in names]
+    features = [f"engine.{name}" for name in names]
+    if shutil.which("trellis-cli") and (root / CPP_WEIGHTS["trellis2-gguf"] / "birefnet.gguf").is_file():
+        features.append("engine.reference-prep")
+    return features

@@ -7,6 +7,7 @@ import io
 import re
 import tempfile
 import uuid
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
@@ -44,7 +45,7 @@ async def _decode_upload(request: Request, file: UploadFile) -> tuple[bytes, tup
             if max(w, h) > 4096 or min(w, h) < 64:
                 raise HTTPException(422, f"image size {w}x{h} outside 64..4096 px")
             im.load()
-            clean = im.convert("RGBA" if "A" in im.getbands() else "RGB")  # re-encoding drops EXIF/metadata/payloads
+            clean = im.convert("RGBA" if "A" in im.getbands() or "transparency" in im.info else "RGB")
     except (UnidentifiedImageError, OSError, Image.DecompressionBombError) as exc:
         raise HTTPException(422, "file is not a valid image") from exc
     buf = io.BytesIO()
@@ -65,7 +66,7 @@ async def _store(request: Request, files: list[UploadFile], user: User) -> list[
     d.mkdir(exist_ok=True)
     items = []
     with tempfile.TemporaryDirectory(prefix=".batch-", dir=d) as temporary:
-        staging = d.joinpath(temporary)
+        staging = Path(temporary)
         for file in files:
             data, (w, h) = await _decode_upload(request, file)
             ref_id = f"ref_{uuid.uuid4().hex[:12]}"

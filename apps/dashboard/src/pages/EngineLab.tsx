@@ -170,7 +170,10 @@ export function EngineLab() {
             }} />{files[view]?.name ?? (existing?.[view] ? "Reutilizar esta vista" : "")}</label>)}
           <label>Worker<select value={selectedWorker?.id ?? ""} onChange={(e) => setWorker(e.target.value)}>
             <option value="">Automático</option>
-            {compatible.map((w) => <option key={w.id} value={w.id}>{w.name}{w.online && w.state === "enabled" ? "" : " (indisponível)"}</option>)}
+            {compatible.map((w) => <option key={w.id} value={w.id}>
+              {w.name}{w.online && w.state === "enabled" ? "" : " (indisponível)"}
+              {engineId !== "trellis2-gguf" && !w.capabilities.features?.includes("engine.reference-prep") ? " · PNG recortado" : ""}
+            </option>)}
           </select></label>
         </div>
         {compatible.length === 0 && <p className="muted">O pedido ficará na fila até um worker compatível se registrar.</p>}

@@ -6,6 +6,7 @@ import copy
 from assetforge_contract import JobCreate
 from assetforge_contract.engines import ENGINES, RECONSTRUCT
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from PIL import Image
 from pydantic import ValidationError
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -37,10 +38,16 @@ def create_job(db: Session, spec: JobCreate, user: User, settings, batch_id: str
         ref = spec.params.get("reference_id")
         if not (settings.storage_root / "references" / f"{ref}.png").is_file():
             raise HTTPException(404, f"reference image {ref} not found (upload it first)")
+    needs_matte = False
     if spec.job_type == RECONSTRUCT:
         for ref in spec.params["references"].values():
-            if not (settings.storage_root / "references" / f"{ref}.png").is_file():
+            path = settings.storage_root / "references" / f"{ref}.png"
+            if not path.is_file():
                 raise HTTPException(404, f"reference image {ref} not found")
+            if not needs_matte and spec.params["engine"] != "trellis2-gguf":
+                with Image.open(path) as image:
+                    alpha = image.getchannel("A") if "A" in image.getbands() else None
+                    needs_matte = alpha is None or alpha.getextrema() == (255, 255)
     if spec.job_type == "agent.building":
         from ..ai.router import get_ai_settings
 
@@ -58,6 +65,8 @@ def create_job(db: Session, spec: JobCreate, user: User, settings, batch_id: str
             raise HTTPException(404, f"worker {spec.worker_id} not found")
         if spec.job_type == RECONSTRUCT and f"engine.{spec.params['engine']}" not in (worker.capabilities or {}).get("features", []):
             raise HTTPException(422, "worker does not support the selected engine")
+        if needs_matte and "engine.reference-prep" not in (worker.capabilities or {}).get("features", []):
+            raise HTTPException(422, "O worker escolhido ainda requer PNG recortado para este motor. Selecione o worker automático.")
     if spec.depends_on:
         found = set(db.scalars(select(Job.id).where(Job.id.in_(spec.depends_on))))
         missing = set(spec.depends_on) - found
@@ -75,6 +84,8 @@ def create_job(db: Session, spec: JobCreate, user: User, settings, batch_id: str
         idempotency_key=spec.idempotency_key, max_attempts=settings.default_max_attempts, created_by=user.username,
         retry_of=retry_of,
     )
+    if needs_matte:
+        job.requirements = {**job.requirements, "features": [*job.requirements["features"], "engine.reference-prep"]}
     db.add(job)
     db.flush()
     emit_event(db, "job.created", job.id, name=job.name, batch_id=batch_id)

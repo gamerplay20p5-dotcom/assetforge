@@ -44,18 +44,19 @@ class WorkerConfig:
             raise SystemExit("ASSETFORGE_SERVER_URL is required (e.g. http://central-host:8000)")
         total_cores = psutil.cpu_count(logical=True) or 2
         total_ram = int(psutil.virtual_memory().total / 1024 / 1024)
+        kind = os.environ.get("ASSETFORGE_WORKER_KIND", "cpu")
         state = Path(os.environ.get("ASSETFORGE_WORKER_STATE_DIR", "./worker-state"))
         return cls(
             server_url=server,
             name=os.environ.get("ASSETFORGE_WORKER_NAME", platform.node() or "cpu-worker").replace(" ", "-"),
-            kind=os.environ.get("ASSETFORGE_WORKER_KIND", "cpu"),
+            kind=kind,
             enrollment_token=os.environ.get("ASSETFORGE_ENROLLMENT_TOKEN", ""),
             state_dir=state,
             work_dir=Path(os.environ.get("ASSETFORGE_WORKER_WORK_DIR", str(state / "jobs"))),
             max_jobs=_int("ASSETFORGE_WORKER_MAX_JOBS", 1),
-            # By default a worker claims only HALF of the machine: servers run other projects too.
+            # Legacy CPU jobs use fixed reservations. NVIDIA admission uses live host headroom.
             cpu_cores=_int("ASSETFORGE_WORKER_CPU_CORES", max(1, total_cores // 2)),
-            ram_mb=_int("ASSETFORGE_WORKER_RAM_MB", max(1024, total_ram // 2)),
+            ram_mb=_int("ASSETFORGE_WORKER_RAM_MB", total_ram if kind == "nvidia" else max(1024, total_ram // 2)),
             blender_bin=os.environ.get("BLENDER_BIN") or None,
             job_timeout_s=_int("ASSETFORGE_WORKER_JOB_TIMEOUT", 1800),
             poll_interval_s=float(os.environ.get("ASSETFORGE_WORKER_POLL_SECONDS", "2")),
