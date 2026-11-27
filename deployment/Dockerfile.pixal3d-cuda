@@ -1,11 +1,10 @@
 # AssetForge: pixal3d.cpp (TRELLIS.2 + Pixal3D single/multi-view, C++/GGML, GGUF weights) built for NVIDIA CUDA, from a PINNED commit.
 # Upstream: https://github.com/raven38/pixal3d.cpp (MIT, fork of pwilkin/trellis.cpp; vendored ggml MIT). No Python at run time and no nvdiffrast/nvdiffrec.
-# Weights are NOT in the image: mount them read-only at /models (see docs/ENGINES.md). DINOv3 inside the weight sets keeps its own licence.
+# Mount weights read-only at /models (see docs/HANDOFF.md). DINOv3 inside the weight sets keeps its own licence.
 #
 #   docker build -f deployment/Dockerfile.pixal3d-cuda --build-arg CUDA_ARCHS=89 -t assetforge-pixal3d:cuda89 .       # RTX 4090 (203)
 #
 # NOTE: Ubuntu 24.04 base: the project uses FetchContent options (DOWNLOAD_EXTRACT_TIMESTAMP) that need CMake >= 3.24 (22.04 ships 3.22 and fails).
-# STATUS: first build/test on the 203 is part of the engine comparison (docs/ENGINES.md); results are recorded there, not assumed here.
 ARG CUDA_VERSION=13.1.0
 FROM nvidia/cuda:${CUDA_VERSION}-devel-ubuntu24.04 AS build
 ARG PIXAL3D_COMMIT=d1b4926452f9e09702b891db5f05acc845e153ed
@@ -22,7 +21,18 @@ RUN ln -sf /usr/local/cuda/lib64/stubs/libcuda.so /usr/local/cuda/lib64/stubs/li
 RUN cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DGGML_CUDA=ON -DCMAKE_CUDA_ARCHITECTURES="${CUDA_ARCHS}" \
         -DCMAKE_EXE_LINKER_FLAGS="-Wl,-rpath-link,/usr/local/cuda/lib64/stubs" -DCMAKE_SHARED_LINKER_FLAGS="-Wl,-rpath-link,/usr/local/cuda/lib64/stubs" \
     && cmake --build build -j"${BUILD_JOBS}" --target trellis-cli trellis-server
+COPY deployment/ggml-cuda-transpose-grid.patch /tmp/ggml-cuda-transpose-grid.patch
+RUN git -C /src/thirdparty/ggml apply /tmp/ggml-cuda-transpose-grid.patch \
+    && cmake --build build -j"${BUILD_JOBS}" --target trellis-cli trellis-server
 RUN mkdir -p /out && find /src/build -name '*.so*' -exec cp -P {} /out/ \; && ls /out
+
+FROM build AS cuda-grid-check
+COPY tests/engines/cuda_grid_check.cpp /tmp/cuda_grid_check.cpp
+RUN c++ -std=c++17 -O2 -I/src/thirdparty/ggml/include -L/out \
+    -Wl,-rpath-link,/usr/local/cuda/lib64/stubs -o /usr/local/bin/cuda-grid-check \
+    /tmp/cuda_grid_check.cpp -lggml-cuda -lggml-base -lggml
+ENV LD_LIBRARY_PATH=/out
+ENTRYPOINT ["cuda-grid-check"]
 
 FROM nvidia/cuda:${CUDA_VERSION}-runtime-ubuntu24.04
 RUN apt-get update && apt-get install -y --no-install-recommends libgomp1 ca-certificates && rm -rf /var/lib/apt/lists/*
