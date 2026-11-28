@@ -5,6 +5,18 @@ Commits em Conventional Commits; PRs em português **e** inglês. Atribuição n
 
 ## Reconstrução e Biblioteca CITY+++ · 27/11/2026
 
+### Entradas e perfis de geometria
+
+**Reconstrução 3D** abre com Imagem, Múltiplas vistas e Descrição. A área de entrada mostra as referências e as miniaturas por vista. Motor, resolução, textura e perfil estão em **Geometria e textura**. Worker, seed, tokens, projeção e decimação estão em **Ajustes avançados**. O palco original e a coluna de Assets e Propriedades fazem parte do mesmo estúdio.
+
+**Descrição** gera a referência PNG de 1024 px com Z-Image-Turbo no sidecar Python da Spark e reconstrói essa imagem com TRELLIS.2 GGUF ou Pixal3D Single-View. O worker anuncia `engine.text-reference` quando o modelo local está montado. O scheduler reserva memória para essa etapa. O texto, a seed, o motor e a referência PNG ficam no manifesto ou nos arquivos da versão. A configuração Docker opcional está em `deployment/docker-compose.text-reference.yml`. Na Spark, os pesos existentes são montados em `/text-model` em modo somente leitura.
+
+A máquina de venda do teste texto → GLB passou pela validação estrutural na Spark e está na Biblioteca como `ast_b540108ab6` v1. O TRELLIS.2 a 512 com decimação desmarcada exportou 3.677.152 triângulos. A fila registrou 523,5 s no total. A conferência validou o PNG e os hashes da referência e do GLB. A evidência está em `~/assetforge-phase3/workflow-text-evidence.log` na 206.
+
+**Master integral**, **High Poly**, **Mid Poly** e **Low Poly** oferecem proporções ajustáveis de 1, 0,80, 0,45 e 0,15 do master na Preparação. O perfil escolhido no estúdio fica no atalho da versão resultante e a Preparação pede altura e confirmação da geometria. O Blender ajusta a escala e o pivô com base no LOD0 simplificado e aplica o mesmo ajuste a todos os LODs. A torre de teste na 206 saiu de 297.650 para 44.647 triângulos no Low Poly, com um LOD adicional de 23.812. O SHA-256 do master foi conferido antes e depois.
+
+Na 206, `~/assetforge-phase3/workflow.override.yml` seleciona `assetforge-central:workflow-7507114` e `assetforge-worker:workflow-density`. Na Spark, o worker GGUF e o sidecar Python usam `workflow-ae1c4b5`. O rollback da central usa `studio.override.yml`, e os contêineres anteriores da Spark têm o sufixo `-before-workflow`.
+
 O layout do estúdio anterior à reorganização (commit `5769f95`) voltou à tela **Reconstrução 3D**. O painel de geração fica à esquerda, o palco central preserva as bolinhas e o percentual original, e a coluna da direita reúne os assets e propriedades. O palco acompanha os pedidos de Pixal3D e TRELLIS.2 e abre a versão exata do GLB ao terminar. **Estúdio clássico** abre o painel anterior com seus modos originais.
 
 Na 206, `~/assetforge-phase3/studio.override.yml` publica a imagem `assetforge-central:studio-ac8b456`. A verificação HTTP confirmou o bundle nas duas rotas do estúdio. O rollback usa `~/assetforge-phase3/archive40.override.yml`.
