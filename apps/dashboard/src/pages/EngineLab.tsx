@@ -1,9 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Sparkles } from "lucide-react";
 import { useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { api } from "../api";
-import { ErrorNote, Panel } from "../components/ui";
+import { ErrorNote } from "../components/ui";
 import type { Asset, Job, Worker } from "../types";
+import { Studio } from "./Studio";
 
 interface Engine {
   id: string;
@@ -64,10 +66,11 @@ export function EngineLab() {
   });
   if (source.error) return <ErrorNote error={source.error} />;
   if (assetId && !source.data) return <p>Carregando receita…</p>;
-  return <ReconstructionForm key={`${assetId ?? ""}:${sourceVersion ?? ""}`} source={source.data} />;
+  return <Studio reconstructionControls={(onCreated) =>
+    <ReconstructionForm key={`${assetId ?? ""}:${sourceVersion ?? ""}`} source={source.data} onCreated={onCreated} />} />;
 }
 
-function ReconstructionForm({ source }: { source?: Asset }) {
+function ReconstructionForm({ source, onCreated }: { source?: Asset; onCreated: (jobId: string) => void }) {
   const assetId = source?.id;
   const recipe = source?.manifest?.generation_params as Recipe | undefined;
   const cache = useQueryClient();
@@ -138,23 +141,27 @@ function ReconstructionForm({ source }: { source?: Asset }) {
             : archivedProjection ? recipe?.archive_azimuth_override : undefined },
       }));
       if (batchMode) {
-        const batch = await api<{ name: string; total: number }>("/batches", { method: "POST", json: { name: name.trim(), items } });
-        return { label: `${batch.name} · ${batch.total} gerações`, route: "/batch" };
+        const batch = await api<{ id: string; name: string; total: number }>("/batches", { method: "POST", json: { name: name.trim(), items } });
+        const recent = await api<{ items: Job[] }>(`/jobs?batch_id=${encodeURIComponent(batch.id)}&limit=1`).catch(() => null);
+        return { jobId: recent?.items[0]?.id, label: `${batch.name} · ${batch.total} gerações`, route: "/batch" };
       }
       const job = await api<Job>("/jobs", { method: "POST", json: items[0] });
-      return { label: job.name, route: "/queue" };
+      return { jobId: job.id, label: job.name, route: "/queue" };
     },
-    onSuccess: () => cache.invalidateQueries({ queryKey: ["jobs"] }),
+    onSuccess: (result) => {
+      if (result.jobId) onCreated(result.jobId);
+      cache.invalidateQueries({ queryKey: ["jobs"] });
+    },
   });
 
-  return <div className="engine-workbench">
-    <Panel title={assetId ? "Repetir geração" : "Reconstrução 3D"}>
-      {recipe?.archive && <p className="muted">
+  return <div className="st-engine">
+      <div className="st-title"><Sparkles size={16} /> {assetId ? "Repetir geração" : "Gerar modelo 3D"}</div>
+      {recipe?.archive && <div className="st-hint">
         Experimento na {recipe.archive.worker === "4090" ? "RTX 4090" : "DGX Spark"}.
         Resolução efetiva anterior {recipe.archive.effective_resolution ?? "não registrada"}.
         {recipe.archive.replay_issue && ` ${recipe.archive.replay_issue}`}
         {unavailable && " O worker original está indisponível. Selecione outro worker para continuar."}
-      </p>}
+      </div>}
       <div className="form-grid">
         <label>Motor<select aria-label="Motor" value={engineId} onChange={(e) => {
           const next = engines.data?.items.find((item) => item.id === e.target.value);
@@ -168,10 +175,12 @@ function ReconstructionForm({ source }: { source?: Asset }) {
         }}>
           {engines.data?.items.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
         </select></label>
-        <p className="muted">Experimental · revisão para uso comercial pendente</p>
       </div>
+      <div className="st-hint">Experimental · licença comercial pendente</div>
       {engines.error && <ErrorNote error={engines.error} />}
-      {engine && <form onSubmit={(e) => { e.preventDefault(); create.mutate(); }}>
+      {engine && <form onSubmit={(e) => { e.preventDefault(); create.mutate(); }} onInvalidCapture={(e) => {
+        (e.target as HTMLElement).closest("details")?.setAttribute("open", "");
+      }}>
         <div className="form-grid">
           {!assetId && <label>Envio<select value={batchMode ? "batch" : "single"} onChange={(e) => setBatchMode(e.target.value === "batch")}>
             <option value="single">Um asset</option><option value="batch">Lote de assets</option>
@@ -187,6 +196,10 @@ function ReconstructionForm({ source }: { source?: Asset }) {
           <label>Textura (px)<select value={texture} onChange={(e) => setTexture(Number(e.target.value))}>
             {[512, 1024, 2048, 4096, 8192, 16384].map((item) => <option key={item} value={item}>{item}</option>)}
           </select></label>
+        </div>
+        <details open={source ? true : undefined}>
+          <summary>Ajustes avançados</summary>
+          <div className="form-grid">
           <label>Orçamento de tokens<input type="number" min={1} value={tokens} required onChange={(e) => setTokens(Number(e.target.value))} /></label>
           <label>Seed<input type="number" min={0} value={seed} required onChange={(e) => setSeed(Number(e.target.value))} /></label>
           <label>Guidance da estrutura<input type="number" min={0} max={32} step={0.1} placeholder="Padrão do motor"
@@ -201,7 +214,8 @@ function ReconstructionForm({ source }: { source?: Asset }) {
             <label>Azimute da vista 3/4 (°)<input type="number" min={1} max={359} step={0.1} required value={angle} onChange={(e) => setAngle(Number(e.target.value))} /></label>
             <label>Escala de projeção<input type="number" min={0.01} max={10} step={0.01} required value={scale} onChange={(e) => setScale(Number(e.target.value))} /></label>
           </>}
-        </div>
+          </div>
+        </details>
         <h3>Referências</h3>
         <p className="muted">PNG, JPEG ou WebP. O worker remove o fundo e alinha o enquadramento quando necessário.</p>
         {usePrepared && <p className="muted">A receita reutiliza as entradas preparadas. Se enviar uma nova imagem, o worker prepara o conjunto de vistas novamente.</p>}
@@ -231,22 +245,13 @@ function ReconstructionForm({ source }: { source?: Asset }) {
           </select></label>
         </div>
         {compatible.length === 0 && <p className="muted">O pedido ficará na fila até um worker compatível se registrar.</p>}
-        <div className="row wrap">
-          <button className="primary" disabled={create.isPending || !name.trim() || unavailable}>{create.isPending ? "Enviando…" : "Enfileirar geração"}</button>
+        <div className="st-foot">
+          <button className="st-generate" disabled={create.isPending || !name.trim() || unavailable}><Sparkles size={18} /> {create.isPending ? "Enviando…" : "Enfileirar geração"}</button>
           {create.data && <Link to={create.data.route}>Acompanhar {create.data.label}</Link>}
         </div>
         {create.error && <ErrorNote error={create.error} />}
       </form>}
-      {!assetId && <p><Link to="/legacy">Motores legados · TripoSR e Stable Fast 3D</Link></p>}
-    </Panel>
-    <Panel title="Workers compatíveis">
-      {compatible.length ? compatible.map((w) => <div key={w.id} className="engine-worker-line">
-        <strong>{w.name}</strong><span className="muted">{w.state === "maintenance" ? "Em manutenção" : w.state === "disabled" ? "Desativado" : w.online ? `${w.active_jobs} em execução` : "Offline"}</span>
-        {w.online && w.telemetry.engine_gpu && <small className="muted">
-          {w.telemetry.engine_gpu.temperature_c ?? "—"} °C · {w.telemetry.engine_gpu.utilization_percent ?? "—"}% GPU
-          {w.telemetry.engine_gpu.vram_free_mb != null && ` · ${(w.telemetry.engine_gpu.vram_free_mb / 1024).toFixed(1)} GiB VRAM livre`}
-        </small>}
-      </div>) : <p className="muted">Nenhum worker anuncia este motor.</p>}
-    </Panel>
+      {!assetId && <Link to="/legacy" className="st-hint">Estúdio clássico · TripoSR e Stable Fast 3D</Link>}
+      <Link to="/workers" className="st-hint">Ver workers</Link>
   </div>;
 }

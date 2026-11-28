@@ -15,6 +15,10 @@ export const PROVIDERS = {
 } as const;
 
 export const STAGE_LABEL: Record<string, string> = {
+  prepare: "Preparando as referências",
+  conditioning: "Processando as imagens",
+  inference: "Reconstruindo o modelo",
+  surface: "Gerando a superfície e as texturas",
   image_to_3d: "Gerando a malha 3D a partir da imagem",
   postprocess: "Otimizando: reduzindo polígonos e gerando LODs",
   validate_outputs: "Validando o resultado",

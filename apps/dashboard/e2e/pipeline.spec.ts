@@ -7,6 +7,9 @@ test("login -> describe -> generate -> queue -> library -> 3D viewer -> download
   await page.getByRole("button", { name: "Entrar" }).click();
   await expect(page).toHaveURL(/\/engines$/);
   await expect(page.getByLabel("Motor", { exact: true })).toHaveValue("trellis2-gguf");
+  await expect(page.getByRole("region", { name: "Estúdio 3D" }).getByText("Pronto para um novo modelo 3D?")).toBeVisible();
+  await expect(page.getByRole("tab", { name: "Assets", exact: true })).toBeVisible();
+  await page.getByText("Ajustes avançados").click();
   await expect(page.getByLabel("Aplicar decimação na exportação")).not.toBeChecked();
   await expect(page.getByRole("navigation").getByRole("link")).toHaveCount(6);
 
@@ -39,7 +42,7 @@ test("login -> describe -> generate -> queue -> library -> 3D viewer -> download
   await page.goto("about:blank");
 });
 
-test("an archived recipe can change only the seed", async ({ page }) => {
+test("an archived recipe can change only the seed and use the original studio", async ({ page }) => {
   const reference = "ref_a12345678901";
   const recipe = {
     engine: "pixal3d-sv", category: "building", references: { front: reference }, resolution: 1024,
@@ -54,7 +57,17 @@ test("an archived recipe can change only the seed", async ({ page }) => {
     id: "wrk_spark", name: "assetforge-spark", online: true, state: "enabled", active_jobs: 0,
     telemetry: {}, capabilities: { features: ["engine.pixal3d-sv", "engine.archive-inputs"] },
   }] }));
-  await page.route("**/api/v1/jobs", (route) => route.fulfill({ status: 201, json: { name: "Torre" } }));
+  const job = { id: "job_replay", name: "Torre", asset_id: "ast_replay", asset_version: 2, params: recipe };
+  let completed = false;
+  await page.route("**/api/v1/jobs", (route) => route.fulfill({ status: 201, json: { ...job, status: "queued", progress: 0 } }));
+  await page.route("**/api/v1/jobs/job_replay", (route) => route.fulfill({ json: {
+    ...job, status: completed ? "succeeded" : "running", progress: completed ? 1 : 0.42, current_stage: "surface",
+  } }));
+  await page.route("**/api/v1/assets/ast_replay?version=2", (route) => route.fulfill({ json: {
+    id: "ast_replay", name: "Torre", current_version: 2, version_info: { version: 2 },
+    triangle_count: 100, manifest: { lods: [] }, files: [],
+  } }));
+  await page.route("**/api/v1/assets/ast_replay/files/model.glb?*", (route) => route.abort());
   await page.goto("/engines?asset=ast_replay&version=1");
   await page.getByLabel("Senha").fill("e2e-admin-password");
   await page.getByRole("button", { name: "Entrar" }).click();
@@ -70,6 +83,14 @@ test("an archived recipe can change only the seed", async ({ page }) => {
   expect(body).toEqual({ name: "Torre", asset_id: "ast_replay", worker_id: "wrk_spark",
     job_type: "experimental.reconstruct", params: { ...generation, seed: 23, mesh_scale: 1, three_quarter_angle: 45 } });
   await expect(page.getByRole("link", { name: "Acompanhar Torre" })).toBeVisible();
+  await expect(page).toHaveURL(/job=job_replay/);
+  await expect(page.locator(".st-gen .gen-anim canvas")).toBeVisible();
+  await expect(page.getByRole("progressbar", { name: "Progresso da geração" })).toHaveAttribute("aria-valuenow", "42");
+  await page.reload();
+  await expect(page.getByText("Gerando a superfície e as texturas")).toBeVisible();
+  completed = true;
+  await expect(page.locator(".st-stage .viewer")).toBeVisible();
+  await expect(page.getByRole("link", { name: "GLB" })).toHaveAttribute("href", /version=2/);
   await page.goto("about:blank");
 });
 

@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, Download, Grid3x3, Heart, List, Package, RefreshCw, Trash2, X } from "lucide-react";
 import { useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { ApiError, api, fileUrl, getToken, packageUrl, useDownloadToken } from "../api";
 import { Viewer3D, type ViewerStats } from "../components/Viewer3D";
 import { AssetComparison } from "../components/AssetComparison";
@@ -49,6 +49,9 @@ const REVIEW: Record<string, string> = { pending: "Pendente", approved: "Aprovad
 
 export function Library() {
   const { assetId } = useParams();
+  const [queryParams] = useSearchParams();
+  const requestedVersion = Number(queryParams.get("version"));
+  const initialVersion = Number.isSafeInteger(requestedVersion) && requestedVersion > 0 ? requestedVersion : undefined;
   const nav = useNavigate();
   const [view, setView] = useState<"grid" | "list">("grid");
   const [q, setQ] = useState("");
@@ -213,15 +216,15 @@ export function Library() {
           </Panel>
         )}
       </div>
-      {assetId && <AssetDetail id={assetId} onClose={() => nav("/library")} />}
+      {assetId && <AssetDetail key={`${assetId}:${initialVersion ?? ""}`} id={assetId} initialVersion={initialVersion} onClose={() => nav("/library")} />}
     </div>
   );
 }
 
-function AssetDetail({ id, onClose }: { id: string; onClose: () => void }) {
+function AssetDetail({ id, initialVersion, onClose }: { id: string; initialVersion?: number; onClose: () => void }) {
   const qc = useQueryClient();
   const token = useDownloadToken();
-  const [version, setVersion] = useState<number | undefined>(undefined);
+  const [version, setVersion] = useState(initialVersion);
   const [tab, setTab] = useState<"preview" | "compare" | "info" | "validation" | "versions" | "files">("preview");
   const [wire, setWire] = useState(false);
   const [bounds, setBounds] = useState(false);

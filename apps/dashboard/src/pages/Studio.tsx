@@ -1,14 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Box, ChevronDown, Download, Grid3x3, ImagePlus, Maximize2, Package, RotateCw, Sparkles, X } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Link } from "react-router-dom";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Link, useSearchParams } from "react-router-dom";
 import { api, fileUrl, getToken, packageUrl, useDownloadToken } from "../api";
 import { GenAnimation } from "../components/GenAnimation";
 import { Viewer3D, type ViewerStats } from "../components/Viewer3D";
 import { ErrorNote, Thumb } from "../components/ui";
 import { KitGenerator } from "./KitGenerator";
 import { VisionHouse } from "./VisionHouse";
-import { AgentRounds } from "./CloudAgent";
+import { AgentRounds, CloudAgent } from "./CloudAgent";
 import { MAX_IMAGE_MB, PRESETS, PROVIDERS, STAGE_LABEL, checkImageFile, parseLods, type PresetKey } from "../imageTo3d";
 import { formatDuration, timeAgo } from "../lib";
 import type { Asset, Job, Worker } from "../types";
@@ -22,13 +22,19 @@ interface Item {
 
 const ACTIVE = new Set(["queued", "running"]);
 
-export function Studio() {
+interface StudioProps {
+  reconstructionControls?: (onCreated: (jobId: string) => void) => ReactNode;
+}
+
+export function Studio({ reconstructionControls }: StudioProps) {
   const qc = useQueryClient();
   const token = useDownloadToken();
   const input = useRef<HTMLInputElement>(null);
+  const [search, setSearch] = useSearchParams();
+  const reconstruct = !!reconstructionControls;
 
   // ---- generate form
-  const [mode, setMode] = useState<"kit" | "vision" | "image">("image");
+  const [mode, setMode] = useState<"kit" | "vision" | "cloud" | "image">("kit");
   const modeRef = useRef(mode);
   modeRef.current = mode;
   const [items, setItems] = useState<Item[]>([]);
@@ -45,7 +51,20 @@ export function Studio() {
   const [progress, setProgress] = useState<string | null>(null);
 
   // ---- stage / viewer
-  const [jobId, setJobId] = useState<string | null>(null);
+  const [legacyJobId, setLegacyJobId] = useState<string | null>(null);
+  const jobId = reconstruct ? search.get("job") : legacyJobId;
+  const setJobId = useCallback((id: string | null) => {
+    if (!reconstruct) {
+      setLegacyJobId(id);
+      return;
+    }
+    setSearch((before) => {
+      const next = new URLSearchParams(before);
+      if (id) next.set("job", id);
+      else next.delete("job");
+      return next;
+    }, { replace: true });
+  }, [reconstruct, setSearch]);
   const [assetId, setAssetId] = useState<string | null>(null);
   const [lod, setLod] = useState(0);
   const [wire, setWire] = useState(false);
@@ -73,23 +92,31 @@ export function Studio() {
 
   const jobs = useQuery({ queryKey: ["jobs", "studio"], queryFn: () => api<{ items: Job[] }>("/jobs?limit=30"), refetchInterval: 4000 });
   const running = (jobs.data?.items ?? []).filter((j) => ACTIVE.has(j.status));
-  const job = useQuery({ queryKey: ["job", jobId], queryFn: () => api<Job>(`/jobs/${jobId}`), enabled: !!jobId, refetchInterval: 1500 });
+  const job = useQuery({ queryKey: ["job", jobId], queryFn: () => api<Job>(`/jobs/${encodeURIComponent(jobId!)}`), enabled: !!jobId,
+    refetchInterval: (q) => !q.state.data || ACTIVE.has(q.state.data.status) ? 1500 : false });
+  const j = job.data;
+  const finished = reconstruct && j?.status === "succeeded" ? j : null;
+  const viewedAssetId = finished?.asset_id ?? assetId;
+  const viewedVersion = finished?.asset_version ?? null;
   const assets = useQuery({ queryKey: ["assets", "studio"], queryFn: () => api<{ total: number; items: Asset[] }>("/assets?limit=60&sort=-created_at"), refetchInterval: 6000 });
-  const asset = useQuery({ queryKey: ["asset", assetId], queryFn: () => api<Asset>(`/assets/${assetId}`), enabled: !!assetId });
+  const asset = useQuery({ queryKey: ["asset", viewedAssetId, viewedVersion],
+    queryFn: () => api<Asset>(`/assets/${encodeURIComponent(viewedAssetId!)}${viewedVersion ? `?version=${viewedVersion}` : ""}`),
+    enabled: !!viewedAssetId });
   const a = asset.data;
   const m = a?.manifest;
 
   // when the watched job ends, show its asset
-  const j = job.data;
   useEffect(() => {
     if (j?.status === "succeeded") {
-      setAssetId(j.asset_id);
-      setJobId(null);
+      if (!reconstruct) {
+        setAssetId(j.asset_id);
+        setJobId(null);
+      }
       setLod(0);
       setTab("props");
       qc.invalidateQueries({ queryKey: ["assets"] });
     }
-  }, [j?.status, j?.asset_id, qc]);
+  }, [j?.status, j?.asset_id, reconstruct, setJobId, qc]);
 
   const pick = (k: PresetKey) => {
     setPreset(k);
@@ -106,6 +133,7 @@ export function Studio() {
 
   // Ctrl+V anywhere on the page: screenshots / copied images become references
   useEffect(() => {
+    if (reconstruct) return;
     const onPaste = (e: ClipboardEvent) => {
       if (modeRef.current !== "image") return; // the other modes handle their own paste
       const files: File[] = [];
@@ -127,7 +155,7 @@ export function Studio() {
     window.addEventListener("paste", onPaste);
     return () => window.removeEventListener("paste", onPaste);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [reconstruct]);
 
   const upload = async (file: File): Promise<string> => {
     const fd = new FormData();
@@ -180,7 +208,8 @@ export function Studio() {
   const glb = a && token ? fileUrl(a.id, lodFile, token, ver) : null;
   const generating = !!j && ACTIVE.has(j.status);
   const jp = j?.params as Record<string, unknown> | undefined;
-  const firstRef = typeof jp?.reference_id === "string" ? jp.reference_id : Array.isArray(jp?.reference_ids) ? (jp.reference_ids[0] as string) : null;
+  const reconstructionRef = (jp?.references as Record<string, string> | undefined)?.front;
+  const firstRef = reconstructionRef ?? (typeof jp?.reference_id === "string" ? jp.reference_id : Array.isArray(jp?.reference_ids) ? (jp.reference_ids[0] as string) : null);
   const animSource: string | null =
     firstRef && token
       ? `/api/v1/references/${firstRef}?token=${encodeURIComponent(token)}`
@@ -197,15 +226,23 @@ export function Studio() {
     <div className="studio">
       {/* ------------------------------------------------ generate panel */}
       <aside className="st-left">
+        {reconstructionControls ? reconstructionControls((id) => {
+          setAssetId(null);
+          setLastPreview(null);
+          setJobId(id);
+        }) : <>
         <div className="mode-seg" role="tablist" aria-label="Como gerar">
           <button role="tab" aria-selected={mode === "kit"} className={mode === "kit" ? "on" : ""} onClick={() => setMode("kit")}>Casas do kit</button>
           <button role="tab" aria-selected={mode === "vision"} className={mode === "vision" ? "on" : ""} onClick={() => setMode("vision")}>Imagem → casa (IA)</button>
-          <button role="tab" aria-selected={mode === "image"} className={mode === "image" ? "on" : ""} onClick={() => setMode("image")} title="Experimental">Motores legados</button>
+          <button role="tab" aria-selected={mode === "cloud"} className={mode === "cloud" ? "on" : ""} onClick={() => setMode("cloud")}>IA na nuvem</button>
+          <button role="tab" aria-selected={mode === "image"} className={mode === "image" ? "on" : ""} onClick={() => setMode("image")} title="Experimental">TripoSR</button>
         </div>
         {mode === "kit" ? (
           <KitGenerator onCreated={(ids, pv) => { setAssetId(null); setLastPreview(pv ?? null); setJobId(ids[0] ?? null); }} />
         ) : mode === "vision" ? (
           <VisionHouse onCreated={(ids, pv) => { setAssetId(null); setLastPreview(pv ?? null); setJobId(ids[0] ?? null); }} />
+        ) : mode === "cloud" ? (
+          <CloudAgent onCreated={(ids, pv) => { setAssetId(null); setLastPreview(pv ?? null); setJobId(ids[0] ?? null); }} />
         ) : (
           <>
         <div className="st-title"><Sparkles size={16} /> Gerar modelo 3D</div>
@@ -319,7 +356,6 @@ export function Studio() {
             </div>
           </div>
         )}
-
         <div className="st-foot">
           {!providerUp && (
             <div className="st-warn">
@@ -336,17 +372,18 @@ export function Studio() {
         </div>
           </>
         )}
+        </>}
       </aside>
 
       {/* ------------------------------------------------ stage */}
-      <section className="st-stage">
+      <section className="st-stage" aria-label="Estúdio 3D">
         {generating && j ? (
           <div className="st-gen">
             <GenAnimation progress={j.progress} source={animSource} />
             <div className="st-gen-info">
               <div className="st-pct">{Math.round(j.progress * 100)}<small>%</small></div>
               <div className="st-stage-name" aria-live="polite">{stageName}</div>
-              <div className="st-bar"><i style={{ width: `${Math.max(2, j.progress * 100)}%` }} /></div>
+              <div className="st-bar" role="progressbar" aria-label="Progresso da geração" aria-valuenow={Math.round(j.progress * 100)}><i style={{ width: `${Math.max(2, j.progress * 100)}%` }} /></div>
               <div className="st-sub">
                 {j.name}
                 {elapsed != null && ` · ${formatDuration(elapsed)}`}
@@ -374,7 +411,7 @@ export function Studio() {
               <button className={wire ? "on" : ""} onClick={() => setWire(!wire)} title="Wireframe" aria-pressed={wire}><Grid3x3 size={17} /></button>
               <button className={bounds ? "on" : ""} onClick={() => setBounds(!bounds)} title="Caixa delimitadora" aria-pressed={bounds}><Box size={17} /></button>
               <button className={rotate ? "on" : ""} onClick={() => setRotate(!rotate)} title="Girar automaticamente" aria-pressed={rotate}><RotateCw size={17} /></button>
-              <Link className="btn tool" to={`/library/${a.id}`} title="Abrir na biblioteca"><Maximize2 size={17} /></Link>
+              <Link className="btn tool" to={`/library/${a.id}${viewedVersion ? `?version=${viewedVersion}` : ""}`} title="Abrir na biblioteca"><Maximize2 size={17} /></Link>
             </div>
             <div className="st-caption">
               <strong>{a.name}</strong>
@@ -391,7 +428,8 @@ export function Studio() {
           <div className="st-empty">
             <div className="st-logo"><Box size={36} /></div>
             <h2>Pronto para um novo modelo 3D?</h2>
-            <p>Envie uma imagem de referência, escolha Low ou Mid poly e clique em Gerar.</p>
+            <p>{reconstruct ? "Envie uma imagem de referência, escolha o motor e clique em Gerar." : "Envie uma imagem de referência, escolha Low ou Mid poly e clique em Gerar."}</p>
+            {reconstruct && <ErrorNote error={job.error ?? asset.error} />}
           </div>
         )}
       </section>
@@ -422,7 +460,7 @@ export function Studio() {
             ) : (
               <div className="st-cards">
                 {(assets.data?.items ?? []).map((x) => (
-                  <button key={x.id} className={`st-card ${assetId === x.id ? "on" : ""}`} onClick={() => { setJobId(null); setAssetId(x.id); setLod(0); }}>
+                  <button key={x.id} className={`st-card ${viewedAssetId === x.id ? "on" : ""}`} onClick={() => { setJobId(null); setAssetId(x.id); setLod(0); }}>
                     <Thumb assetId={x.id} alt={x.name} hasThumb={x.has_thumbnail} />
                     <span className="st-card-name">{x.name}</span>
                     <span className="st-card-sub">{x.triangle_count.toLocaleString("pt-BR")} △</span>

@@ -106,7 +106,7 @@ export function App() {
   const [authed, setAuthed] = useState<boolean>(!!getToken());
   const [theme, toggleTheme] = useTheme();
   const pathname = useLocation().pathname;
-  const flush = pathname === "/legacy";
+  const flush = pathname === "/engines" || pathname === "/legacy";
   const qc = useQueryClient();
   useEffect(() => {
     const off = () => setAuthed(false);

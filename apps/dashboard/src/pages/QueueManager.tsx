@@ -16,7 +16,7 @@ const FILTERS: [string, string][] = [
   ["cancelled", "Cancelados"],
 ];
 
-const KIND: Record<string, string> = { "ai.image_to_3d": "Imagem → 3D", "ai.text_to_3d": "Texto → 3D", "procedural.building": "Procedural" };
+const KIND: Record<string, string> = { "experimental.reconstruct": "Reconstrução 3D", "ai.image_to_3d": "Imagem → 3D", "ai.text_to_3d": "Texto → 3D", "procedural.building": "Procedural" };
 
 /** Short, readable message for the most common failures; the full text stays in the tooltip and in the job detail. */
 export function friendlyError(e: string | null): string {
@@ -129,6 +129,9 @@ function JobDrawer({ id, onClose, wname }: { id: string; onClose: () => void; wn
             <div className="row wrap" style={{ marginBottom: 10 }}>
               <StatusBadge state={j.state} />
               <span className="mono muted">{j.id}</span>
+              {j.job_type === "experimental.reconstruct" && (
+                <Link to={`/engines?job=${encodeURIComponent(j.id)}`} className="btn">Abrir no estúdio</Link>
+              )}
               {j.status === "succeeded" && (
                 <Link to={`/library/${j.asset_id}`} className="btn">
                   Abrir asset v{j.asset_version}
