@@ -248,6 +248,29 @@ def preview(scene: trimesh.Scene, dest: Path) -> None:
     im.save(dest)
 
 
+def generate_reference(work: Path, params: ReconstructionParams) -> None:
+    request = work / "python.request.json"
+    response = work / "python.response.json"
+    temporary = request.with_suffix(".tmp")
+    temporary.write_text(json.dumps({"task": "text_reference", "prompt": params.prompt, "seed": params.seed}), encoding="utf-8")
+    temporary.replace(request)
+    try:
+        while not response.is_file():
+            marker = work.parent / ".zimage-heartbeat"
+            if not marker.is_file() or time.time() - marker.stat().st_mtime > 20:
+                raise RuntimeError("O worker de texto deixou de responder.")
+            status = sample()
+            if (status.get("temperature_c") or 0) >= 86 or status["ram_available_mb"] < 8192:
+                raise RuntimeError("A margem térmica ou de memória foi atingida ao gerar a referência.")
+            time.sleep(1)
+        if json.loads(response.read_text())["exit_code"] or not (work / "front.png").is_file():
+            log = work / "text-reference.log"
+            detail = log.read_text(errors="replace")[-500:] if log.is_file() else ""
+            raise RuntimeError(f"Z-Image não produziu uma referência. {detail}")
+    finally:
+        (work / "python.cancel").touch()
+
+
 def run_reconstruction(job: dict, work: Path, emit, threads: int) -> dict:
     params = ReconstructionParams.model_validate(job["params"])
     out = work / "out"
@@ -257,6 +280,10 @@ def run_reconstruction(job: dict, work: Path, emit, threads: int) -> dict:
     def stage(name, status):
         emit({"type": "stage", "name": name, "status": status})
 
+    if params.prompt:
+        stage("text_to_image", "start")
+        generate_reference(work, params)
+        stage("text_to_image", "done")
     stage("prepare", "start")
     views, preparation = (None, {}) if params.engine == "trellis2-gguf" else prepare_views(work, params, emit)
     stage("prepare", "done")
@@ -278,13 +305,18 @@ def run_reconstruction(job: dict, work: Path, emit, threads: int) -> dict:
     stage("package", "start")
     files = [_file_entry(out / filename, out, role, fmt) for filename, role, fmt in (
         ("model.glb", "model", "glb"), ("thumbnail.png", "preview", "png"), ("validation.json", "report", "json"))]
+    source_info = {}
+    if params.prompt:
+        shutil.copyfile(work / "front.png", out / "reference.png")
+        files.append(_file_entry(out / "reference.png", out, "report", "png"))
+        source_info = {"generated_reference_file": "reference.png", "reference_model": "Tongyi-MAI/Z-Image-Turbo"}
     manifest = AssetManifest(asset_id=job["asset_id"], name=job["name"], version=job["version"], category=params.category,
                              art_profile="experimental", seed=params.seed, generator_id=RECONSTRUCT, generator_version="0.1.0",
                              ai_model=params.engine, quality_profile="experimental", dimensions_m=dims, footprint_m=(dims[0], dims[2]),
                              bounding_box=(tuple(lo.tolist()), tuple(hi.tolist())), pivot="engine_original", triangle_count=triangles,
                              triangle_budget=None, lods=[LodInfo(level=0, triangles=triangles, file="model.glb")],
                              license="Experimental. Revisão de licenças para uso comercial pendente.",
-                             engine=params.engine, generation_params={**params.model_dump(), "runtime": runtime,
+                             engine=params.engine, generation_params={**params.model_dump(), **source_info, "runtime": runtime,
                                                                       "reference_preparation": preparation},
                              files=files, created_at=datetime.now(UTC))
     manifest_path = out / "manifest.json"

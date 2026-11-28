@@ -47,7 +47,7 @@ def create_job(db: Session, spec: JobCreate, user: User, settings, batch_id: str
         ref = spec.params.get("reference_id")
         if not (settings.storage_root / "references" / f"{ref}.png").is_file():
             raise HTTPException(404, f"reference image {ref} not found (upload it first)")
-    needs_matte = False
+    needs_matte = spec.job_type == RECONSTRUCT and bool(spec.params.get("prompt")) and spec.params["engine"] == "pixal3d-sv"
     needs_replay_worker = False
     if spec.job_type == RECONSTRUCT:
         needs_replay_worker = any(spec.params.get(k) for k in ("prepared_inputs", "use_native_threads")) or any(
@@ -78,6 +78,8 @@ def create_job(db: Session, spec: JobCreate, user: User, settings, batch_id: str
             raise HTTPException(404, f"worker {spec.worker_id} not found")
         if spec.job_type == RECONSTRUCT and f"engine.{spec.params['engine']}" not in (worker.capabilities or {}).get("features", []):
             raise HTTPException(422, "worker does not support the selected engine")
+        if spec.job_type == RECONSTRUCT and spec.params.get("prompt") and "engine.text-reference" not in (worker.capabilities or {}).get("features", []):
+            raise HTTPException(422, "O worker escolhido não gera referências por descrição.")
         if needs_matte and "engine.reference-prep" not in (worker.capabilities or {}).get("features", []):
             raise HTTPException(422, "O worker escolhido ainda requer PNG recortado para este motor. Selecione o worker automático.")
         if needs_replay_worker and "engine.archive-inputs" not in (worker.capabilities or {}).get("features", []):

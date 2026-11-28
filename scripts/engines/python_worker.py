@@ -22,6 +22,10 @@ def main() -> None:
     root.mkdir(parents=True, exist_ok=True)
     marker = root / ".pixal3d-python-heartbeat"
     runner = Path(__file__).with_name("pixal3d_python.py").resolve()
+    text_runner = runner.with_name("text_reference.py")
+    text_models = Path(os.environ.get("ZIMAGE_MODELS", "/text-model"))
+    text_marker = root / ".zimage-heartbeat"
+    text_ready = text_runner.is_file() and os.access(text_models / "model_index.json", os.R_OK)
     models = Path(os.environ.get("PIXAL3D_MODELS", "/python-models"))
     dino = Path(os.environ.get("PIXAL3D_DINOV3", "/dino"))
     dino_checkpoint = (dino / "model.safetensors", dino / "model.safetensors.index.json")
@@ -33,6 +37,8 @@ def main() -> None:
     try:
         while True:
             marker.touch()
+            if text_ready:
+                text_marker.touch()
             for work, process in list(processes.items()):
                 if not work.is_dir() or (work / "python.cancel").exists():
                     if process.poll() is None:
@@ -51,7 +57,14 @@ def main() -> None:
                 try:
                     request.rename(claimed)
                     params = json.loads(claimed.read_text(encoding="utf-8"))
-                    if params["engine"] != "pixal3d-python":
+                    if params.get("task") == "text_reference":
+                        if not text_ready:
+                            raise ValueError("Z-Image is unavailable")
+                        with (work / "text-reference.log").open("wb") as log:
+                            cmd = [sys.executable, str(text_runner), str(text_models), str(claimed), str(work / "front.png")]
+                            processes[work] = subprocess.Popen(cmd, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
+                        continue
+                    if params.get("engine") != "pixal3d-python":
                         raise ValueError("wrong engine")
                     with (work / "engine.log").open("wb") as log:
                         cmd = [sys.executable, str(runner), "generate", "--views", str(work / "views"),
@@ -69,6 +82,7 @@ def main() -> None:
             time.sleep(1)
     finally:
         marker.unlink(missing_ok=True)
+        text_marker.unlink(missing_ok=True)
         for process in processes.values():
             if process.poll() is None:
                 with suppress(ProcessLookupError):

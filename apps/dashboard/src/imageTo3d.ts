@@ -15,6 +15,7 @@ export const PROVIDERS = {
 } as const;
 
 export const STAGE_LABEL: Record<string, string> = {
+  text_to_image: "Criando a imagem de referência",
   prepare: "Preparando as referências",
   conditioning: "Processando as imagens",
   inference: "Reconstruindo o modelo",

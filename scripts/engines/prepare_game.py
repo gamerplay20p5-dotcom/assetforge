@@ -62,7 +62,7 @@ def collider(category, size):
 
 
 def lod(objects, index, ratio):
-    if index:
+    if index or ratio < 1:
         result = []
         for original in objects:
             obj = original.copy()
@@ -172,8 +172,8 @@ def main():
         parser.error("Choose a new package directory outside the master")
     if not math.isfinite(args.height_m) or args.height_m <= 0 or len(args.rotation_deg) != 3 or not all(map(math.isfinite, args.rotation_deg)):
         parser.error("Specify an actual height and three finite orientation angles")
-    if ratios[0] != 1 or not all(0 < lower < upper for upper, lower in zip(ratios, ratios[1:])):
-        parser.error("LOD ratios must start at 1 and decrease")
+    if not 0 < ratios[0] <= 1 or not all(0 < lower < upper for upper, lower in zip(ratios, ratios[1:])):
+        parser.error("LOD ratios must be in (0, 1] and decrease")
     if len(thresholds) != len(ratios) or not all(0 <= value < 1 for value in thresholds) or any(a <= b for a, b in zip(thresholds, thresholds[1:])):
         parser.error("Provide one descending screen-relative height per LOD, with optional 0 for no culling")
     source_hash = digest(master)
@@ -207,6 +207,9 @@ def main():
                 raise RuntimeError(f"LOD {index} produced no triangles")
             report["lods"].append({"index": index, "ratio": ratio, "relativeHeight": threshold,
                                    "file": name, "triangles": metrics["triangles"]})
+        if ratios[0] < 1:
+            for obj in objects:
+                bpy.data.objects.remove(obj, do_unlink=True)
         select([hierarchy, *hierarchy.children])
         bpy.ops.export_scene.fbx(filepath=str(root / "model.fbx"), use_selection=True, apply_unit_scale=True,
                                  apply_scale_options="FBX_SCALE_UNITS", axis_forward="-Z", axis_up="Y",

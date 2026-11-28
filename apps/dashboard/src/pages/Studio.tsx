@@ -11,6 +11,7 @@ import { VisionHouse } from "./VisionHouse";
 import { AgentRounds, CloudAgent } from "./CloudAgent";
 import { MAX_IMAGE_MB, PRESETS, PROVIDERS, STAGE_LABEL, checkImageFile, parseLods, type PresetKey } from "../imageTo3d";
 import { formatDuration, timeAgo } from "../lib";
+import { geometryProfile, geometryProfiles, type GeometryProfile } from "../geometryProfiles";
 import type { Asset, Job, Worker } from "../types";
 
 interface Item {
@@ -23,7 +24,7 @@ interface Item {
 const ACTIVE = new Set(["queued", "running"]);
 
 interface StudioProps {
-  reconstructionControls?: (onCreated: (jobId: string) => void) => ReactNode;
+  reconstructionControls?: (onCreated: (jobId: string, profile: GeometryProfile) => void) => ReactNode;
 }
 
 export function Studio({ reconstructionControls }: StudioProps) {
@@ -53,7 +54,7 @@ export function Studio({ reconstructionControls }: StudioProps) {
   // ---- stage / viewer
   const [legacyJobId, setLegacyJobId] = useState<string | null>(null);
   const jobId = reconstruct ? search.get("job") : legacyJobId;
-  const setJobId = useCallback((id: string | null) => {
+  const setJobId = useCallback((id: string | null, profile?: GeometryProfile) => {
     if (!reconstruct) {
       setLegacyJobId(id);
       return;
@@ -62,6 +63,8 @@ export function Studio({ reconstructionControls }: StudioProps) {
       const next = new URLSearchParams(before);
       if (id) next.set("job", id);
       else next.delete("job");
+      if (profile && profile !== "master") next.set("profile", profile);
+      else next.delete("profile");
       return next;
     }, { replace: true });
   }, [reconstruct, setSearch]);
@@ -225,11 +228,11 @@ export function Studio({ reconstructionControls }: StudioProps) {
   return (
     <div className="studio">
       {/* ------------------------------------------------ generate panel */}
-      <aside className="st-left">
-        {reconstructionControls ? reconstructionControls((id) => {
+      <aside className={reconstruct ? "st-left st-left-workflow" : "st-left"}>
+        {reconstructionControls ? reconstructionControls((id, profile) => {
           setAssetId(null);
           setLastPreview(null);
-          setJobId(id);
+          setJobId(id, profile);
         }) : <>
         <div className="mode-seg" role="tablist" aria-label="Como gerar">
           <button role="tab" aria-selected={mode === "kit"} className={mode === "kit" ? "on" : ""} onClick={() => setMode("kit")}>Casas do kit</button>
@@ -499,6 +502,10 @@ export function Studio({ reconstructionControls }: StudioProps) {
                   <AgentRounds url={fileUrl(a.id, "agent/history.json", token, ver)} fileUrlFor={(p) => fileUrl(a.id, p, token, ver)} />
                 )}
                 <div className="st-label">Baixar</div>
+                {reconstruct && ver && m?.generator_id === "experimental.reconstruct" &&
+                  <Link className="btn" to={`/prepare?${new URLSearchParams({ asset: a.id, version: String(ver), profile: geometryProfile(search.get("profile")) })}`}>
+                    {search.has("profile") ? `Preparar em ${geometryProfiles[geometryProfile(search.get("profile"))].label}` : "Preparar geometria"}
+                  </Link>}
                 <div className="row wrap">
                   <a className="btn" href={fileUrl(a.id, "model.glb", token, ver, true)}><Download size={14} /> GLB</a>
                   {a.files?.some((f) => f.format === "fbx") && <a className="btn" href={fileUrl(a.id, "model.fbx", token, ver, true)}><Download size={14} /> FBX</a>}

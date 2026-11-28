@@ -155,8 +155,8 @@ class PreparationParams(StrictModel):
 
         if not all(map(math.isfinite, self.rotation_deg)):
             raise ValueError("rotation requires finite angles")
-        if self.lod_ratios[0] != 1 or any(not 0 < b < a for a, b in zip(self.lod_ratios, self.lod_ratios[1:])):
-            raise ValueError("LOD ratios must start at 1 and decrease")
+        if not 0 < self.lod_ratios[0] <= 1 or any(not 0 < b < a for a, b in zip(self.lod_ratios, self.lod_ratios[1:])):
+            raise ValueError("LOD ratios must be in (0, 1] and decrease")
         if (len(self.lod_heights) != len(self.lod_ratios)
                 or any(not 0 <= h < 1 for h in self.lod_heights)
                 or any(a <= b for a, b in zip(self.lod_heights, self.lod_heights[1:]))):
@@ -193,7 +193,7 @@ class JobCreate(StrictModel):
                 raise ValueError("experimental reconstruction exports the master as GLB")
             reconstruction = ReconstructionParams.model_validate(self.params)
             optional_replay = {
-                field for field in ("prepared_inputs", "use_native_threads", "archived_projection", "archive_azimuth_override")
+                field for field in ("prepared_inputs", "use_native_threads", "archived_projection", "archive_azimuth_override", "prompt")
                 if not getattr(reconstruction, field)
             }
             self.params = reconstruction.model_dump(mode="json", exclude=optional_replay)

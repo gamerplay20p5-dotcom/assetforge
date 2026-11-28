@@ -3,6 +3,7 @@ import { useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { api } from "../api";
 import { ErrorNote, Panel } from "../components/ui";
+import { geometryProfile, geometryProfiles, type GeometryProfile } from "../geometryProfiles";
 import type { Asset, Job } from "../types";
 
 const numbers = (value: string) => value.split(",").map((part) => part.trim() === "" ? NaN : Number(part));
@@ -11,6 +12,7 @@ export function Preparation() {
   const [query] = useSearchParams();
   const id = query.get("asset");
   const version = query.get("version");
+  const profile = geometryProfile(query.get("profile"));
   const source = useQuery({
     queryKey: ["asset", id, version],
     queryFn: () => api<Asset>(`/assets/${encodeURIComponent(id!)}${version ? `?version=${encodeURIComponent(version)}` : ""}`),
@@ -20,15 +22,16 @@ export function Preparation() {
     <p className="muted">Exporte uma versão para Unity com escala em metros, materiais PBR, colisão e arquivos GLB, FBX e BLEND.</p>
     <ErrorNote error={source.error} />
     {source.data?.version_info && source.data.manifest?.generator_id !== "asset.prepare"
-      ? <PreparationForm key={`${id}:${version}`} source={source.data} version={source.data.version_info.version} />
+      ? <PreparationForm key={`${id}:${version}:${profile}`} source={source.data} version={source.data.version_info.version} initialProfile={profile} />
       : <p>Selecione uma versão original na <Link to="/library">Biblioteca</Link> e use <strong>Preparar para Unity</strong>.</p>}
   </Panel>;
 }
 
-function PreparationForm({ source, version }: { source: Asset; version: number }) {
+function PreparationForm({ source, version, initialProfile }: { source: Asset; version: number; initialProfile: GeometryProfile }) {
   const [height, setHeight] = useState("");
   const [rotation, setRotation] = useState("0, 0, 0");
-  const [ratios, setRatios] = useState("1");
+  const [profile, setProfile] = useState<GeometryProfile>(initialProfile);
+  const [ratios, setRatios] = useState(String(geometryProfiles[initialProfile].ratio));
   const [heights, setHeights] = useState("0");
   const create = useMutation({
     mutationFn: () => {
@@ -48,12 +51,20 @@ function PreparationForm({ source, version }: { source: Asset; version: number }
   return <form onSubmit={(event) => { event.preventDefault(); create.mutate(); }}>
     <h3>{source.name} · master v{version}</h3>
     <div className="form-grid">
+      <label>Perfil geométrico<select value={profile} onChange={(event) => {
+        const next = geometryProfile(event.target.value);
+        setProfile(next);
+        setRatios(String(geometryProfiles[next].ratio));
+        setHeights("0");
+      }}>
+        {Object.entries(geometryProfiles).map(([id, option]) => <option key={id} value={id}>{option.label}</option>)}
+      </select></label>
       <label>Altura real (m)<input type="number" required min="0.001" step="any" value={height} onChange={(e) => setHeight(e.target.value)} /></label>
       <label>Rotação no Blender (X, Y, Z em graus)<input required value={rotation} onChange={(e) => setRotation(e.target.value)} /></label>
       <label>Proporções da malha por LOD<input required value={ratios} onChange={(e) => setRatios(e.target.value)} /></label>
       <label>Altura na tela por LOD (fração)<input required value={heights} onChange={(e) => setHeights(e.target.value)} /></label>
     </div>
-    <p className="muted">Comece as proporções em 1. Adicione valores menores apenas se quiser simplificar a geometria nos LODs seguintes.</p>
+    <p className="muted">Cada proporção tem como base o master. Use 1 para manter a geometria integral ou ajuste o valor do primeiro LOD para simplificar esta versão.</p>
     <div className="row wrap">
       <button className="primary" disabled={create.isPending}>Enfileirar preparação</button>
       {create.data && <Link to="/queue">Acompanhar preparação</Link>}

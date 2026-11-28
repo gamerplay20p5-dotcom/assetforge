@@ -23,8 +23,12 @@ def estimate(params: dict, unified: bool) -> dict:
                 "cpu_cores": 2, "expected_seconds": ceil(400 * density**2)}
     vram = ceil(baseline * density**1.65 * detail + (texture - 1) * 950)
     ram = ceil((vram * 1.3 + 4300) if unified else (2700 + vram * 0.60))
-    return {"vram_mb": 0 if unified else vram, "ram_mb": ram, "cpu_cores": 1,
-            "expected_seconds": ceil((90 if category == "npc" else 230) * density**2)}
+    seconds = ceil((90 if category == "npc" else 230) * density**2)
+    if params.get("prompt"):
+        ram = max(ram, 48000 if unified else 18000)
+        vram = max(vram, 32000)
+        seconds += 120
+    return {"vram_mb": 0 if unified else vram, "ram_mb": ram, "cpu_cores": 1, "expected_seconds": seconds}
 
 
 def admission(db, job, worker, running: list[Job], now) -> tuple[dict | None, str | None]:
@@ -49,6 +53,7 @@ def admission(db, job, worker, running: list[Job], now) -> tuple[dict | None, st
     matched = [(attempt, previous) for attempt, previous in attempts
                if previous.params.get("engine") == params["engine"]
                and previous.params.get("resolution") == params["resolution"]
+               and bool(previous.params.get("prompt")) == bool(params.get("prompt"))
                and bool(previous.params.get("skip_decimation")) == bool(params.get("skip_decimation"))
                and previous.params.get("max_tokens", 0) >= params["max_tokens"]
                and previous.params.get("texture_size", 0) >= params["texture_size"]]

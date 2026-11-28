@@ -48,6 +48,19 @@ def test_replay_retains_prepared_inputs_and_native_flags(client, app, admin, tmp
     assert not set(command) & {"--threads", "--decim", "--gss", "--gsh"}
 
 
+def test_text_reconstruction_requires_the_image_generation_runtime(client, admin, make_worker):
+    worker = make_worker(kind="nvidia", features=("engine.trellis2-gguf",))
+    payload = {"name": "Machine", "job_type": "experimental.reconstruct", "params": {
+        "engine": "trellis2-gguf", "category": "prop", "references": {}, "prompt": "  Retro vending machine  ",
+    }}
+    assert client.post("/api/v1/jobs", headers=admin, json={**payload, "worker_id": worker.id}).status_code == 422
+    answer = client.post("/api/v1/jobs", headers=admin, json=payload)
+    assert answer.status_code == 201, answer.text
+    assert "engine.text-reference" in answer.json()["requirements"]["features"]
+    assert answer.json()["params"]["prompt"] == "Retro vending machine"
+    assert worker.lease() is None
+
+
 def test_preparation_master_requires_the_lease_and_preserves_source(client, app, admin, make_worker):
     asset_id = "ast_archive_test"
     with app.state.db.session() as db:

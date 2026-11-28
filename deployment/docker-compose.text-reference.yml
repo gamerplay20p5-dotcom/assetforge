@@ -1,0 +1,10 @@
+# Append to docker-compose.engines.yml with the pixal3d-python profile enabled.
+services:
+  pixal3d-python:
+    volumes:
+      - type: bind
+        source: ${ZIMAGE_MODELS_DIR:?set the local Z-Image-Turbo model directory}
+        target: /text-model
+        read_only: true
+        bind:
+          create_host_path: false

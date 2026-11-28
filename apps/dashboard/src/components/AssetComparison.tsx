@@ -19,6 +19,8 @@ export function AssetComparison({ asset, version, token }: { asset: Asset; versi
     (typeof params.reference_id === "string" ? { front: params.reference_id } : {});
   const references = Object.entries(refs);
   const target = refs[reference] ?? references[0]?.[1];
+  const generated = params.generated_reference_file === "reference.png";
+  const hasReference = references.length > 0 || generated;
   const versions = (asset.versions ?? []).filter((v) => v.version !== version);
   const other = versions.find((v) => v.version === otherVersion) ?? versions[0];
   const evaluation = useMutation({
@@ -36,12 +38,12 @@ export function AssetComparison({ asset, version, token }: { asset: Asset; versi
       <section>
         <div className="engine-compare-heading"><h3>Versão {version}</h3></div>
         <Viewer3D url={token ? fileUrl(asset.id, "model.glb", token, version) : null} {...viewerFlags}
-          onCapture={references.length ? (image) => setRenders((old) => [...old, image].slice(-4)) : undefined} />
+          onCapture={hasReference ? (image) => setRenders((old) => [...old, image].slice(-4)) : undefined} />
       </section>
       <section>
         {mode === "reference" ? <>
           <div className="engine-compare-heading">
-            <h3>Imagem original</h3>
+            <h3>{generated ? "Referência gerada" : "Imagem original"}</h3>
             {references.length > 1 && <select aria-label="Vista original" value={reference} onChange={(e) => setReference(e.target.value)}>
               {references.map(([view]) => <option key={view} value={view}>{views[view] ?? view}</option>)}
             </select>}
@@ -49,7 +51,8 @@ export function AssetComparison({ asset, version, token }: { asset: Asset; versi
           {references.length ? <>
             {target && token && <img alt={views[reference] ?? "Referência original"}
               src={`/api/v1/references/${encodeURIComponent(target)}?token=${encodeURIComponent(token)}`} />}
-          </> : <p className="muted">Esta versão não tem referências armazenadas.</p>}
+          </> : generated && token ? <img alt="Referência gerada" src={fileUrl(asset.id, "reference.png", token, version)} />
+            : <p className="muted">Esta versão não tem referências armazenadas.</p>}
         </> : <>
           <div className="engine-compare-heading">
             <select aria-label="Versão para comparar" value={other?.version ?? ""} onChange={(e) => setOtherVersion(Number(e.target.value))}>
@@ -60,7 +63,7 @@ export function AssetComparison({ asset, version, token }: { asset: Asset; versi
         </>}
       </section>
     </div>
-    {references.length > 0 && <div className="row wrap" style={{ marginTop: 12 }}>
+    {hasReference && <div className="row wrap" style={{ marginTop: 12 }}>
       <span className="muted">{renders.length} de 4 vistas capturadas</span>
       <button type="button" disabled={!renders.length || evaluation.isPending} onClick={() => evaluation.mutate()}>
         {evaluation.isPending ? "Avaliando…" : "Avaliar com Gemini"}

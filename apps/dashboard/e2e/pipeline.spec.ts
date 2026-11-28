@@ -6,6 +6,7 @@ test("login -> describe -> generate -> queue -> library -> 3D viewer -> download
   await page.getByLabel("Senha").fill("e2e-admin-password");
   await page.getByRole("button", { name: "Entrar" }).click();
   await expect(page).toHaveURL(/\/engines$/);
+  await page.getByText("Geometria e textura", { exact: true }).click();
   await expect(page.getByLabel("Motor", { exact: true })).toHaveValue("trellis2-gguf");
   await expect(page.getByRole("region", { name: "Estúdio 3D" }).getByText("Pronto para um novo modelo 3D?")).toBeVisible();
   await expect(page.getByRole("tab", { name: "Assets", exact: true })).toBeVisible();
@@ -71,6 +72,7 @@ test("an archived recipe can change only the seed and use the original studio", 
   await page.goto("/engines?asset=ast_replay&version=1");
   await page.getByLabel("Senha").fill("e2e-admin-password");
   await page.getByRole("button", { name: "Entrar" }).click();
+  await page.getByText("Geometria e textura", { exact: true }).click();
   await expect(page.getByLabel("Motor", { exact: true })).toHaveValue("pixal3d-sv");
   await expect(page.getByLabel("Seed")).toHaveValue("7");
   await expect(page.getByLabel("Aplicar decimação na exportação")).toBeChecked();
@@ -91,6 +93,32 @@ test("an archived recipe can change only the seed and use the original studio", 
   completed = true;
   await expect(page.locator(".st-stage .viewer")).toBeVisible();
   await expect(page.getByRole("link", { name: "GLB" })).toHaveAttribute("href", /version=2/);
+  await page.goto("about:blank");
+});
+
+test("the studio switches from images to a written description and retains the chosen profile", async ({ page }) => {
+  await page.route("**/api/v1/workers", (route) => route.fulfill({ json: [{
+    id: "wrk_spark", name: "Spark", online: true, state: "enabled", telemetry: {},
+    capabilities: { features: ["engine.trellis2-gguf", "engine.text-reference"] },
+  }] }));
+  await page.route("**/api/v1/jobs", (route) => route.fulfill({ status: 201, json: { name: "Máquina retrô", id: "job_text" } }));
+  await page.route("**/api/v1/jobs/job_text", (route) => route.fulfill({ json: {
+    id: "job_text", name: "Máquina retrô", status: "running", progress: 0.1, current_stage: "text_to_image",
+  } }));
+  await page.goto("/engines");
+  await page.getByLabel("Senha").fill("e2e-admin-password");
+  await page.getByRole("button", { name: "Entrar" }).click();
+  await page.getByRole("button", { name: "Múltiplas vistas" }).click();
+  await expect(page.getByLabel("Vista 3/4", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Descrição" }).click();
+  await page.getByLabel("Descreva o que quer criar").fill("Máquina retrô azul com botões laranja");
+  await page.getByText("Geometria e textura", { exact: true }).click();
+  await page.getByLabel("Perfil geométrico").selectOption("low");
+  const request = page.waitForRequest((candidate) => candidate.url().endsWith("/api/v1/jobs") && candidate.method() === "POST");
+  await page.getByRole("button", { name: "Enfileirar geração" }).click();
+  expect((await request).postDataJSON().params).toMatchObject({ prompt: "Máquina retrô azul com botões laranja", references: {}, skip_decimation: true });
+  await expect(page).toHaveURL(/job=job_text&profile=low/);
+  await expect(page.getByText("Criando a imagem de referência")).toBeVisible();
   await page.goto("about:blank");
 });
 

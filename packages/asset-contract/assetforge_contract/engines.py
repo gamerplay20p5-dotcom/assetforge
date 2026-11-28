@@ -2,7 +2,7 @@
 
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 RECONSTRUCT = "experimental.reconstruct"
@@ -31,6 +31,7 @@ class ReconstructionParams(BaseModel):
     engine: Literal["trellis2-gguf", "pixal3d-sv", "pixal3d-mv", "pixal3d-python"]
     category: Literal["building", "vehicle", "npc", "prop"]
     references: dict[View, str]
+    prompt: str | None = Field(default=None, min_length=1, max_length=1600)
     resolution: int = 1024
     max_tokens: int = Field(default=49152, gt=0, le=2**31 - 1)
     seed: int = Field(default=1, ge=0, le=2**31 - 1)
@@ -45,6 +46,11 @@ class ReconstructionParams(BaseModel):
     archive_azimuth_override: float | None = Field(default=None, gt=0, lt=360)
     use_native_threads: bool = False
 
+    @field_validator("prompt", mode="before")
+    @classmethod
+    def strip_prompt(cls, value):
+        return value.strip() if isinstance(value, str) else value
+
     @model_validator(mode="after")
     def check_engine(self):
         import re
@@ -52,7 +58,10 @@ class ReconstructionParams(BaseModel):
         entry = ENGINES[self.engine]
         if self.resolution not in entry["resolutions"]:
             raise ValueError("resolution is unsupported by this engine")
-        if set(self.references) != set(entry["views"]):
+        if self.prompt:
+            if len(entry["views"]) != 1 or self.references or self.prepared_inputs:
+                raise ValueError("text reconstruction requires a single-view engine and no uploaded references")
+        elif set(self.references) != set(entry["views"]):
             raise ValueError(f"required reference views: {', '.join(entry['views'])}")
         if any(not re.fullmatch(r"ref_[0-9a-f]{12}", ref) for ref in self.references.values()):
             raise ValueError("invalid reference id")

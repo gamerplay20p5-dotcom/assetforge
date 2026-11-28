@@ -187,20 +187,28 @@ def evaluate(asset_id: str, version: int, body: EvaluationIn, request: Request,
     params = selected.manifest.get("generation_params", {})
     refs = params.get("original_references") or params.get("references") or {}
     front = refs.get("front") or params.get("reference_id") or next(iter(params.get("reference_ids") or []), None)
-    if not front:
-        raise HTTPException(422, "esta versão não tem imagem de referência")
     settings = request.app.state.settings
     originals = [(name, refs[name]) for name in ("front", "right", "back", "three_quarter") if name in refs]
-    if not originals:
+    if not originals and front:
         originals = [("front", front)]
-    images = [evaluation_image(reference_path(request, ref).read_bytes()) for _, ref in originals]
+    if originals:
+        images = [evaluation_image(reference_path(request, ref).read_bytes()) for _, ref in originals]
+        reference_names = [name for name, _ in originals]
+    elif params.get("generated_reference_file") == "reference.png":
+        generated = request.app.state.storage.asset_dir(asset_id, selected.version) / "reference.png"
+        if not generated.is_file():
+            raise HTTPException(410, "a referência gerada está indisponível")
+        images = [evaluation_image(generated.read_bytes())]
+        reference_names = ["front"]
+    else:
+        raise HTTPException(422, "esta versão não tem imagem de referência")
     images += [evaluation_image(_decode_image(b, 4 * 1024**2)[0]) for b in body.renders]
     names = [f"captura {i}" for i in range(1, len(body.renders) + 1)]
     model_label = f"{asset_id} v{version}"
     try:
         ans = AiRouter(db, settings.resolved_secret()).generate_json(
             "asset.visual_review", compare.SYSTEM, compare.compare_prompt(
-                names, model_label, reference_names=[name for name, _ in originals]), images,
+                names, model_label, reference_names=reference_names), images,
             compare.COMPARE_SCHEMA, compare.PROMPT_VERSION, selected.job_id or "", provider="gemini",
         )
     except NoKeyAvailable as exc:

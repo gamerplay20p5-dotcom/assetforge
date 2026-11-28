@@ -123,7 +123,7 @@ def capabilities(cfg: WorkerConfig, blender_bin: str | None, ai: dict | None = N
     if bver:
         features += ["blender", "agent.building"]  # cloud-AI agent: the AI is reached through the API, the worker builds + renders
         if Path("/app/scripts/engines/prepare_game.py").is_file():
-            features.append("asset.prepare")
+            features.extend(("asset.prepare", "asset.prepare-density"))
     vm = psutil.virtual_memory()
     gpus = detect_gpus() if cfg.kind in ("intel", "hybrid") else []
     runtimes = ai_runtimes()

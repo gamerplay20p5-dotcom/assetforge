@@ -52,6 +52,11 @@ def features(work_dir: Path) -> list[str]:
     features = [f"engine.{name}" for name in names]
     if names:
         features.append("engine.archive-inputs")
+    try:
+        if time.time() - (work_dir / ".zimage-heartbeat").stat().st_mtime < 20:
+            features.append("engine.text-reference")
+    except FileNotFoundError:
+        pass
     if shutil.which("trellis-cli") and (root / CPP_WEIGHTS["trellis2-gguf"] / "birefnet.gguf").is_file():
         features.append("engine.reference-prep")
     return features
