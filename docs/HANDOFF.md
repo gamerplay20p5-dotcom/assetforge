@@ -55,6 +55,8 @@ A suíte de backend passou com 253 testes em Docker. A rodada de regressão apó
 
 ## Reteste da memória da RTX 4090 · 27/11/2026
 
+Na tentativa seguinte de repetir `memtester 4G 1`, o host da RTX 4090 ficou inacessível por SSH. O acesso direto expirou e a central retornou `No route to host` nas duas tentativas. Nenhum novo teste iniciou. O último resultado confirmado segue sendo o teste após o ajuste Manual descrito abaixo.
+
 ### Após o ajuste de AI Overclock / Tuning para Manual
 
 O SSH voltou com a chave já cadastrada após a reinicialização. O SMBIOS continuou reportando quatro módulos DDR4 de 32 GiB configurados a 2.666 MT/s. O Linux reportou 126.227 MiB utilizáveis.
