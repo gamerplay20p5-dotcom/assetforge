@@ -176,7 +176,7 @@ class NeutralMetal:
 
 def bake_pass(high, low, kind: str, res: int, label: str, extrusion: float):
     img = bpy.data.images.new(label, res, res, alpha=False)
-    if kind in ("NORMAL", "ROUGHNESS"):
+    if kind in ("NORMAL", "ROUGHNESS", "EMIT"):
         img.colorspace_settings.name = "Non-Color"
     nt = low.data.materials[0].node_tree
     node = nt.nodes.new("ShaderNodeTexImage")

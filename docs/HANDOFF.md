@@ -3,6 +3,12 @@
 Escrito para: outro agente de código (Codex) que vai continuar o trabalho sem o histórico da conversa. A documentação usa PT-BR e o dashboard oferece português e inglês.
 Commits em Conventional Commits; PRs em português **e** inglês. Atribuição nos commits: `Co-Authored-By: <modelo> <noreply@anthropic.com>` se feitos por Claude.
 
+## Otimização experimental CITY+++ · 28/11/2026
+
+A bateria de retopologia usa os 40 masters de `~/assetforge-phase3/archive40-source/results` montados como somente leitura. O relatório [Retopologia e LODs do CITY+++](CITY_RETOPOLOGY_BENCHMARK.md) registra os métodos, os orçamentos provisórios, a qualidade visual e a reprodução em Docker. Os candidatos ficam separados dos masters e do catálogo. A decisão sobre o perfil padrão permanece vinculada à revisão artística e ao benchmark na Unity.
+
+O residencial TRELLIS.2 gerou LODs de 7.997, 2.400 e 600 triângulos a partir de 295.794, com 98,96% de IoU na pior vista do LOD2. Os 40 pares de LOD voxel foram exportados com baking. O Instant Meshes apresentou buracos em vários candidatos e o QuadriFlow completou cinco NPCs. A 206 guarda GLBs e logs em `~/assetforge-phase3/city-retopo-bench-v5`. A cópia local das 40 folhas, métricas e atlas fica em `reports_out/engines/city-retopology-2026-11-28`.
+
 ## Reconstrução e Biblioteca CITY+++ · 27/11/2026
 
 ### Studio e execução por etapas

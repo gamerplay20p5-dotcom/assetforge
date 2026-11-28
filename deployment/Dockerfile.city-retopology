@@ -1,0 +1,23 @@
+ARG REVIEW_BASE=assetforge-engine-review:local
+FROM debian:bookworm-slim AS build
+ARG INSTANT_COMMIT=7b3160864a2e1025af498c84cfed91cbfb613698
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates cmake g++ git make \
+        libgl-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libxxf86vm-dev \
+    && rm -rf /var/lib/apt/lists/*
+RUN git init /src \
+    && git -C /src fetch --depth=1 https://github.com/wjakob/instant-meshes.git "${INSTANT_COMMIT}" \
+    && git -C /src checkout --detach FETCH_HEAD \
+    && git -C /src submodule update --init --recursive --depth 1 \
+    && cmake -S /src -B /build -DCMAKE_BUILD_TYPE=Release \
+    && cmake --build /build -j 6 \
+    && cp "/build/Instant Meshes" /instant-meshes
+
+FROM ${REVIEW_BASE}
+USER root
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libgl1 libxrandr2 libxinerama1 libxcursor1 libxi6 libxxf86vm1 \
+    && rm -rf /var/lib/apt/lists/*
+COPY --from=build /instant-meshes /usr/local/bin/instant-meshes
+COPY --from=build /src/LICENSE.txt /usr/share/doc/instant-meshes/LICENSE.txt
+USER assetforge
