@@ -7,6 +7,8 @@ Commits em Conventional Commits; PRs em português **e** inglês. Atribuição n
 
 O layout do estúdio anterior à reorganização (commit `5769f95`) voltou à tela **Reconstrução 3D**. O painel de geração fica à esquerda, o palco central preserva as bolinhas e o percentual original, e a coluna da direita reúne os assets e propriedades. O palco acompanha os pedidos de Pixal3D e TRELLIS.2 e abre a versão exata do GLB ao terminar. **Estúdio clássico** abre o painel anterior com seus modos originais.
 
+Na 206, `~/assetforge-phase3/studio.override.yml` publica a imagem `assetforge-central:studio-ac8b456`. A verificação HTTP confirmou o bundle nas duas rotas do estúdio. O rollback usa `~/assetforge-phase3/archive40.override.yml`.
+
 O login abre **Reconstrução 3D**. A navegação tem Visão geral, Reconstrução 3D, Agente de construções, Preparação de assets, Biblioteca e Infraestrutura. TRELLIS.2 GGUF e as três variantes do Pixal3D são os motores da reconstrução direta. TripoSR e Stable Fast 3D ficam em Motores legados. Gemini, Grok e os kits manuais ficam no fluxo de construção. A fila, os lotes, os workers e os provedores estão em Infraestrutura.
 
 ### Acervo e reprodução
