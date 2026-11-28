@@ -17,7 +17,7 @@ from zipfile import ZIP_DEFLATED, ZipFile
 import numpy as np
 import trimesh
 from assetforge_contract import AssetManifest, LodInfo
-from assetforge_contract.engines import ENGINES, RECONSTRUCT, ReconstructionParams
+from assetforge_contract.engines import ENGINES, RECONSTRUCT, TEXT_REFERENCE_MODEL, ReconstructionParams, TextReferenceParams
 from assetforge_export.pipeline import PipelineError, _file_entry
 from assetforge_validation import validate_glb
 from PIL import Image, ImageDraw
@@ -248,7 +248,7 @@ def preview(scene: trimesh.Scene, dest: Path) -> None:
     im.save(dest)
 
 
-def generate_reference(work: Path, params: ReconstructionParams) -> None:
+def generate_reference(work: Path, params: TextReferenceParams) -> None:
     request = work / "python.request.json"
     response = work / "python.response.json"
     temporary = request.with_suffix(".tmp")
@@ -271,6 +271,18 @@ def generate_reference(work: Path, params: ReconstructionParams) -> None:
         (work / "python.cancel").touch()
 
 
+def run_reference_job(job: dict, work: Path, emit) -> dict:
+    params = TextReferenceParams.model_validate(job["params"])
+    emit({"type": "stage", "name": "text_to_image", "status": "start"})
+    generate_reference(work, params)
+    out = work / "out"
+    out.mkdir()
+    reference = out / "reference.png"
+    shutil.copyfile(work / "front.png", reference)
+    emit({"type": "stage", "name": "text_to_image", "status": "done"})
+    return {"files": [_file_entry(reference, out, "report", "png").model_dump()]}
+
+
 def run_reconstruction(job: dict, work: Path, emit, threads: int) -> dict:
     params = ReconstructionParams.model_validate(job["params"])
     out = work / "out"
@@ -282,7 +294,7 @@ def run_reconstruction(job: dict, work: Path, emit, threads: int) -> dict:
 
     if params.prompt:
         stage("text_to_image", "start")
-        generate_reference(work, params)
+        generate_reference(work, TextReferenceParams(prompt=params.prompt, seed=params.seed))
         stage("text_to_image", "done")
     stage("prepare", "start")
     views, preparation = (None, {}) if params.engine == "trellis2-gguf" else prepare_views(work, params, emit)
@@ -306,10 +318,10 @@ def run_reconstruction(job: dict, work: Path, emit, threads: int) -> dict:
     files = [_file_entry(out / filename, out, role, fmt) for filename, role, fmt in (
         ("model.glb", "model", "glb"), ("thumbnail.png", "preview", "png"), ("validation.json", "report", "json"))]
     source_info = {}
-    if params.prompt:
+    if params.prompt or params.reference_job_id:
         shutil.copyfile(work / "front.png", out / "reference.png")
         files.append(_file_entry(out / "reference.png", out, "report", "png"))
-        source_info = {"generated_reference_file": "reference.png", "reference_model": "Tongyi-MAI/Z-Image-Turbo"}
+        source_info = {"generated_reference_file": "reference.png", "reference_model": TEXT_REFERENCE_MODEL}
     manifest = AssetManifest(asset_id=job["asset_id"], name=job["name"], version=job["version"], category=params.category,
                              art_profile="experimental", seed=params.seed, generator_id=RECONSTRUCT, generator_version="0.1.0",
                              ai_model=params.engine, quality_profile="experimental", dimensions_m=dims, footprint_m=(dims[0], dims[2]),

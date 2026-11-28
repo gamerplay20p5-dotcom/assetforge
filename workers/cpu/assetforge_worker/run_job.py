@@ -16,6 +16,7 @@ import sys
 import traceback
 from pathlib import Path
 
+from assetforge_contract.engines import TEXT_REFERENCE
 from assetforge_export.pipeline import PipelineError, run_building_job
 
 
@@ -31,6 +32,12 @@ def main() -> int:
     job = json.loads((workdir / "job.json").read_text(encoding="utf-8"))
     threads = int(job.get("requirements", {}).get("cpu_cores", 1))
     try:
+        if job["job_type"] == TEXT_REFERENCE:
+            from .engine_job import run_reference_job
+
+            result = run_reference_job(job, workdir, emit)
+            (workdir / "result.json").write_text(json.dumps(result), encoding="utf-8")
+            return 0
         if job["job_type"] == "experimental.reconstruct":
             from .engine_job import run_reconstruction
 

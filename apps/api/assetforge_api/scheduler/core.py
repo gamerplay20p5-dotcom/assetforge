@@ -20,15 +20,16 @@ from datetime import datetime, timedelta
 
 from sqlalchemy import or_, select, update
 from sqlalchemy.orm import Session
-from assetforge_contract.engines import RECONSTRUCT
+from assetforge_contract.engines import RECONSTRUCT, TEXT_REFERENCE
 
 from ..config import Settings
 from ..db import utcnow
 from ..models import Asset, AssetVersion, Job, JobAttempt, JobLog, Worker, new_id
 from ..services import emit_event, get_setting
-from .engines import admission, estimate
+from .engines import admission, estimate, estimate_reference
 
 TERMINAL = ("succeeded", "failed", "cancelled")
+ADAPTIVE_JOBS = {RECONSTRUCT, TEXT_REFERENCE}
 
 
 # ------------------------------------------------------------------------------ requirements
@@ -39,6 +40,8 @@ def requirements_for(job_type: str, formats: list[str], vram_mb: int = 7000, pro
         if params.get("prompt"):
             features.append("engine.text-reference")
         return {"features": features, **estimate(params, unified=False)}
+    if job_type == TEXT_REFERENCE:
+        return {"features": ["engine.split-reference"], **estimate_reference(unified=False)}
     if job_type == "asset.prepare":
         features = ["asset.prepare", "blender"]
         if params and params["lod_ratios"][0] < 1:
@@ -92,7 +95,7 @@ def incompatibility(job: Job, worker: Worker, res: Reserved) -> str | None:
     missing = [f for f in req.get("features", []) if f not in set(caps.get("features", []))]
     if missing:
         return f"missing capabilities: {', '.join(missing)}"
-    if job.job_type == RECONSTRUCT:
+    if job.job_type in ADAPTIVE_JOBS:
         return None
     kinds = req.get("worker_kinds")
     if kinds and worker.kind not in kinds:
@@ -131,6 +134,32 @@ def server_log(db: Session, job: Job, message: str, level: str = "info") -> None
     db.add(JobLog(job_id=job.id, attempt_no=job.attempts, level=level, source="server", message=message))
 
 
+def rank_workers(db: Session, job: Job, workers: list[Worker], settings: Settings, now: datetime,
+                 running_by_worker: dict[str, list[Job]]) -> list[tuple[float, Worker, dict]]:
+    """Rank workers that can accept the exact job now, using the same admission as leasing."""
+    choices = []
+    for candidate in workers:
+        if (candidate.kind != "nvidia" or candidate.state != "enabled" or not worker_online(candidate, settings, now)
+                or (job.pinned_worker_id and job.pinned_worker_id != candidate.id)
+                or incompatibility(job, candidate, Reserved()) is not None):
+            continue
+        running = running_by_worker.get(candidate.id, [])
+        need, _ = admission(db, job, candidate, running, now)
+        if need is None:
+            continue
+        utilization = (candidate.telemetry or {}).get("engine_gpu", {}).get("utilization_percent") or 0
+        score = need.get("historical_seconds", need["expected_seconds"]) * (1 + utilization / 200 + len(running) / 5)
+        choices.append((score, candidate, need))
+    return sorted(choices, key=lambda row: (row[0], row[1].id))
+
+
+def running_by_nvidia_worker(db: Session, workers: list[Worker]) -> dict[str, list[Job]]:
+    grouped: dict[str, list[Job]] = {}
+    for running in db.scalars(select(Job).where(Job.status == "running", Job.worker_id.in_([w.id for w in workers]))):
+        grouped.setdefault(running.worker_id, []).append(running)
+    return grouped
+
+
 # ------------------------------------------------------------------------------ leasing
 def try_lease(db: Session, worker: Worker, settings: Settings, now: datetime | None = None) -> Job | None:
     now = now or utcnow()
@@ -143,7 +172,12 @@ def try_lease(db: Session, worker: Worker, settings: Settings, now: datetime | N
     res = reserved_for(db, worker.id)
     if not adaptive and res.jobs >= (worker.limits or {}).get("max_concurrent_jobs", 1):
         return None
-    running = list(db.scalars(select(Job).where(Job.status == "running", Job.worker_id == worker.id))) if adaptive else []
+    workers = []
+    running = {}
+    if adaptive:
+        workers = list(db.scalars(select(Worker).where(Worker.kind == "nvidia", Worker.state == "enabled",
+                                                      Worker.last_heartbeat >= now - timedelta(seconds=settings.worker_offline_seconds))))
+        running = running_by_nvidia_worker(db, workers)
     candidates = db.scalars(
         select(Job).where(Job.status == "queued", or_(Job.not_before.is_(None), Job.not_before <= now))
         .order_by(Job.priority.desc(), Job.created_at.asc()).limit(200)
@@ -153,15 +187,16 @@ def try_lease(db: Session, worker: Worker, settings: Settings, now: datetime | N
             continue
         if incompatibility(job, worker, res) is not None:
             continue
-        requirements = job.requirements
-        if job.job_type == RECONSTRUCT:
-            if not adaptive:
-                continue
-            requirements, _ = admission(db, job, worker, running, now)
-            if requirements is None:
-                continue
         if dependencies_state(db, job) != "ready":
             continue
+        requirements = job.requirements
+        if job.job_type in ADAPTIVE_JOBS:
+            if not adaptive:
+                continue
+            ranked = rank_workers(db, job, workers, settings, now, running)
+            if not ranked or ranked[0][1].id != worker.id:
+                continue
+            requirements = ranked[0][2]
         asset_query = select(Asset.id).where(Asset.id == job.asset_id)
         if db.scalar(asset_query):
             if not db.scalar(asset_query.with_for_update(skip_locked=True)):

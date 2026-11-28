@@ -10,7 +10,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from .budgets import QualityProfile
-from .engines import ReconstructionParams
+from .engines import TEXT_REFERENCE, ReconstructionParams, TextReferenceParams
 
 CONTRACT_VERSION = "1.0.0"
 
@@ -65,7 +65,7 @@ class BuildingParams(StrictModel):
         default=None, description="Full architectural spec (JSON) for the house kit; overrides `archetype`. Validated by the generator")
 
 
-JobType = Literal["procedural.building", "ai.text_to_3d", "ai.image_to_3d", "agent.building", "experimental.reconstruct", "asset.prepare"]
+JobType = Literal["procedural.building", "ai.text_to_3d", "ai.image_to_3d", "agent.building", "experimental.reconstruct", "asset.prepare", "reference.generate"]
 AI_JOB_TYPES = ("ai.text_to_3d", "ai.image_to_3d")
 
 
@@ -193,10 +193,14 @@ class JobCreate(StrictModel):
                 raise ValueError("experimental reconstruction exports the master as GLB")
             reconstruction = ReconstructionParams.model_validate(self.params)
             optional_replay = {
-                field for field in ("prepared_inputs", "use_native_threads", "archived_projection", "archive_azimuth_override", "prompt")
+                field for field in ("prepared_inputs", "use_native_threads", "archived_projection", "archive_azimuth_override", "prompt", "reference_job_id")
                 if not getattr(reconstruction, field)
             }
             self.params = reconstruction.model_dump(mode="json", exclude=optional_replay)
+        elif self.job_type == TEXT_REFERENCE:
+            if self.asset_id or self.triangle_limit is not None:
+                raise ValueError("a reference job only produces an image")
+            self.params = TextReferenceParams.model_validate(self.params).model_dump(mode="json")
         elif self.job_type == "asset.prepare":
             if not self.asset_id or self.triangle_limit is not None:
                 raise ValueError("preparation requires an existing master and explicit LOD ratios")

@@ -61,6 +61,52 @@ def test_text_reconstruction_requires_the_image_generation_runtime(client, admin
     assert worker.lease() is None
 
 
+def test_studio_dispatches_reference_and_reconstruction_to_different_workers(client, admin, make_worker, tmp_path):
+    spark = make_worker("Spark", kind="nvidia", features=("engine.split-reference",))
+    gpu = make_worker("Compute", kind="nvidia", features=("engine.trellis2-gguf",))
+    waiting = make_worker("Maintenance", kind="nvidia", features=("engine.trellis2-gguf",))
+    sample = {"temperature_c": 47, "ram_total_mb": 120000, "ram_available_mb": 116000,
+              "vram_total_mb": 24576, "vram_free_mb": 23300, "utilization_percent": 3}
+    spark.heartbeat(telemetry={"engine_gpu": {**sample, "unified": True}})
+    for worker in (gpu, waiting):
+        worker.heartbeat(telemetry={"engine_gpu": sample})
+    assert client.patch(f"/api/v1/workers/{waiting.id}", headers=admin, json={"state": "maintenance"}).status_code == 200
+    recommendation = client.get("/api/v1/engines/recommend?mode=text&category=prop&resolution=1024", headers=admin)
+    assert recommendation.json() == {"engine": "trellis2-gguf", "worker": {"id": gpu.id, "name": "Compute"}}
+
+    payload = {"name": "Studio", "job_type": "experimental.reconstruct", "worker_id": gpu.id, "params": {
+        "engine": "trellis2-gguf", "category": "prop", "references": {}, "prompt": "Retro vending machine",
+    }}
+    first = client.post("/api/v1/studio/text", headers=admin, json=payload)
+    assert first.status_code == 201, first.text
+    child = first.json()
+    source_id, = child["depends_on"]
+    assert gpu.lease() is None
+    lease = spark.lease()
+    assert lease["job_id"] == source_id and lease["job"]["job_type"] == "reference.generate"
+
+    png = tmp_path / "reference.png"
+    Image.new("RGB", (1024, 1024), "yellow").save(png)
+    digest = hashlib.sha256(png.read_bytes()).hexdigest()
+    assert spark.upload(lease, "reference.png", png).status_code == 201
+    result = {"files": [{"name": "reference.png", "sha256": digest, "size": png.stat().st_size}]}
+    saved = spark.complete(lease, result)
+    assert saved.status_code == 200, saved.text
+    assert spark.complete(lease, result).json()["duplicate"]
+    reference_id = saved.json()["reference_id"]
+    assert client.get(f"/api/v1/worker/references/{reference_id}", headers=gpu.headers).content == png.read_bytes()
+    assert waiting.lease() is None
+    reconstruction = gpu.lease()
+    assert reconstruction["job_id"] == child["id"]
+    assert reconstruction["job"]["params"]["references"] == {"front": reference_id}
+    assert "prompt" not in reconstruction["job"]["params"]
+    assert reconstruction["job"]["params"]["skip_decimation"]
+    replay = client.post("/api/v1/studio/text", headers=admin, json=payload).json()
+    assert replay["id"] != child["id"]
+    assert replay["depends_on"] == [source_id]
+    assert spark.lease() is None
+
+
 def test_preparation_master_requires_the_lease_and_preserves_source(client, app, admin, make_worker):
     asset_id = "ast_archive_test"
     with app.state.db.session() as db:
@@ -78,6 +124,11 @@ def test_preparation_master_requires_the_lease_and_preserves_source(client, app,
         "params": {"category": "building", "source_version": 1, "height_m": 30},
     })
     assert response.status_code == 201, response.text
+    duplicate = client.post("/api/v1/jobs", headers=admin, json={
+        "name": "Derivado", "job_type": "asset.prepare", "asset_id": asset_id,
+        "params": {"category": "building", "source_version": 1, "height_m": 30},
+    })
+    assert duplicate.json()["id"] == response.json()["id"]
     lease = worker.lease()
     assert lease["job"]["version"] == 2
     route = f"/api/v1/worker/jobs/{lease['job_id']}/master"

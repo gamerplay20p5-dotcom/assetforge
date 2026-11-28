@@ -1,6 +1,6 @@
 import { useLocale } from "../i18n";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Box, ChevronDown, Download, Grid3x3, ImagePlus, Maximize2, Package, RotateCw, Sparkles, X } from "lucide-react";
+import { Box, ChevronDown, Download, Grid3x3, ImagePlus, Maximize2, Minimize2, Package, PanelRight, RotateCw, Sparkles, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { api, fileUrl, getToken, packageUrl, useDownloadToken } from "../api";
@@ -25,7 +25,7 @@ interface Item {
 const ACTIVE = new Set(["queued", "running"]);
 
 interface StudioProps {
-  reconstructionControls?: (onCreated: (jobId: string, profile: GeometryProfile) => void) => ReactNode;
+  reconstructionControls?: (onCreated: (jobId: string) => void) => ReactNode;
 }
 
 export function Studio({ reconstructionControls }: StudioProps) {
@@ -77,6 +77,8 @@ export function Studio({ reconstructionControls }: StudioProps) {
   const [rotate, setRotate] = useState(true);
   const [stats, setStats] = useState<ViewerStats | null>(null);
   const [tab, setTab] = useState<"assets" | "props">("assets");
+  const [showAssets, setShowAssets] = useState(false);
+  const [focusViewer, setFocusViewer] = useState(false);
   const [lastPreview, setLastPreview] = useState<string | null>(null); // picture the dots take their shape from when the job has no reference of its own
 
   const workers = useQuery({ queryKey: ["workers"], queryFn: () => api<Worker[]>("/workers"), refetchInterval: 8000 });
@@ -96,11 +98,18 @@ export function Studio({ reconstructionControls }: StudioProps) {
   const lodList = parseLods(lods);
 
   const jobs = useQuery({ queryKey: ["jobs", "studio"], queryFn: () => api<{ items: Job[] }>("/jobs?limit=30"), refetchInterval: 4000 });
-  const running = (jobs.data?.items ?? []).filter((j) => ACTIVE.has(j.status));
+  const running = (jobs.data?.items ?? []).filter((j) => ACTIVE.has(j.status)
+    && (reconstruct ? j.job_type === "experimental.reconstruct" : j.job_type !== "reference.generate"));
   const job = useQuery({ queryKey: ["job", jobId], queryFn: () => api<Job>(`/jobs/${encodeURIComponent(jobId!)}`), enabled: !!jobId,
     refetchInterval: (q) => !q.state.data || ACTIVE.has(q.state.data.status) ? 1500 : false });
   const j = job.data;
-  const finished = reconstruct && j?.status === "succeeded" ? j : null;
+  const referenceJobId = typeof j?.params?.reference_job_id === "string" ? j.params.reference_job_id : null;
+  const referenceJob = useQuery({ queryKey: ["job", referenceJobId],
+    queryFn: () => api<Job>(`/jobs/${encodeURIComponent(referenceJobId!)}`), enabled: !!referenceJobId,
+    refetchInterval: (q) => !q.state.data || ACTIVE.has(q.state.data.status) ? 1500 : false });
+  const reference = referenceJob.data;
+  const generatingReference = j?.status === "queued" && !!referenceJobId && reference?.status !== "succeeded";
+  const finished = reconstruct && j?.status === "succeeded" && j.job_type !== "reference.generate" ? j : null;
   const viewedAssetId = finished?.asset_id ?? assetId;
   const viewedVersion = finished?.asset_version ?? null;
   const assets = useQuery({ queryKey: ["assets", "studio"], queryFn: () => api<{ total: number; items: Asset[] }>("/assets?limit=60&sort=-created_at"), refetchInterval: 6000 });
@@ -109,6 +118,8 @@ export function Studio({ reconstructionControls }: StudioProps) {
     enabled: !!viewedAssetId });
   const a = asset.data;
   const m = a?.manifest;
+  const runtime = m?.generation_params?.runtime as { effective_resolution?: number } | undefined;
+  const requestedResolution = m?.generation_params?.resolution;
 
   // when the watched job ends, show its asset
   useEffect(() => {
@@ -214,7 +225,8 @@ export function Studio({ reconstructionControls }: StudioProps) {
   const generating = !!j && ACTIVE.has(j.status);
   const jp = j?.params as Record<string, unknown> | undefined;
   const reconstructionRef = (jp?.references as Record<string, string> | undefined)?.front;
-  const firstRef = reconstructionRef ?? (typeof jp?.reference_id === "string" ? jp.reference_id : Array.isArray(jp?.reference_ids) ? (jp.reference_ids[0] as string) : null);
+  const generatedReference = typeof reference?.result?.reference_id === "string" ? reference.result.reference_id : undefined;
+  const firstRef = reconstructionRef ?? generatedReference ?? (typeof jp?.reference_id === "string" ? jp.reference_id : Array.isArray(jp?.reference_ids) ? (jp.reference_ids[0] as string) : null);
   const animSource: string | null =
     firstRef && token
       ? `/api/v1/references/${firstRef}?token=${encodeURIComponent(token)}`
@@ -224,17 +236,24 @@ export function Studio({ reconstructionControls }: StudioProps) {
   const failed = !!j && (j.status === "failed" || j.status === "cancelled");
   const needed = (j?.requirements?.features ?? []).find((f) => f.startsWith("provider."))?.slice(9);
   const stuck = j?.status === "queued" && !!needed && !upFor(needed);
-  const stageName = j?.current_stage ? t(STAGE_LABEL[j.current_stage] ?? j.current_stage) : stuck ? t("Nenhum worker oferece o modelo {0} agora", PROVIDERS[needed as keyof typeof PROVIDERS]?.title ?? needed) : j?.status === "queued" ? t("Na fila, aguardando um worker livre") : t("Iniciando");
+  const processing = generatingReference ? reference : j;
+  const progressValue = referenceJobId ? (reference?.status === "succeeded" || j?.status === "running"
+    ? 0.2 + 0.8 * (j?.progress ?? 0) : 0.2 * (reference?.progress ?? 0)) : j?.progress ?? 0;
+  const workerName = workers.data?.find((worker) => worker.id === processing?.worker_id)?.name;
+  const stageName = processing?.current_stage ? t(STAGE_LABEL[processing.current_stage] ?? processing.current_stage)
+    : generatingReference ? t("Aguardando geração da referência") : stuck
+    ? t("Nenhum worker oferece o modelo {0} agora", PROVIDERS[needed as keyof typeof PROVIDERS]?.title ?? needed)
+    : j?.status === "queued" ? t("Na fila, aguardando um worker livre") : t("Iniciando");
   const elapsed = useMemo(() => (j?.started_at ? Math.max(0, (Date.now() - new Date(j.started_at).getTime()) / 1000) : null), [j?.started_at, j?.progress]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
-    <div className="studio">
+    <div className={`studio${reconstruct ? " st-workspace" : ""}${focusViewer ? " st-focus" : ""}`}>
       {/* ------------------------------------------------ generate panel */}
       <aside className={reconstruct ? "st-left st-left-workflow" : "st-left"}>
-        {reconstructionControls ? reconstructionControls((id, profile) => {
+        {reconstructionControls ? reconstructionControls((id) => {
           setAssetId(null);
           setLastPreview(null);
-          setJobId(id, profile);
+          setJobId(id);
         }) : <>
         <div className="mode-seg" role="tablist" aria-label={t("Como gerar")}>
           <button role="tab" aria-selected={mode === "kit"} className={mode === "kit" ? "on" : ""} onClick={() => setMode("kit")}>{t("Casas do kit")}</button>
@@ -382,28 +401,35 @@ export function Studio({ reconstructionControls }: StudioProps) {
 
       {/* ------------------------------------------------ stage */}
       <section className="st-stage" aria-label={t("Estúdio 3D")}>
+        {reconstruct && <div className="st-stage-actions">
+          <button type="button" onClick={() => setShowAssets(!showAssets)} aria-pressed={showAssets}><PanelRight size={16} /> {t("Assets")}</button>
+          <button type="button" className="st-focus-toggle" onClick={() => setFocusViewer(!focusViewer)} aria-pressed={focusViewer}
+            aria-label={t(focusViewer ? "Mostrar painel de criação" : "Ampliar visualizador")}>
+            {focusViewer ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
+          </button>
+        </div>}
         {generating && j ? (
           <div className="st-gen">
-            <GenAnimation progress={j.progress} source={animSource} />
+            <GenAnimation progress={progressValue} source={animSource} />
             <div className="st-gen-info">
-              <div className="st-pct">{Math.round(j.progress * 100)}<small>%</small></div>
+              <div className="st-pct">{Math.round(progressValue * 100)}<small>%</small></div>
               <div className="st-stage-name" aria-live="polite">{stageName}</div>
-              <div className="st-bar" role="progressbar" aria-label={t("Progresso da geração")} aria-valuenow={Math.round(j.progress * 100)}><i style={{ width: `${Math.max(2, j.progress * 100)}%` }} /></div>
+              <div className="st-bar" role="progressbar" aria-label={t("Progresso da geração")} aria-valuenow={Math.round(progressValue * 100)}><i style={{ width: `${Math.max(2, progressValue * 100)}%` }} /></div>
               <div className="st-sub">
                 {j.name}
+                {workerName && ` · ${workerName}`}
                 {elapsed != null && ` · ${formatDuration(elapsed)}`}
                 {j.eta_seconds ? t(" · restam ~{0}", formatDuration(j.eta_seconds)) : ""}
               </div>
               {stuck && <div className="st-warn" style={{ maxWidth: 420 }}>{t("Este pedido não vai andar:")}{" "}{reasonFor(needed!) ?? t("o modelo não está pronto em nenhum worker")}{t(". Cancele e gere de novo com")}{" "}{triUp ? t("o TripoSR") : t("outro modelo")}.</div>}
               <button onClick={() => cancel.mutate(j.id)} disabled={cancel.isPending}>{t("Cancelar")}</button>
-              <div className="st-sub dim">{t("As bolinhas formam a silhueta da imagem de referência; o percentual e a etapa vêm do job real.")}</div>
             </div>
           </div>
         ) : failed && j ? (
           <div className="st-empty">
             <div className="st-logo err"><X size={34} /></div>
             <h2>{j.status === "cancelled" ? t("Geração cancelada") : t("A geração falhou")}</h2>
-            <p>{j.error ?? t("Veja os detalhes na fila.")}</p>
+            <p>{reference?.error ?? j.error ?? t("Veja os detalhes na fila.")}</p>
             <div className="row">
               <Link className="btn" to="/queue">{t("Abrir fila")}</Link>
               <button onClick={() => setJobId(null)}>{t("Fechar")}</button>
@@ -422,12 +448,22 @@ export function Studio({ reconstructionControls }: StudioProps) {
               <strong>{a.name}</strong>
               {stats && <span className="chip">{stats.triangles.toLocaleString(language)} △</span>}
               {stats && <span className="chip">{stats.size.map((v) => v.toFixed(2)).join(" × ")} m</span>}
+              {typeof requestedResolution === "number" && <span className="chip">{t("Resolução {0} → {1}",
+                requestedResolution, runtime?.effective_resolution ?? t("não registrada"))}</span>}
               {(m?.lods?.length ?? 0) > 1 && (
                 <select aria-label={t("Nível de detalhe")} value={lod} onChange={(e) => setLod(Number(e.target.value))}>
                   {m!.lods.map((x, i) => <option key={x.file} value={i}>LOD{x.level} · {x.triangles.toLocaleString(language)} △</option>)}
                 </select>
               )}
             </div>
+            {reconstruct && ver && <div className="st-result-actions">
+              <Link className="btn" to={`/library/${a.id}?version=${ver}&tab=compare`}>{t("Comparar")}</Link>
+              {m?.generator_id === "experimental.reconstruct" &&
+                <Link className="btn" to={`/engines?asset=${a.id}&version=${ver}`}>{t("Repetir geração")}</Link>}
+              {m?.generator_id !== "asset.prepare" &&
+                <Link className="btn" to={`/prepare?asset=${a.id}&version=${ver}`}>{t("Preparar para Unity")}</Link>}
+              {token && <a className="btn" href={fileUrl(a.id, "model.glb", token, ver)}><Download size={14} /> GLB</a>}
+            </div>}
           </>
         ) : (
           <div className="st-empty">
@@ -440,10 +476,11 @@ export function Studio({ reconstructionControls }: StudioProps) {
       </section>
 
       {/* ------------------------------------------------ assets / properties */}
-      <aside className="st-right">
+      <aside className={`st-right${reconstruct && !showAssets ? " st-drawer-closed" : ""}`}>
         <div className="st-tabs" role="tablist">
           <button role="tab" aria-selected={tab === "assets"} className={tab === "assets" ? "on" : ""} onClick={() => setTab("assets")}>Assets</button>
           <button role="tab" aria-selected={tab === "props"} className={tab === "props" ? "on" : ""} onClick={() => setTab("props")}>{t("Propriedades")}</button>
+          {reconstruct && <button type="button" className="icon" aria-label={t("Fechar")} onClick={() => setShowAssets(false)}><X size={16} /></button>}
         </div>
         {tab === "assets" ? (
           <div className="st-scroll">
@@ -454,7 +491,7 @@ export function Studio({ reconstructionControls }: StudioProps) {
                   <button key={r.id} className={`st-job ${jobId === r.id ? "on" : ""}`} onClick={() => { setAssetId(null); setJobId(r.id); }}>
                     <span className="spin" />
                     <span className="st-job-name">{r.name}</span>
-                    <span className="mono">{r.status === "queued" ? "fila" : `${Math.round(r.progress * 100)}%`}</span>
+                    <span className="mono">{r.status === "queued" ? t("Na fila") : `${Math.round(r.progress * 100)}%`}</span>
                   </button>
                 ))}
               </div>
@@ -465,7 +502,7 @@ export function Studio({ reconstructionControls }: StudioProps) {
             ) : (
               <div className="st-cards">
                 {(assets.data?.items ?? []).map((x) => (
-                  <button key={x.id} className={`st-card ${viewedAssetId === x.id ? "on" : ""}`} onClick={() => { setJobId(null); setAssetId(x.id); setLod(0); }}>
+                  <button key={x.id} className={`st-card ${viewedAssetId === x.id ? "on" : ""}`} onClick={() => { setJobId(null); setAssetId(x.id); setLod(0); setShowAssets(false); }}>
                     <Thumb assetId={x.id} alt={x.name} hasThumb={x.has_thumbnail} />
                     <span className="st-card-name">{x.name}</span>
                     <span className="st-card-sub">{x.triangle_count.toLocaleString(language)} △</span>

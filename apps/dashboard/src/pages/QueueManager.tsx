@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowDown, ArrowUp, RotateCcw, X, XCircle } from "lucide-react";
 import { useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { api } from "../api";
+import { api, useDownloadToken } from "../api";
 import { Empty, ErrorNote, Progress, StatusBadge, Thumb } from "../components/ui";
 import { formatDuration, stageLabel, timeAgo } from "../lib";
 import type { Job, JobLog, Worker } from "../types";
@@ -17,7 +17,8 @@ const FILTERS: [string, string][] = [
   ["cancelled", "Cancelados"],
 ];
 
-const KIND: Record<string, string> = { "experimental.reconstruct": "Reconstrução 3D", "ai.image_to_3d": "Imagem → 3D", "ai.text_to_3d": "Texto → 3D", "procedural.building": "Procedural" };
+const KIND: Record<string, string> = { "experimental.reconstruct": "Reconstrução 3D", "reference.generate": "Referência por descrição",
+  "asset.prepare": "Preparação de assets", "ai.image_to_3d": "Imagem → 3D", "ai.text_to_3d": "Texto → 3D", "procedural.building": "Procedural" };
 
 /** Short, readable message for the most common failures; the full text stays in the tooltip and in the job detail. */
 export function friendlyError(e: string | null, t: Translate = portuguese): string {
@@ -71,7 +72,7 @@ export function QueueManager() {
         ) : (
           items.map((j) => (
             <div key={j.id} className={`q-item st-${j.status}`} onClick={() => setOpen(j.id)}>
-              <div className="q-thumb">{j.status === "succeeded" ? <Thumb assetId={j.asset_id} alt={j.name} /> : <span className={j.status === "running" ? "spin" : "q-dot"} />}</div>
+              <div className="q-thumb">{j.status === "succeeded" && j.job_type !== "reference.generate" ? <Thumb assetId={j.asset_id} alt={j.name} /> : <span className={j.status === "running" ? "spin" : "q-dot"} />}</div>
               <div className="q-main">
                 <div className="q-title">
                   {j.name} <span className="chip">{t(KIND[j.job_type] ?? j.job_type)}</span>
@@ -116,6 +117,8 @@ function JobDrawer({ id, onClose, wname }: { id: string; onClose: () => void; wn
   const job = useQuery({ queryKey: ["job", id], queryFn: () => api<Job>(`/jobs/${id}`), refetchInterval: 2000 });
   const logs = useQuery({ queryKey: ["job", id, "logs"], queryFn: () => api<{ items: JobLog[] }>(`/jobs/${id}/logs?limit=1000`), refetchInterval: 2000 });
   const j = job.data;
+  const token = useDownloadToken();
+  const reference = typeof j?.result?.reference_id === "string" ? j.result.reference_id : null;
   return (
     <>
       <div className="drawer-backdrop" onClick={onClose} />
@@ -135,8 +138,9 @@ function JobDrawer({ id, onClose, wname }: { id: string; onClose: () => void; wn
               {j.job_type === "experimental.reconstruct" && (
                 <Link to={`/engines?job=${encodeURIComponent(j.id)}`} className="btn">{t("Abrir no estúdio")}</Link>
               )}
-              {j.status === "succeeded" && (
-                <Link to={`/library/${j.asset_id}`} className="btn">
+              {reference && token && <a className="btn" href={`/api/v1/references/${encodeURIComponent(reference)}?token=${encodeURIComponent(token)}`}>{t("Abrir referência")}</a>}
+              {j.status === "succeeded" && j.job_type !== "reference.generate" && (
+                <Link to={`/library/${j.asset_id}?version=${j.asset_version}`} className="btn">
                   {t("Abrir asset v")}{j.asset_version}
                 </Link>
               )}

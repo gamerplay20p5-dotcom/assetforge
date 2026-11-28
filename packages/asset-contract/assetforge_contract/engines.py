@@ -6,6 +6,9 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 
 RECONSTRUCT = "experimental.reconstruct"
+TEXT_REFERENCE = "reference.generate"
+TEXT_REFERENCE_MODEL = "Tongyi-MAI/Z-Image-Turbo"
+TEXT_REFERENCE_REVISION = "assetforge-zimage-1024-v1"
 CATEGORIES = ("building", "vehicle", "npc", "prop")
 ENGINES = {
     "trellis2-gguf": {"label": "TRELLIS.2 GGUF", "resolutions": [512, 1024, 1536], "views": ["front"]},
@@ -25,6 +28,13 @@ class ArchivedProjection(BaseModel):
     transforms: dict[View, tuple[Row, Row, Row, Row]]
 
 
+class TextReferenceParams(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    prompt: str = Field(min_length=1, max_length=1600)
+    seed: int = Field(default=1, ge=0, le=2**31 - 1)
+
+
 class ReconstructionParams(BaseModel):
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
 
@@ -32,6 +42,7 @@ class ReconstructionParams(BaseModel):
     category: Literal["building", "vehicle", "npc", "prop"]
     references: dict[View, str]
     prompt: str | None = Field(default=None, min_length=1, max_length=1600)
+    reference_job_id: str | None = Field(default=None, pattern=r"^job_[0-9a-f]{12}$")
     resolution: int = 1024
     max_tokens: int = Field(default=49152, gt=0, le=2**31 - 1)
     seed: int = Field(default=1, ge=0, le=2**31 - 1)
@@ -59,8 +70,11 @@ class ReconstructionParams(BaseModel):
         if self.resolution not in entry["resolutions"]:
             raise ValueError("resolution is unsupported by this engine")
         if self.prompt:
-            if len(entry["views"]) != 1 or self.references or self.prepared_inputs:
+            if len(entry["views"]) != 1 or self.references or self.prepared_inputs or self.reference_job_id:
                 raise ValueError("text reconstruction requires a single-view engine and no uploaded references")
+        elif self.reference_job_id:
+            if len(entry["views"]) != 1 or self.prepared_inputs or set(self.references) - {"front"}:
+                raise ValueError("a generated reference requires a single-view engine")
         elif set(self.references) != set(entry["views"]):
             raise ValueError(f"required reference views: {', '.join(entry['views'])}")
         if any(not re.fullmatch(r"ref_[0-9a-f]{12}", ref) for ref in self.references.values()):

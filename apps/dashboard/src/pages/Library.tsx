@@ -226,7 +226,10 @@ function AssetDetail({ id, initialVersion, onClose }: { id: string; initialVersi
   const qc = useQueryClient();
   const token = useDownloadToken();
   const [version, setVersion] = useState(initialVersion);
-  const [tab, setTab] = useState<"preview" | "compare" | "info" | "validation" | "versions" | "files">("preview");
+  const [detailQuery] = useSearchParams();
+  const [tab, setTab] = useState<"preview" | "compare" | "info" | "validation" | "versions" | "files">(
+    detailQuery.get("tab") === "compare" ? "compare" : "preview",
+  );
   const [wire, setWire] = useState(false);
   const [bounds, setBounds] = useState(false);
   const [rotate, setRotate] = useState(false);

@@ -9,10 +9,12 @@ import shutil
 from datetime import timedelta
 from pathlib import Path
 
+from assetforge_contract.engines import TEXT_REFERENCE, TEXT_REFERENCE_MODEL, TEXT_REFERENCE_REVISION
 from assetforge_validation import read_glb_json
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response, status
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse
+from PIL import Image, UnidentifiedImageError
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -195,19 +197,24 @@ def lease(request: Request, worker: Worker = Depends(current_worker), db: Sessio
     if worker.kind != "nvidia":
         worker.last_heartbeat = utcnow()
     job = try_lease(db, worker, s)
-    db.commit()
     if job is None:
+        db.commit()
         return Response(status_code=204)
+    params = job.params
+    if source_id := params.get("reference_job_id"):
+        source = db.get(Job, source_id)
+        params = {**params, "references": {"front": source.result["reference_id"]}}
+    db.commit()
     return {
         "job_id": job.id, "lease_token": job.lease_token, "attempt": job.attempts, "lease_seconds": s.lease_seconds,
         "job": {"job_id": job.id, "asset_id": job.asset_id, "name": job.name, "version": job.asset_version,
-                "job_type": job.job_type, "params": job.params, "quality_profile": job.quality_profile,
+                "job_type": job.job_type, "params": params, "quality_profile": job.quality_profile,
                 "triangle_limit": job.triangle_limit, "formats": job.formats, "requirements": job.requirements},
     }
 
 
-def _lease_job(db: Session, job_id: str, worker: Worker, token: str, *, need_running: bool = True) -> Job:
-    job = db.get(Job, job_id)
+def _lease_job(db: Session, job_id: str, worker: Worker, token: str, *, need_running: bool = True, lock: bool = False) -> Job:
+    job = db.get(Job, job_id, with_for_update=lock)
     if job is None:
         raise HTTPException(404, "job not found")
     if job.worker_id != worker.id or not job.lease_token or not secrets.compare_digest(job.lease_token, token):
@@ -294,14 +301,51 @@ def _sha(path: Path) -> str:
     return h.hexdigest()
 
 
+def complete_reference(db: Session, job: Job, storage, result: dict) -> dict:
+    staging = storage.staging_dir(job.id, job.attempts)
+    png = staging / "reference.png"
+    files = result.get("files")
+    if not isinstance(files, list) or len(files) != 1 or not isinstance(files[0], dict):
+        raise HTTPException(422, "expected one reference PNG")
+    file = files[0]
+    try:
+        if file.get("name") != "reference.png" or png.stat().st_size != file.get("size"):
+            raise ValueError("reference missing or truncated")
+        digest = _sha(png)
+        if digest != file.get("sha256"):
+            raise ValueError("reference checksum mismatch")
+        with Image.open(png, formats=["PNG"]) as image:
+            if image.size != (1024, 1024):
+                raise ValueError("reference must be 1024 × 1024")
+            image.verify()
+    except (OSError, ValueError, UnidentifiedImageError, Image.DecompressionBombError) as exc:
+        raise HTTPException(422, f"reference rejected: {exc}") from exc
+    ref = "ref_" + digest[:12]
+    path = storage.root / "references" / f"{ref}.png"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        path.hardlink_to(png)
+    except FileExistsError:
+        if _sha(path) != digest:
+            raise HTTPException(409, "reference id collision")
+    mark_succeeded(db, job)
+    job.result = {"reference_id": ref, "sha256": digest, "model": TEXT_REFERENCE_MODEL,
+                  "revision": TEXT_REFERENCE_REVISION}
+    db.commit()
+    storage.drop_staging(job.id)
+    return {"status": "succeeded", **job.result}
+
+
 @worker_router.post("/jobs/{job_id}/complete")
 def complete(job_id: str, body: CompleteIn, request: Request, worker: Worker = Depends(current_worker),
              db: Session = Depends(get_db)) -> dict:
     """Register the asset ONLY after every uploaded file has been re-hashed and the GLB re-parsed."""
     s = request.app.state.settings
     storage = request.app.state.storage
-    job = _lease_job(db, job_id, worker, body.lease_token, need_running=False)
+    job = _lease_job(db, job_id, worker, body.lease_token, need_running=False, lock=True)
     if job.status == "succeeded":  # idempotent retry of a completed call
+        if job.job_type == TEXT_REFERENCE:
+            return {"status": "succeeded", **job.result, "duplicate": True}
         return {"status": "succeeded", "asset_id": job.asset_id, "version": job.asset_version, "duplicate": True}
     if job.status != "running":
         raise HTTPException(409, f"job is {job.status}, not running")
@@ -311,6 +355,8 @@ def complete(job_id: str, body: CompleteIn, request: Request, worker: Worker = D
         raise HTTPException(409, "job was cancelled")
 
     result = body.result
+    if job.job_type == TEXT_REFERENCE:
+        return complete_reference(db, job, storage, result)
     files = result.get("files") or []
     try:
         staging = storage.staging_dir(job.id, job.attempts)

@@ -3,8 +3,12 @@
 from __future__ import annotations
 
 import copy
+import hashlib
+import json
+from typing import Literal
+
 from assetforge_contract import JobCreate
-from assetforge_contract.engines import ENGINES, RECONSTRUCT
+from assetforge_contract.engines import ENGINES, RECONSTRUCT, TEXT_REFERENCE, TEXT_REFERENCE_REVISION
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from PIL import Image
 from pydantic import ValidationError
@@ -14,7 +18,7 @@ from sqlalchemy.orm import Session
 from ..db import utcnow
 from ..models import Asset, AssetVersion, Batch, Job, JobLog, User, Worker
 from ..scheduler import cancel_job, requirements_for
-from ..scheduler.core import new_asset_id
+from ..scheduler.core import new_asset_id, rank_workers, running_by_nvidia_worker
 from ..schemas import BatchCreate, JobPatch, iso, job_out
 from ..security import get_db, require_operator, require_viewer
 from ..services import audit, emit_event, get_setting, set_setting
@@ -43,11 +47,37 @@ def create_job(db: Session, spec: JobCreate, user: User, settings, batch_id: str
             raise HTTPException(422, "Selecione uma versão original para a preparação.")
         if version.manifest.get("category") != spec.params["category"]:
             raise HTTPException(422, "A categoria precisa corresponder à do master.")
+        db.scalar(select(Asset.id).where(Asset.id == asset_id).with_for_update())
+        candidates = db.scalars(select(Job).where(
+            Job.asset_id == asset_id, Job.job_type == "asset.prepare", Job.cancel_requested.is_(False),
+            Job.status.in_(("succeeded", "running", "queued")),
+        ).order_by(Job.created_at.desc()))
+        for candidate in candidates:
+            if candidate.params != spec.params:
+                continue
+            if candidate.status == "succeeded":
+                derived = db.scalar(select(AssetVersion).where(AssetVersion.job_id == candidate.id))
+                if derived and all((settings.storage_root / "assets" / asset_id / f"v{derived.version}" / item["name"]).is_file()
+                                   for item in derived.files):
+                    return candidate
+            elif not spec.worker_id or spec.worker_id in (candidate.worker_id, candidate.pinned_worker_id):
+                return candidate
     if spec.job_type == "ai.image_to_3d":
         ref = spec.params.get("reference_id")
         if not (settings.storage_root / "references" / f"{ref}.png").is_file():
             raise HTTPException(404, f"reference image {ref} not found (upload it first)")
-    needs_matte = spec.job_type == RECONSTRUCT and bool(spec.params.get("prompt")) and spec.params["engine"] == "pixal3d-sv"
+    source_id = spec.params.get("reference_job_id") if spec.job_type == RECONSTRUCT else None
+    dependencies = list(spec.depends_on)
+    if source_id:
+        source = db.get(Job, source_id)
+        if source is None or source.job_type != TEXT_REFERENCE:
+            raise HTTPException(404, "reference generation job not found")
+        if spec.params["references"]:
+            raise HTTPException(422, "reference generation supplies the front image")
+        if source_id not in dependencies:
+            dependencies.append(source_id)
+    needs_matte = (spec.job_type == RECONSTRUCT and bool(spec.params.get("prompt") or source_id)
+                   and spec.params["engine"] == "pixal3d-sv")
     needs_replay_worker = False
     if spec.job_type == RECONSTRUCT:
         needs_replay_worker = any(spec.params.get(k) for k in ("prepared_inputs", "use_native_threads")) or any(
@@ -86,9 +116,11 @@ def create_job(db: Session, spec: JobCreate, user: User, settings, batch_id: str
             raise HTTPException(422, "O worker ainda não suporta estas opções de reprodução.")
         if spec.job_type == "asset.prepare" and "asset.prepare" not in (worker.capabilities or {}).get("features", []):
             raise HTTPException(422, "O worker precisa ter Blender e a preparação de assets.")
-    if spec.depends_on:
-        found = set(db.scalars(select(Job.id).where(Job.id.in_(spec.depends_on))))
-        missing = set(spec.depends_on) - found
+        if spec.job_type == TEXT_REFERENCE and "engine.split-reference" not in (worker.capabilities or {}).get("features", []):
+            raise HTTPException(422, "worker does not support the independent reference stage")
+    if dependencies:
+        found = set(db.scalars(select(Job.id).where(Job.id.in_(dependencies))))
+        missing = set(dependencies) - found
         if missing:
             raise HTTPException(404, f"dependency jobs not found: {sorted(missing)}")
     job = Job(
@@ -99,7 +131,7 @@ def create_job(db: Session, spec: JobCreate, user: User, settings, batch_id: str
         requirements=requirements_for(spec.job_type, list(spec.formats), vram_mb=settings.ai_vram_mb, provider=spec.params.get("provider"),
                                       cpu3d_cores=settings.cpu3d_cores, cpu3d_ram_mb=settings.cpu3d_ram_mb,
                                       params=spec.params), pinned_worker_id=spec.worker_id,
-        not_before=spec.scheduled_at, depends_on=list(spec.depends_on), has_deps=bool(spec.depends_on),
+        not_before=spec.scheduled_at, depends_on=dependencies, has_deps=bool(dependencies),
         idempotency_key=spec.idempotency_key, max_attempts=settings.default_max_attempts, created_by=user.username,
         retry_of=retry_of,
     )
@@ -127,6 +159,85 @@ def engine_catalog() -> dict:
         {"id": key, **entry, "experimental": True, "commercial_status": "pending"}
         for key, entry in ENGINES.items()
     ]}
+
+
+@router.get("/engines/recommend", dependencies=[Depends(require_viewer)])
+def recommend_engine(request: Request, mode: Literal["image", "multi", "text"] = "image",
+                     category: Literal["building", "vehicle", "npc", "prop"] = "building",
+                     resolution: int = 1024, max_tokens: int = Query(49152, gt=0, le=2**31 - 1),
+                     texture_size: int = Query(4096, ge=128, le=16384), engine: str | None = None,
+                     skip_decimation: bool = True, db: Session = Depends(get_db)) -> dict:
+    settings, now = request.app.state.settings, utcnow()
+    workers = list(db.scalars(select(Worker).where(Worker.kind == "nvidia", Worker.state == "enabled")))
+    running = running_by_nvidia_worker(db, workers)
+    options = []
+    for key, entry in ENGINES.items():
+        if (engine and key != engine) or (len(entry["views"]) > 1) != (mode == "multi") or resolution not in entry["resolutions"]:
+            continue
+        params = dict(engine=key, category=category, resolution=resolution, max_tokens=max_tokens,
+                      texture_size=texture_size, skip_decimation=skip_decimation)
+        requirements = requirements_for(RECONSTRUCT, ["glb"], params=params)
+        if key != "trellis2-gguf":
+            requirements["features"].append("engine.reference-prep")
+        probe = Job(job_type=RECONSTRUCT, category=category, params=params, requirements=requirements)
+        ranked = rank_workers(db, probe, workers, settings, now, running)
+        if ranked:
+            score, worker, _ = ranked[0]
+            options.append((score, key, worker))
+        else:
+            options.append((float("inf"), key, None))
+    # Catalog order breaks ties in favor of the established engine for each input mode.
+    if not options:
+        return {"engine": None, "worker": None}
+    _, key, worker = min(options, key=lambda item: item[0])
+    return {"engine": key, "worker": {"id": worker.id, "name": worker.name} if worker else None}
+
+
+def create_text_reconstruction(db: Session, spec: JobCreate, user: User, settings, *,
+                               reference_worker_id: str | None = None, reuse_reference: bool = True,
+                               retry_of: str | None = None) -> Job:
+    if spec.job_type != RECONSTRUCT or not spec.params.get("prompt"):
+        raise HTTPException(422, "provide a description and a single-view reconstruction engine")
+    params = {"prompt": spec.params["prompt"], "seed": spec.params["seed"]}
+    digest = hashlib.sha256(json.dumps([TEXT_REFERENCE_REVISION, params], sort_keys=True).encode()).digest()
+    prefix = f"studio-reference:{digest.hex()[:32]}:"
+    if db.get_bind().dialect.name == "postgresql":
+        db.execute(select(func.pg_advisory_xact_lock(int.from_bytes(digest[:8], "big", signed=True))))
+    source = None
+    if reuse_reference:
+        candidates = db.scalars(select(Job).where(
+            Job.job_type == TEXT_REFERENCE, Job.idempotency_key.startswith(prefix),
+            Job.status.in_(("queued", "running", "succeeded")), Job.cancel_requested.is_(False),
+        ).order_by(Job.created_at.desc()))
+        for candidate in candidates:
+            if candidate.status == "succeeded":
+                ref = (candidate.result or {}).get("reference_id")
+                if ref and (settings.storage_root / "references" / f"{ref}.png").is_file():
+                    source = candidate
+                    break
+            elif not reference_worker_id or reference_worker_id in (candidate.worker_id, candidate.pinned_worker_id):
+                source = candidate
+                break
+    if source is None:
+        source = create_job(db, JobCreate(name=spec.name, job_type=TEXT_REFERENCE, params=params,
+                                          worker_id=reference_worker_id, priority=spec.priority,
+                                          scheduled_at=spec.scheduled_at, idempotency_key=prefix + new_asset_id()),
+                            user, settings)
+    reconstruction = spec.model_dump()
+    reconstruction["params"].pop("prompt")
+    reconstruction["params"]["reference_job_id"] = source.id
+    return create_job(db, _parse_spec(reconstruction), user, settings, retry_of=retry_of)
+
+
+@router.post("/studio/text", status_code=201)
+def post_text_reconstruction(body: JobCreate, request: Request, reference_worker_id: str | None = None,
+                             reuse_reference: bool = True, user: User = Depends(require_operator),
+                             db: Session = Depends(get_db)) -> dict:
+    job = create_text_reconstruction(db, body, user, request.app.state.settings,
+                                     reference_worker_id=reference_worker_id, reuse_reference=reuse_reference)
+    audit(db, user.username, "job.create", "job", job.id, name=job.name)
+    db.commit()
+    return job_out(db, job, detail=True)
 
 
 @router.post("/jobs", status_code=201)
@@ -216,7 +327,14 @@ def post_retry(job_id: str, request: Request, user: User = Depends(require_opera
 
         if db.get(_A, src.asset_id) is not None:
             spec.asset_id = src.asset_id
-    job = create_job(db, spec, user, request.app.state.settings, batch_id=src.batch_id, retry_of=src.id)
+    settings = request.app.state.settings
+    source = db.get(Job, spec.params["reference_job_id"]) if spec.params.get("reference_job_id") else None
+    if source is not None and source.status in ("failed", "cancelled"):
+        spec.params.pop("reference_job_id")
+        spec.params["prompt"] = source.params["prompt"]
+        job = create_text_reconstruction(db, spec, user, settings, retry_of=src.id)
+    else:
+        job = create_job(db, spec, user, settings, batch_id=src.batch_id, retry_of=src.id)
     if not spec.asset_id:
         job.asset_id = src.asset_id
     audit(db, user.username, "job.retry", "job", src.id, new_job=job.id)

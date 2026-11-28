@@ -150,6 +150,7 @@ export function stateLabel(state: string, t: Translate = portuguese): string {
 
 export function stageLabel(stage: string | null, t: Translate = portuguese): string {
   const map: Record<string, string> = {
+    text_to_image: "Criando a imagem de referência",
     prepare: "Preparar referências",
     conditioning: "Condicionar pelas imagens",
     inference: "Reconstruir geometria",

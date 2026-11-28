@@ -30,12 +30,15 @@ test("login -> describe -> generate -> queue -> library -> 3D viewer -> download
   await page.getByLabel("Senha").fill("e2e-admin-password");
   await page.getByRole("button", { name: "Entrar" }).click();
   await expect(page).toHaveURL(/\/engines$/);
-  await page.getByText("Geometria e textura", { exact: true }).click();
-  await expect(page.getByLabel("Motor", { exact: true })).toHaveValue("trellis2-gguf");
+  await page.getByText("Ajustes avançados", { exact: true }).click();
+  await expect(page.getByLabel("Motor", { exact: true })).toHaveValue("");
   await expect(page.getByRole("region", { name: "Estúdio 3D" }).getByText("Pronto para um novo modelo 3D?")).toBeVisible();
+  await page.getByRole("button", { name: "Assets", exact: true }).click();
   await expect(page.getByRole("tab", { name: "Assets", exact: true })).toBeVisible();
-  await page.getByText("Ajustes avançados").click();
-  await expect(page.getByLabel("Aplicar decimação na exportação")).not.toBeChecked();
+  await page.getByRole("button", { name: "Fechar", exact: true }).click();
+  await page.getByRole("button", { name: "Ampliar visualizador" }).click();
+  await expect(page.locator(".st-left")).toBeHidden();
+  await page.getByRole("button", { name: "Mostrar painel de criação" }).click();
   await expect(page.getByRole("navigation").getByRole("link")).toHaveCount(6);
 
   // wait for the worker to register and heartbeat
@@ -96,14 +99,13 @@ test("an archived recipe can change only the seed and use the original studio", 
   await page.goto("/engines?asset=ast_replay&version=1");
   await page.getByLabel("Senha").fill("e2e-admin-password");
   await page.getByRole("button", { name: "Entrar" }).click();
-  await page.getByText("Geometria e textura", { exact: true }).click();
   await expect(page.getByLabel("Motor", { exact: true })).toHaveValue("pixal3d-sv");
   await expect(page.getByLabel("Seed")).toHaveValue("7");
-  await expect(page.getByLabel("Aplicar decimação na exportação")).toBeChecked();
+  await expect(page.getByText("A receita original inclui decimação.")).toBeVisible();
   await expect(page.getByText("Reutilizar esta vista")).toBeVisible();
   await page.getByLabel("Seed").fill("23");
   const request = page.waitForRequest((candidate) => candidate.url().endsWith("/api/v1/jobs") && candidate.method() === "POST");
-  await page.getByRole("button", { name: "Enfileirar geração" }).click();
+  await page.getByRole("button", { name: "Gerar modelo" }).click();
   const body = (await request).postDataJSON();
   const { archive: _archive, ...generation } = recipe;
   expect(body).toEqual({ name: "Torre", asset_id: "ast_replay", worker_id: "wrk_spark",
@@ -120,14 +122,20 @@ test("an archived recipe can change only the seed and use the original studio", 
   await page.goto("about:blank");
 });
 
-test("the studio switches from images to a written description and retains the chosen profile", async ({ page }) => {
+test("the studio shows the reference job and reconstruction on the same stage", async ({ page }) => {
   await page.route("**/api/v1/workers", (route) => route.fulfill({ json: [{
     id: "wrk_spark", name: "Spark", online: true, state: "enabled", telemetry: {},
-    capabilities: { features: ["engine.trellis2-gguf", "engine.text-reference"] },
+    capabilities: { features: ["engine.trellis2-gguf", "engine.split-reference"] },
   }] }));
-  await page.route("**/api/v1/jobs", (route) => route.fulfill({ status: 201, json: { name: "Máquina retrô", id: "job_text" } }));
+  let referenceDone = false;
+  await page.route("**/api/v1/studio/text*", (route) => route.fulfill({ status: 201, json: { name: "Máquina retrô", id: "job_text" } }));
   await page.route("**/api/v1/jobs/job_text", (route) => route.fulfill({ json: {
-    id: "job_text", name: "Máquina retrô", status: "running", progress: 0.1, current_stage: "text_to_image",
+    id: "job_text", name: "Máquina retrô", status: referenceDone ? "running" : "queued", progress: 0.4,
+    current_stage: referenceDone ? "inference" : null, params: { reference_job_id: "job_ref" },
+  } }));
+  await page.route("**/api/v1/jobs/job_ref", (route) => route.fulfill({ json: {
+    id: "job_ref", worker_id: "wrk_spark", status: referenceDone ? "succeeded" : "running",
+    progress: referenceDone ? 1 : 0.3, current_stage: "text_to_image",
   } }));
   await page.goto("/engines");
   await page.getByLabel("Senha").fill("e2e-admin-password");
@@ -136,13 +144,14 @@ test("the studio switches from images to a written description and retains the c
   await expect(page.getByLabel("Vista 3/4", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Descrição" }).click();
   await page.getByLabel("Descreva o que quer criar").fill("Máquina retrô azul com botões laranja");
-  await page.getByText("Geometria e textura", { exact: true }).click();
-  await page.getByLabel("Perfil geométrico").selectOption("low");
-  const request = page.waitForRequest((candidate) => candidate.url().endsWith("/api/v1/jobs") && candidate.method() === "POST");
-  await page.getByRole("button", { name: "Enfileirar geração" }).click();
+  const request = page.waitForRequest((candidate) => new URL(candidate.url()).pathname === "/api/v1/studio/text" && candidate.method() === "POST");
+  await page.getByRole("button", { name: "Gerar modelo" }).click();
   expect((await request).postDataJSON().params).toMatchObject({ prompt: "Máquina retrô azul com botões laranja", references: {}, skip_decimation: true });
-  await expect(page).toHaveURL(/job=job_text&profile=low/);
+  await expect(page).toHaveURL(/job=job_text$/);
   await expect(page.getByText("Criando a imagem de referência")).toBeVisible();
+  await expect(page.locator(".st-gen canvas")).toBeVisible();
+  referenceDone = true;
+  await expect(page.getByText("Reconstruindo o modelo")).toBeVisible();
   await page.goto("about:blank");
 });
 
@@ -155,7 +164,7 @@ test("references can be removed and selected again", async ({ page }) => {
   await page.getByLabel("Senha").fill("e2e-admin-password");
   await page.getByRole("button", { name: "Entrar" }).click();
   const front = page.getByLabel("Frente", { exact: true });
-  const submit = page.getByRole("button", { name: "Enfileirar geração" });
+  const submit = page.getByRole("button", { name: "Gerar modelo" });
   await front.setInputFiles(file("frente.png"));
   await expect(submit).toBeEnabled();
   await page.getByRole("button", { name: "Remover imagem: Frente" }).click();

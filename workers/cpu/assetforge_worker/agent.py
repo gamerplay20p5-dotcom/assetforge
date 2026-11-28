@@ -299,6 +299,8 @@ class Agent:
             log.exception("job %s crashed in the agent", job_id)
             self._report_failure(job_id, token, f"agent error: {type(exc).__name__}: {exc}", True)
         finally:
+            if (workdir / "python.request.json").is_file():
+                (workdir / "python.cancel").touch()
             done.set()
             with self._lock:
                 self.active.pop(job_id, None)

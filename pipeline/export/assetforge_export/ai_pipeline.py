@@ -40,6 +40,8 @@ Emit = Callable[[dict], None]
 
 
 def plan_for(job_type: str) -> list[tuple[str, float]]:
+    if job_type == "reference.generate":
+        return [("text_to_image", 1)]
     if job_type == "experimental.reconstruct":
         return [("prepare", 1), ("conditioning", 2), ("inference", 8), ("surface", 4),
                 ("validate_outputs", 1), ("package", 1)]

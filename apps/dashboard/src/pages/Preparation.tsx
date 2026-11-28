@@ -5,7 +5,7 @@ import { Link, useSearchParams } from "react-router-dom";
 import { api } from "../api";
 import { ErrorNote, Panel } from "../components/ui";
 import { geometryProfile, geometryProfiles, type GeometryProfile } from "../geometryProfiles";
-import type { Asset, Job } from "../types";
+import type { Asset, Job, Worker } from "../types";
 
 const numbers = (value: string) => value.split(",").map((part) => part.trim() === "" ? NaN : Number(part));
 
@@ -32,10 +32,16 @@ export function Preparation() {
 function PreparationForm({ source, version, initialProfile }: { source: Asset; version: number; initialProfile: GeometryProfile }) {
   const { t } = useLocale();
   const [height, setHeight] = useState("");
+  const [workerId, setWorkerId] = useState("");
   const [rotation, setRotation] = useState("0, 0, 0");
   const [profile, setProfile] = useState<GeometryProfile>(initialProfile);
   const [ratios, setRatios] = useState(String(geometryProfiles[initialProfile].ratio));
   const [heights, setHeights] = useState("0");
+  const workers = useQuery({ queryKey: ["workers"], queryFn: () => api<Worker[]>("/workers") });
+  const compatible = (workers.data ?? []).filter((worker) => worker.online && worker.state === "enabled"
+    && worker.capabilities.features?.includes("asset.prepare")
+    && (!(numbers(ratios)[0] < 1) || worker.capabilities.features.includes("asset.prepare-density")));
+  const selectedWorkerId = compatible.some((worker) => worker.id === workerId) ? workerId : "";
   const create = useMutation({
     mutationFn: () => {
       const angles = numbers(rotation);
@@ -45,7 +51,7 @@ function PreparationForm({ source, version, initialProfile }: { source: Asset; v
         throw new Error(t("Informe três ângulos e valores válidos para os LODs."));
       }
       return api<Job>("/jobs", { method: "POST", json: {
-        name: source.name, asset_id: source.id, job_type: "asset.prepare",
+        name: source.name, asset_id: source.id, job_type: "asset.prepare", worker_id: selectedWorkerId || undefined,
         params: { source_version: version, category: source.category, height_m: Number(height),
           rotation_deg: angles, lod_ratios: lodRatios, lod_heights: lodHeights },
       } });
@@ -67,10 +73,20 @@ function PreparationForm({ source, version, initialProfile }: { source: Asset; v
       <label>{t("Proporções da malha por LOD")}<input required value={ratios} onChange={(e) => setRatios(e.target.value)} /></label>
       <label>{t("Altura na tela por LOD (fração)")}<input required value={heights} onChange={(e) => setHeights(e.target.value)} /></label>
     </div>
+    <details className="af-settings">
+      <summary>{t("Ajustes avançados")}</summary>
+      <label className="field">{t("Worker")}<select value={selectedWorkerId}
+        onChange={(event) => setWorkerId(event.target.value)}>
+        <option value="">{t("Automático")}</option>
+        {compatible.map((worker) => <option value={worker.id} key={worker.id}>{worker.name}</option>)}
+      </select></label>
+    </details>
     <p className="muted">{t("Cada proporção tem como base o master. Use 1 para manter a geometria integral ou ajuste o valor do primeiro LOD para simplificar esta versão.")}</p>
     <div className="row wrap">
       <button className="primary" disabled={create.isPending}>{t("Enfileirar preparação")}</button>
-      {create.data && <Link to="/queue">{t("Acompanhar preparação")}</Link>}
+      {create.data?.status === "succeeded" && create.data.asset_version
+        ? <Link to={`/library/${source.id}?version=${create.data.asset_version}`}>{t("Abrir versão preparada")}</Link>
+        : create.data && <Link to="/queue">{t("Acompanhar preparação")}</Link>}
     </div>
     <ErrorNote error={create.error} />
   </form>;

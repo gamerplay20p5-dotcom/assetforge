@@ -5,6 +5,14 @@ Commits em Conventional Commits; PRs em português **e** inglês. Atribuição n
 
 ## Reconstrução e Biblioteca CITY+++ · 27/11/2026
 
+### Studio e execução por etapas
+
+O Studio reúne imagem, múltiplas vistas e descrição. O visualizador ocupa a área central e a lista de assets abre sob demanda. O resumo exibe o motor e o worker recomendado. A geração registra a resolução solicitada e mostra a efetiva quando o motor a reporta. A preparação para Unity recebe Low, Mid e High Poly e grava outra versão. Receitas arquivadas preservam a configuração original de exportação.
+
+Na fila central, o scheduler compara workers compatíveis usando telemetria, reservas, histórico por motor, categoria, resolução, tokens e textura. A opção manual fixa o worker. A RTX 4090 está em **manutenção**, sem jobs ativos na central, até Hank confirmar a estabilidade da memória.
+
+O Studio envia descrições para `POST /api/v1/studio/text`. A central cria ou reaproveita um job `reference.generate` por descrição, seed e revisão do gerador. O worker com Z-Image publica um PNG verificado por SHA-256. O job de reconstrução recebe o ID da referência ao obter a lease e pode rodar em outra máquina. O manifesto registra o ID do job de referência. Repetir a reconstrução pelo Studio reaproveita o PNG salvo. **Gerar nova referência** força outra execução. O job de preparação baixa a versão exata do master e reaproveita derivados com os mesmos parâmetros quando os arquivos estão disponíveis.
+
 ### Entradas e perfis de geometria
 
 Use o seletor **Português / English** no login ou na barra superior. A preferência fica no navegador e muda os textos da interface sem reiniciar o formulário. O catálogo em `apps/dashboard/src/english.ts` usa o texto original em português como chave. Nomes cadastrados, relatórios gerados e mensagens brutas dos workers e provedores conservam o idioma de origem.
