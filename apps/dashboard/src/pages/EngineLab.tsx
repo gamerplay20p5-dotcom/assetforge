@@ -200,6 +200,7 @@ function ReconstructionForm({ source, onCreated }: { source?: Asset; onCreated: 
   });
 
   function switchMode(next: InputMode) {
+    if (next === "text" && files.front && name === files.front.name.replace(/\.[^.]+$/, "").slice(0, 120)) setName("");
     setMode(next);
     setWorker("");
     create.reset();

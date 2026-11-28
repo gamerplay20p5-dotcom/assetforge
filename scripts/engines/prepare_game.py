@@ -28,10 +28,12 @@ def select(objects):
     bpy.context.view_layer.objects.active = objects[0]
 
 
-def normalize(objects, rotation, height):
+def normalize(objects, rotation, height, reference=None):
     axes = Euler(tuple(math.radians(a) for a in rotation), "XYZ").to_matrix().to_4x4()
     positions = [axes @ obj.matrix_world for obj in objects]
-    bounds = [position @ v.co for obj, position in zip(objects, positions) for v in obj.data.vertices]
+    fit = objects if reference is None else reference
+    fit_positions = positions if reference is None else [axes @ obj.matrix_world for obj in fit]
+    bounds = [position @ v.co for obj, position in zip(fit, fit_positions) for v in obj.data.vertices]
     lo = Vector(min(p[i] for p in bounds) for i in range(3))
     hi = Vector(max(p[i] for p in bounds) for i in range(3))
     del bounds
@@ -189,14 +191,19 @@ def main():
         root = Path(temporary)
         (root / "textures").mkdir()
         material_maps = maps(objects, root)
+        levels = [lod(objects, index, ratio) for index, ratio in enumerate(ratios)]
+        if ratios[0] < 1:
+            parts = [part for level in levels for part in level]
+            dimensions = normalize(parts, (0, 0, 0), args.height_m, reference=levels[0])
+            for obj in objects:
+                bpy.data.objects.remove(obj, do_unlink=True)
         hierarchy = bpy.data.objects.new("AssetForge", None)
         bpy.context.collection.objects.link(hierarchy)
         report = {"schema": 1, "sourceSha256": source_hash, "category": args.category,
                   "units": "meters", "pivot": "ground_center", "rotationBlenderDegrees": args.rotation_deg,
                   "dimensions": [dimensions.x, dimensions.z, dimensions.y],
                   "collider": collider(args.category, dimensions), "materials": material_maps, "lods": []}
-        for index, (ratio, threshold) in enumerate(zip(ratios, thresholds)):
-            parts = lod(objects, index, ratio)
+        for index, (ratio, threshold, parts) in enumerate(zip(ratios, thresholds, levels)):
             for part in parts:
                 part.parent = hierarchy
             select(parts)
@@ -207,9 +214,6 @@ def main():
                 raise RuntimeError(f"LOD {index} produced no triangles")
             report["lods"].append({"index": index, "ratio": ratio, "relativeHeight": threshold,
                                    "file": name, "triangles": metrics["triangles"]})
-        if ratios[0] < 1:
-            for obj in objects:
-                bpy.data.objects.remove(obj, do_unlink=True)
         select([hierarchy, *hierarchy.children])
         bpy.ops.export_scene.fbx(filepath=str(root / "model.fbx"), use_selection=True, apply_unit_scale=True,
                                  apply_scale_options="FBX_SCALE_UNITS", axis_forward="-Z", axis_up="Y",

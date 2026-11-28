@@ -1670,6 +1670,7 @@ tr.selected td {
 }
 .af-input-modes button[aria-pressed="true"] { background: var(--panel-2); color: var(--text); border-bottom-color: var(--accent); }
 .af-input-grid, .af-basics, .af-settings-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.af-input-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .af-field-wide, .af-input-slot-wide { grid-column: 1 / -1; }
 .af-input-slot {
   position: relative; display: grid; justify-items: center; align-content: center; min-width: 0; min-height: 82px;
@@ -1683,10 +1684,10 @@ tr.selected td {
 .af-input-slot img { width: auto; max-width: 100%; height: 46px; object-fit: contain; border-radius: 4px; }
 .af-input-slot-wide img { height: 88px; }
 .af-input-slot strong { color: var(--text); font-size: 12px; }
-.af-input-slot small { max-width: 100%; overflow-wrap: anywhere; }
+.af-input-slot small { max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .af-field-hint, .af-engine-summary { margin: 0; color: var(--muted); font-size: 11px; }
 .af-basics label, .af-settings-fields label, .af-prompt { display: grid; gap: 5px; min-width: 0; font-size: 12px; }
-.af-prompt textarea { resize: vertical; min-height: 116px; }
+.af-prompt textarea { resize: vertical; min-height: 116px; font: inherit; line-height: 1.5; }
 .af-workflow :is(select, input:not([type="checkbox"]), textarea) { width: 100%; min-width: 0; }
 .af-workflow .af-batch-toggle { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
 .af-settings { border-top: 1px solid var(--border); }

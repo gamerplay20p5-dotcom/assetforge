@@ -431,7 +431,7 @@ export function Studio({ reconstructionControls }: StudioProps) {
           <div className="st-empty">
             <div className="st-logo"><Box size={36} /></div>
             <h2>Pronto para um novo modelo 3D?</h2>
-            <p>{reconstruct ? "Envie uma imagem de referência, escolha o motor e clique em Gerar." : "Envie uma imagem de referência, escolha Low ou Mid poly e clique em Gerar."}</p>
+            <p>{reconstruct ? "Comece com uma imagem, múltiplas vistas ou uma descrição." : "Envie uma imagem de referência, escolha Low ou Mid poly e clique em Gerar."}</p>
             {reconstruct && <ErrorNote error={job.error ?? asset.error} />}
           </div>
         )}

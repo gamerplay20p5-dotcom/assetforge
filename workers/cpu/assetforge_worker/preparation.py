@@ -38,7 +38,8 @@ def run_preparation(job: dict, work: Path, emit, threads: int) -> dict:
     (out / "assetforge-import.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
     validation = validate_glb(model)
     if not validation.passed:
-        raise PipelineError("O GLB preparado não passou pela validação estrutural")
+        detail = ", ".join(check.detail or check.name for check in validation.errors)
+        raise PipelineError(f"O GLB preparado não passou pela validação estrutural. {detail}")
     scene = trimesh.load_scene(model, process=False)
     preview(scene, out / "thumbnail.png")
     (out / "validation.json").write_text(validation.model_dump_json(), encoding="utf-8")
