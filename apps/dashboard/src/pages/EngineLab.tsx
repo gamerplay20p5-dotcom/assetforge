@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowUpRight, ChevronDown, ImagePlus, Images, PenLine, SlidersHorizontal, Sparkles } from "lucide-react";
+import { ArrowUpRight, ChevronDown, ImagePlus, Images, PenLine, SlidersHorizontal, Sparkles, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { api } from "../api";
@@ -57,13 +57,22 @@ function ImageSlot({ label, file, archived, broad, onChange }: {
     setPreview({ file, url });
     return () => URL.revokeObjectURL(url);
   }, [file]);
-  return <label className={`af-input-slot${broad ? " af-input-slot-wide" : ""}`}>
-    <input type="file" aria-label={label} accept="image/png,image/jpeg,image/webp" required={!file && !archived}
-      onChange={(event) => onChange(event.target.files?.[0])} />
+  return <div className={`af-input-item${broad ? " af-input-slot-wide" : ""}`}>
+    <label className={`af-input-slot${broad ? " af-input-slot-wide" : ""}`}>
+    <input type="file" aria-label={label} accept="image/png,image/jpeg,image/webp"
+      onChange={(event) => {
+        const selected = event.currentTarget.files?.[0];
+        if (selected) onChange(selected);
+        event.currentTarget.value = "";
+      }} />
     {preview?.file === file && preview?.url ? <img src={preview.url} alt="" /> : <ImagePlus size={broad ? 24 : 17} />}
     <strong>{label}</strong>
     <small title={file?.name}>{file?.name ?? (archived ? "Reutilizar esta vista" : broad ? "Selecione ou solte a imagem" : "Adicionar vista")}</small>
-  </label>;
+    </label>
+    {file && <button type="button" className="af-remove-image icon" aria-label={`Remover imagem: ${label}`} onClick={() => onChange(undefined)}>
+      <X size={15} />
+    </button>}
+  </div>;
 }
 
 function groupBatch(files: File[], required: string[]) {
@@ -142,6 +151,7 @@ function ReconstructionForm({ source, onCreated }: { source?: Asset; onCreated: 
   const selectedWorker = compatible.find((worker) => worker.id === (workerId ?? historicalWorker?.id));
   const unavailable = !!selectedWorker && (!selectedWorker.online || selectedWorker.state !== "enabled");
   const textAvailable = compatible.some((worker) => worker.online && worker.state === "enabled");
+  const hasImages = batchMode ? batchFiles.length > 0 : !!engine?.views.every((view) => files[view] || existing?.[view]);
   const options = { engine: engineId, category, resolution, max_tokens: tokens, seed, texture_size: texture,
     structure_guidance: structure, shape_guidance: shape, mesh_scale: scale, three_quarter_angle: angle,
     skip_decimation: skipDecimation };
@@ -248,13 +258,29 @@ function ReconstructionForm({ source, onCreated }: { source?: Asset; onCreated: 
         <p className="af-field-hint">A Z-Image cria a referência que o motor reconstrói em 3D.</p>
       </div> : <>
         {!assetId && <label className="af-batch-toggle"><input type="checkbox" checked={batchMode} onChange={(event) => setBatchMode(event.target.checked)} /> Enviar em lote</label>}
-        {batchMode ? <label className="af-input-slot af-input-slot-wide">
-          <input type="file" aria-label="Referências do lote" multiple required={!batchFiles.length}
-            accept="image/png,image/jpeg,image/webp" onChange={(event) => setBatchFiles(Array.from(event.target.files ?? []))} />
+        {batchMode ? <>
+          <label className="af-input-slot af-input-slot-wide">
+          <input type="file" aria-label="Referências do lote" multiple accept="image/png,image/jpeg,image/webp"
+            onChange={(event) => {
+              const selected = Array.from(event.currentTarget.files ?? []);
+              if (selected.length) setBatchFiles(selected);
+              event.currentTarget.value = "";
+            }} />
           <Images size={24} />
-          <strong>{batchFiles.length ? `${batchFiles.length} imagens selecionadas` : "Selecionar imagens do lote"}</strong>
+          <strong>{batchFiles.length === 1 ? "1 imagem selecionada" : batchFiles.length ? `${batchFiles.length} imagens selecionadas` : "Selecionar imagens do lote"}</strong>
           <small>{mode === "multi" ? "Use nome__front, __right, __back e __three_quarter" : "Cada imagem cria um modelo"}</small>
-        </label> : <div className="af-input-grid">
+          </label>
+          {batchFiles.length > 0 && <div className="af-batch-files">
+            <button type="button" onClick={() => setBatchFiles([])}>Limpar lote</button>
+            <ul aria-label="Imagens do lote">
+              {batchFiles.map((file, index) => <li key={`${file.name}:${index}`}>
+                <span title={file.name}>{file.name}</span>
+                <button type="button" className="icon" aria-label={`Remover ${file.name}`}
+                  onClick={() => setBatchFiles((current) => current.filter((_, position) => position !== index))}><X size={15} /></button>
+              </li>)}
+            </ul>
+          </div>}
+        </> : <div className="af-input-grid">
           {engine?.views.map((view) => <ImageSlot key={`${mode}:${view}`} label={views[view]} broad={view === "front"}
             file={files[view]} archived={existing?.[view]} onChange={(file) => {
               setFiles((old) => {
@@ -331,7 +357,7 @@ function ReconstructionForm({ source, onCreated }: { source?: Asset; onCreated: 
       </div>
       {textMode && !textAvailable && !workers.isLoading && <p className="af-field-hint">A geração por descrição aguarda um worker com Z-Image.</p>}
       <ErrorNote error={create.error} />
-      <button className="st-generate" disabled={create.isPending || unavailable || !engine || (textMode ? !prompt.trim() || !textAvailable : !name.trim())}>
+      <button className="st-generate" disabled={create.isPending || unavailable || !engine || (textMode ? !prompt.trim() || !textAvailable : !name.trim() || !hasImages)}>
         <Sparkles size={18} /> {create.isPending ? "Enviando…" : "Enfileirar geração"}
       </button>
       {create.data && <Link to={create.data.route}>Acompanhar {create.data.label}</Link>}

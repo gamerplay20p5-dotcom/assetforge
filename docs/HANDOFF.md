@@ -7,6 +7,8 @@ Commits em Conventional Commits; PRs em português **e** inglês. Atribuição n
 
 ### Entradas e perfis de geometria
 
+No estúdio, o botão × remove a imagem de uma vista ou um arquivo do lote. **Limpar lote** remove toda a seleção local. Os mesmos arquivos podem ser selecionados novamente.
+
 **Reconstrução 3D** abre com Imagem, Múltiplas vistas e Descrição. A área de entrada mostra as referências e as miniaturas por vista. Motor, resolução, textura e perfil estão em **Geometria e textura**. Worker, seed, tokens, projeção e decimação estão em **Ajustes avançados**. O palco original e a coluna de Assets e Propriedades fazem parte do mesmo estúdio.
 
 **Descrição** gera a referência PNG de 1024 px com Z-Image-Turbo no sidecar Python da Spark e reconstrói essa imagem com TRELLIS.2 GGUF ou Pixal3D Single-View. O worker anuncia `engine.text-reference` quando o modelo local está montado. O scheduler reserva memória para essa etapa. O texto, a seed, o motor e a referência PNG ficam no manifesto ou nos arquivos da versão. A configuração Docker opcional está em `deployment/docker-compose.text-reference.yml`. Na Spark, os pesos existentes são montados em `/text-model` em modo somente leitura.

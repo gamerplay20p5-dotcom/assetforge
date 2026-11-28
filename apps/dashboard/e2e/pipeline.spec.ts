@@ -122,6 +122,35 @@ test("the studio switches from images to a written description and retains the c
   await page.goto("about:blank");
 });
 
+test("references can be removed and selected again", async ({ page }) => {
+  const file = (name: string) => ({
+    name, mimeType: "image/png",
+    buffer: Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aB6sAAAAASUVORK5CYII=", "base64"),
+  });
+  await page.goto("/engines");
+  await page.getByLabel("Senha").fill("e2e-admin-password");
+  await page.getByRole("button", { name: "Entrar" }).click();
+  const front = page.getByLabel("Frente", { exact: true });
+  const submit = page.getByRole("button", { name: "Enfileirar geração" });
+  await front.setInputFiles(file("frente.png"));
+  await expect(submit).toBeEnabled();
+  await page.getByRole("button", { name: "Remover imagem: Frente" }).click();
+  await expect(submit).toBeDisabled();
+  await front.setInputFiles(file("frente.png"));
+  await expect(submit).toBeEnabled();
+  await page.getByLabel("Enviar em lote").check();
+  const batch = page.getByLabel("Referências do lote");
+  await batch.setInputFiles([file("primeira.png"), file("segunda.png")]);
+  await page.getByRole("button", { name: "Remover primeira.png" }).click();
+  await expect(page.getByText("1 imagem selecionada")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Remover segunda.png" })).toBeVisible();
+  await page.getByRole("button", { name: "Limpar lote" }).click();
+  await expect(submit).toBeDisabled();
+  await batch.setInputFiles(file("segunda.png"));
+  await expect(submit).toBeEnabled();
+  await page.goto("about:blank");
+});
+
 test("batch of 10 variations is created and fully processed", async ({ page, request }) => {
   test.setTimeout(420_000);
   await page.goto("/");

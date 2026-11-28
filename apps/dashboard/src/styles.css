@@ -1678,6 +1678,12 @@ tr.selected td {
   text-align: center; color: var(--muted);
 }
 .af-input-slot-wide { min-height: 148px; }
+.af-input-item { position: relative; min-width: 0; }
+.af-remove-image { position: absolute; top: 6px; right: 6px; }
+.af-batch-files > button { font-size: 11px; }
+.af-batch-files ul { list-style: none; margin: 6px 0 0; padding: 0; max-height: 154px; overflow: auto; }
+.af-batch-files li { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 4px 0; }
+.af-batch-files li span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .af-input-slot:is(:hover, :focus-within) { border-color: var(--accent); background: var(--panel-2); }
 .af-input-slot:focus-within { outline: 2px solid var(--info); outline-offset: 2px; }
 .af-input-slot input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
