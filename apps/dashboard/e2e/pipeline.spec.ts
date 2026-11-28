@@ -184,6 +184,36 @@ test("references can be removed and selected again", async ({ page }) => {
   await page.goto("about:blank");
 });
 
+test("multi-view submission keeps the selected resolution and every view", async ({ page }) => {
+  await page.route("**/api/v1/references/batch", async (route) => {
+    const data = route.request().postData() ?? "";
+    for (const file of ["front", "right", "back", "angle"]) expect(data).toContain(`filename="${file}.png"`);
+    await route.fulfill({ json: { items: ["1", "2", "3", "4"].map((suffix) => ({ id: `ref_00000000000${suffix}` })) } });
+  });
+  await page.route("**/api/v1/jobs", (route) => route.fulfill({ status: 201, json: { name: "Vista de teste", id: "job_views" } }));
+  await page.goto("/engines");
+  await page.getByLabel("Senha").fill("e2e-admin-password");
+  await page.getByRole("button", { name: "Entrar" }).click();
+  await page.getByRole("button", { name: "Múltiplas vistas" }).click();
+  const submit = page.getByRole("button", { name: "Gerar modelo", exact: true });
+  for (const [view, file] of [["Frente", "front"], ["Lateral direita", "right"], ["Costas", "back"], ["Vista 3/4", "angle"]]) {
+    await expect(submit).toBeDisabled();
+    await page.getByLabel(view, { exact: true }).setInputFiles({
+      name: `${file}.png`, mimeType: "image/png",
+      buffer: Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aB6sAAAAASUVORK5CYII=", "base64"),
+    });
+  }
+  await page.getByText("Ajustes avançados", { exact: true }).click();
+  await page.getByLabel("Motor", { exact: true }).selectOption("pixal3d-mv");
+  await page.getByLabel("Resolução").selectOption("1536");
+  const request = page.waitForRequest((candidate) => candidate.url().endsWith("/api/v1/jobs") && candidate.method() === "POST");
+  await submit.click();
+  expect((await request).postDataJSON().params).toMatchObject({
+    engine: "pixal3d-mv", resolution: 1536, skip_decimation: true,
+    references: { front: "ref_000000000001", right: "ref_000000000002", back: "ref_000000000003", three_quarter: "ref_000000000004" },
+  });
+});
+
 test("batch of 10 variations is created and fully processed", async ({ page, request }) => {
   test.setTimeout(420_000);
   await page.goto("/");

@@ -210,6 +210,8 @@ def create_text_reconstruction(db: Session, spec: JobCreate, user: User, setting
             Job.status.in_(("queued", "running", "succeeded")), Job.cancel_requested.is_(False),
         ).order_by(Job.created_at.desc()))
         for candidate in candidates:
+            if candidate.params != params:
+                continue
             if candidate.status == "succeeded":
                 ref = (candidate.result or {}).get("reference_id")
                 if ref and (settings.storage_root / "references" / f"{ref}.png").is_file():
