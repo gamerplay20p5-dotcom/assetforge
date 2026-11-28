@@ -100,6 +100,7 @@ def test_studio_dispatches_reference_and_reconstruction_to_different_workers(cli
     assert reconstruction["job_id"] == child["id"]
     assert reconstruction["job"]["params"]["references"] == {"front": reference_id}
     assert "prompt" not in reconstruction["job"]["params"]
+    assert "reference_job_id" not in reconstruction["job"]["params"]  # older GPU worker contract
     assert reconstruction["job"]["params"]["skip_decimation"]
     replay = client.post("/api/v1/studio/text", headers=admin, json=payload).json()
     assert replay["id"] != child["id"]

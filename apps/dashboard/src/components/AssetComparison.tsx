@@ -21,7 +21,7 @@ export function AssetComparison({ asset, version, token }: { asset: Asset; versi
     (typeof params.reference_id === "string" ? { front: params.reference_id } : {});
   const references = Object.entries(refs);
   const target = refs[reference] ?? references[0]?.[1];
-  const generated = params.generated_reference_file === "reference.png";
+  const generated = params.generated_reference_file === "reference.png" || typeof params.reference_job_id === "string";
   const hasReference = references.length > 0 || generated;
   const versions = (asset.versions ?? []).filter((v) => v.version !== version);
   const other = versions.find((v) => v.version === otherVersion) ?? versions[0];

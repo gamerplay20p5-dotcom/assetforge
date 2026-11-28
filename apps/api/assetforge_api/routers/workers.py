@@ -204,6 +204,9 @@ def lease(request: Request, worker: Worker = Depends(current_worker), db: Sessio
     if source_id := params.get("reference_job_id"):
         source = db.get(Job, source_id)
         params = {**params, "references": {"front": source.result["reference_id"]}}
+        # Previously deployed workers can reconstruct the PNG with their original contract.
+        if "engine.split-reference" not in (worker.capabilities or {}).get("features", []):
+            params.pop("reference_job_id")
     db.commit()
     return {
         "job_id": job.id, "lease_token": job.lease_token, "attempt": job.attempts, "lease_seconds": s.lease_seconds,
@@ -410,6 +413,11 @@ def complete(job_id: str, body: CompleteIn, request: Request, worker: Worker = D
         asset.review_status = "pending"
     asset.current_version = job.asset_version
     asset.generator_id = manifest.get("generator_id", asset.generator_id)
+    if source_id := job.params.get("reference_job_id"):
+        # Keep lineage in the catalog for older workers without changing any uploaded file.
+        params = manifest.get("generation_params") or {}
+        manifest = {**manifest, "generation_params": {**params, "reference_job_id": source_id,
+                                                       "reference_model": TEXT_REFERENCE_MODEL}}
     db.add(AssetVersion(
         asset_id=asset.id, version=job.asset_version, job_id=job.id, files=files, manifest=manifest,
         validation=result.get("validation", {}), triangle_count=int(manifest.get("triangle_count", 0)),
