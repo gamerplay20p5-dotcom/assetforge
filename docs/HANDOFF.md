@@ -13,6 +13,8 @@ Commits em Conventional Commits; PRs em português **e** inglês. Atribuição n
 
 A máquina de venda do teste texto → GLB passou pela validação estrutural na Spark e está na Biblioteca como `ast_b540108ab6` v1. O TRELLIS.2 a 512 com decimação desmarcada exportou 3.677.152 triângulos. A fila registrou 523,5 s no total. A conferência validou o PNG e os hashes da referência e do GLB. A evidência está em `~/assetforge-phase3/workflow-text-evidence.log` na 206.
 
+O segundo teste usou a categoria Veículo e a decimação selecionada explicitamente. O carrinho de entregas `ast_b0ca4a0d14` v1 passou na validação com 135.784 triângulos em 237,3 s. O PNG e os hashes foram conferidos. A evidência está em `~/assetforge-phase3/workflow-text-vehicle-evidence.log`.
+
 **Master integral**, **High Poly**, **Mid Poly** e **Low Poly** oferecem proporções ajustáveis de 1, 0,80, 0,45 e 0,15 do master na Preparação. O perfil escolhido no estúdio fica no atalho da versão resultante e a Preparação pede altura e confirmação da geometria. O Blender ajusta a escala e o pivô com base no LOD0 simplificado e aplica o mesmo ajuste a todos os LODs. A torre de teste na 206 saiu de 297.650 para 44.647 triângulos no Low Poly, com um LOD adicional de 23.812. O SHA-256 do master foi conferido antes e depois.
 
 Na 206, `~/assetforge-phase3/workflow.override.yml` seleciona `assetforge-central:workflow-7507114` e `assetforge-worker:workflow-density`. Na Spark, o worker GGUF e o sidecar Python usam `workflow-ae1c4b5`. O rollback da central usa `studio.override.yml`, e os contêineres anteriores da Spark têm o sufixo `-before-workflow`.
