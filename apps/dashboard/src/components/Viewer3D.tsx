@@ -1,3 +1,4 @@
+import { useLocale } from "../i18n";
 import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
@@ -26,6 +27,7 @@ function cssVar(name: string, fallback: string): string {
 
 /** Interactive glTF viewer (orbit/zoom/pan). Everything shown is loaded from the real exported GLB. */
 export function Viewer3D({ url, wireframe, showBounds, autoRotate, studio, onStats, onCapture }: Props) {
+  const { t } = useLocale();
   const host = useRef<HTMLDivElement>(null);
   const state = useRef<{
     renderer: THREE.WebGLRenderer;
@@ -38,7 +40,7 @@ export function Viewer3D({ url, wireframe, showBounds, autoRotate, studio, onSta
     box: THREE.Box3Helper | null;
     raf: number;
   } | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<{ kind: "webgl" } | { kind: "model"; detail?: string } | null>(null);
   const [loading, setLoading] = useState(false);
   const flags = useRef({ wireframe, showBounds, autoRotate });
   flags.current = { wireframe, showBounds, autoRotate };
@@ -51,7 +53,7 @@ export function Viewer3D({ url, wireframe, showBounds, autoRotate, studio, onSta
     try {
       renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: false, alpha: !!studio });
     } catch {
-      setError("WebGL indisponível neste navegador.");
+      setError({ kind: "webgl" });
       return;
     }
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -188,7 +190,7 @@ export function Viewer3D({ url, wireframe, showBounds, autoRotate, studio, onSta
       undefined,
       (e) => {
         if (cancelled) return;
-        setError(`Falha ao carregar o modelo: ${(e as Error)?.message ?? "erro desconhecido"}`);
+        setError({ kind: "model", detail: (e as Error)?.message });
         setLoading(false);
       },
     );
@@ -213,9 +215,11 @@ export function Viewer3D({ url, wireframe, showBounds, autoRotate, studio, onSta
           if (!rendered?.model) return;
           rendered.renderer.render(rendered.scene, rendered.camera);
           onCapture(rendered.renderer.domElement.toDataURL("image/jpeg", 0.85).split(",")[1]);
-        }}>Capturar vista</button>}
-      {loading && <div className="viewer-overlay">Carregando modelo…</div>}
-      {error && <div className="viewer-overlay err">{error}</div>}
+        }}>{t("Capturar vista")}</button>}
+      {loading && <div className="viewer-overlay">{t("Carregando modelo…")}</div>}
+      {error && <div className="viewer-overlay err">{error.kind === "webgl"
+        ? t("WebGL indisponível neste navegador.")
+        : t("Falha ao carregar o modelo: {0}", error.detail ?? t("erro desconhecido"))}</div>}
     </div>
   );
 }

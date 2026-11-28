@@ -1,3 +1,4 @@
+import { useLocale } from "../i18n";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Bot, ImagePlus, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
@@ -50,6 +51,7 @@ const OTHER: [string, string][] = [
 const MAX_PICS = 4;
 
 export function CloudAgent({ onCreated }: { onCreated: (ids: string[], preview?: string | null) => void }) {
+  const { language, t } = useLocale();
   const qc = useQueryClient();
   const input = useRef<HTMLInputElement>(null);
   const [pics, setPics] = useState<Pic[]>([]);
@@ -66,7 +68,7 @@ export function CloudAgent({ onCreated }: { onCreated: (ids: string[], preview?:
   const add = (files: Iterable<File>) => {
     const next: Pic[] = [];
     for (const f of files) {
-      const e = checkImageFile(f);
+      const e = checkImageFile(f, t);
       if (e) {
         setErr(`${f.name}: ${e}`);
         continue;
@@ -75,7 +77,7 @@ export function CloudAgent({ onCreated }: { onCreated: (ids: string[], preview?:
     }
     setPics((p) => {
       const all = [...p, ...next];
-      if (all.length > MAX_PICS) setErr(`no máximo ${MAX_PICS} imagens (vistas do mesmo prédio)`);
+      if (all.length > MAX_PICS) setErr(t("no máximo {0} imagens (vistas do mesmo prédio)", MAX_PICS));
       return all.slice(0, MAX_PICS);
     });
   };
@@ -106,7 +108,7 @@ export function CloudAgent({ onCreated }: { onCreated: (ids: string[], preview?:
         fd.append("file", p.file);
         const up = await fetch("/api/v1/references", { method: "POST", headers: { Authorization: `Bearer ${getToken()}` }, body: fd });
         const ref = await up.json().catch(() => ({}));
-        if (!up.ok) throw new Error(typeof ref.detail === "string" ? ref.detail : `falha no upload (${up.status})`);
+        if (!up.ok) throw new Error(typeof ref.detail === "string" ? ref.detail : t("falha no upload ({0})", up.status));
         ids.push(ref.id as string);
       }
       const pl = POLISH[polish];
@@ -140,38 +142,36 @@ export function CloudAgent({ onCreated }: { onCreated: (ids: string[], preview?:
   const blocked = !!s && (!s.configured || s.available === 0);
   return (
     <>
-      <div className="st-title"><Bot size={16} /> Imagem → prédio (agente IA)</div>
+      <div className="st-title"><Bot size={16} />{" "}{t("Imagem → prédio (agente IA)")}</div>
       <div className="st-hint">
-        A IA na nuvem (Gemini ou Grok) lê as referências e escreve a especificação completa; o kit monta em Blender, renderiza, a IA compara com as
-        referências e corrige, até atingir a nota ou o limite de rodadas.
+        {t("A IA na nuvem (Gemini ou Grok) lê as referências e escreve a especificação completa; o kit monta em Blender, renderiza, a IA compara com as referências e corrige, até atingir a nota ou o limite de rodadas.")}
       </div>
-      <label>Provedor<select value={provider} onChange={(e) => setProvider(e.target.value)}>
-        <option value="">Pool automático</option><option value="gemini">Gemini</option><option value="grok">Grok</option>
+      <label>{t("Provedor")}<select value={provider} onChange={(e) => setProvider(e.target.value)}>
+        <option value="">{t("Pool automático")}</option><option value="gemini">Gemini</option><option value="grok">Grok</option>
       </select></label>
       {s && !s.configured && (
-        <div className="st-warn">Nenhuma chave de API cadastrada. <Link to="/ai">Cadastre uma chave do Gemini</Link> (a chave fica só no servidor).</div>
+        <div className="st-warn">{t("Nenhuma chave de API cadastrada.")}{" "}<Link to="/ai">{t("Cadastre uma chave do Gemini")}</Link>{" "}{t("(a chave fica só no servidor).")}</div>
       )}
       {s && s.configured && s.available === 0 && (
         <div className="st-warn">
-          Todas as chaves estão no limite agora{s.next_available_at ? `; volta por volta de ${new Date(s.next_available_at).toLocaleString("pt-BR")}` : ""}. O pedido
-          entra na fila e retoma sozinho quando a cota renovar.
+          {t("Todas as chaves estão no limite agora")}{s.next_available_at ? t("; volta por volta de {0}", new Date(s.next_available_at).toLocaleString(language)) : ""}{t(". O pedido entra na fila e retoma sozinho quando a cota renovar.")}
         </div>
       )}
 
-      <div className="dropzone small" role="button" tabIndex={0} aria-label="Escolher imagens de referência"
+      <div className="dropzone small" role="button" tabIndex={0} aria-label={t("Escolher imagens de referência")}
         onClick={() => input.current?.click()} onKeyDown={(e) => e.key === "Enter" && input.current?.click()}>
         {pics.length ? (
           <div className="drop-grid" onClick={(e) => e.stopPropagation()}>
             {pics.map((p) => (
               <div key={p.key} className="drop-item">
-                <img src={p.url} alt="Referência" />
-                <button className="icon x" aria-label="Remover imagem" onClick={() => setPics((all) => all.filter((x) => x.key !== p.key))}>
+                <img src={p.url} alt={t("Referência")} />
+                <button className="icon x" aria-label={t("Remover imagem")} onClick={() => setPics((all) => all.filter((x) => x.key !== p.key))}>
                   <X size={12} />
                 </button>
               </div>
             ))}
             {pics.length < MAX_PICS && (
-              <button className="drop-add" onClick={() => input.current?.click()} aria-label="Adicionar outra vista">
+              <button className="drop-add" onClick={() => input.current?.click()} aria-label={t("Adicionar outra vista")}>
                 <ImagePlus size={18} />
               </button>
             )}
@@ -179,8 +179,8 @@ export function CloudAgent({ onCreated }: { onCreated: (ids: string[], preview?:
         ) : (
           <>
             <ImagePlus size={26} />
-            <strong>Enviar ou colar 1 a {MAX_PICS} vistas do mesmo prédio</strong>
-            <span>Clique, arraste ou use Ctrl+V · até {MAX_IMAGE_MB} MB cada</span>
+            <strong>{t("Enviar ou colar 1 a")}{" "}{MAX_PICS}{" "}{t("vistas do mesmo prédio")}</strong>
+            <span>{t("Clique, arraste ou use Ctrl+V · até")}{" "}{MAX_IMAGE_MB}{" "}{t("MB cada")}</span>
           </>
         )}
         <input ref={input} type="file" multiple accept="image/png,image/jpeg,image/webp" hidden
@@ -189,45 +189,44 @@ export function CloudAgent({ onCreated }: { onCreated: (ids: string[], preview?:
       {err && <div className="check-fail">{err}</div>}
 
       <div className="st-fields">
-        <label className="field" style={{ gridColumn: "1 / -1" }}>Tipo (dica para a IA)
+        <label className="field" style={{ gridColumn: "1 / -1" }}>{t("Tipo (dica para a IA)")}
           <select value={category} onChange={(e) => setCategory(e.target.value)}>
-            <optgroup label="Construções (kit procedural + IA)">
-              {CATEGORIES.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+            <optgroup label={t("Construções (kit procedural + IA)")}>
+              {CATEGORIES.map(([k, l]) => <option key={k} value={k}>{t(l)}</option>)}
             </optgroup>
-            <optgroup label="Outros — exigem o motor de reconstrução 3D (ainda não ligado ao painel)">
-              {OTHER.map(([k, l]) => <option key={k} value={k} disabled>{l} (em breve)</option>)}
+            <optgroup label={t("Outros — exigem o motor de reconstrução 3D (ainda não ligado ao painel)")}>
+              {OTHER.map(([k, l]) => <option key={k} value={k} disabled>{t(l)}{" "}{t("(em breve)")}</option>)}
             </optgroup>
           </select>
-          <span className="hint">NPCs, veículos, vegetação, monumentos e objetos urbanos serão gerados pelos motores de reconstrução (Pixal3D / TRELLIS.2), não por este agente de construções.</span>
+          <span className="hint">{t("NPCs, veículos, vegetação, monumentos e objetos urbanos serão gerados pelos motores de reconstrução (Pixal3D / TRELLIS.2), não por este agente de construções.")}</span>
         </label>
-        <label className="field">Rodadas de correção
+        <label className="field">{t("Rodadas de correção")}
           <select value={iters ?? ""} onChange={(e) => setIters(e.target.value === "" ? null : Number(e.target.value))}>
-            <option value="">Padrão ({s?.agent_iterations ?? 3})</option>
+            <option value="">{t("Padrão (")}{s?.agent_iterations ?? 3})</option>
             {[0, 1, 2, 3, 4, 5].map((n) => <option key={n} value={n}>{n}</option>)}
           </select>
         </label>
-        <label className="field">Nota alvo (0–10)
+        <label className="field">{t("Nota alvo (0–10)")}
           <input type="number" min={0} max={10} step={0.5} placeholder={String(s?.target_score ?? 8)} value={target ?? ""}
             onChange={(e) => setTarget(e.target.value === "" ? null : Math.max(0, Math.min(10, Number(e.target.value))))} />
         </label>
-        <label className="field">Acabamento
+        <label className="field">{t("Acabamento")}
           <select value={polish} onChange={(e) => setPolish(e.target.value as PolishKey)}>
-            {Object.entries(POLISH).map(([k, p]) => <option key={k} value={k}>{p.label}</option>)}
+            {Object.entries(POLISH).map(([k, p]) => <option key={k} value={k}>{t(p.label)}</option>)}
           </select>
         </label>
-        <label className="field">Estado de obra
+        <label className="field">{t("Estado de obra")}
           <select value={stage} onChange={(e) => setStage(Number(e.target.value))}>
-            {[1, 2, 3, 4, 5, 6].map((n) => <option key={n} value={n}>{n}{n === 6 ? " (pronto)" : ""}</option>)}
+            {[1, 2, 3, 4, 5, 6].map((n) => <option key={n} value={n}>{n}{n === 6 ? t(" (pronto)") : ""}</option>)}
           </select>
         </label>
       </div>
       <div className="st-hint">
-        Cada rodada usa 1 pedido à API (mais 1 para a especificação inicial). Imagens enviadas ao nível gratuito do Gemini podem ser usadas pelo Google
-        para melhorar seus produtos.
+        {t("Cada rodada usa 1 pedido à API (mais 1 para a especificação inicial). Imagens enviadas ao nível gratuito do Gemini podem ser usadas pelo Google para melhorar seus produtos.")}
       </div>
       <ErrorNote error={go.error} />
       <button className="st-generate" disabled={!pics.length || go.isPending || (!!s && !s.configured)} onClick={() => go.mutate()}>
-        {go.isPending ? "Enviando…" : blocked && s?.configured ? "Enfileirar (aguarda a cota)" : "Gerar com o agente"}
+        {go.isPending ? t("Enviando…") : blocked && s?.configured ? t("Enfileirar (aguarda a cota)") : t("Gerar com o agente")}
       </button>
     </>
   );
@@ -243,11 +242,12 @@ interface Round {
 
 /** Rounds of an agent job (scores, issues, renders), read from the asset's agent/history.json. */
 export function AgentRounds({ url, fileUrlFor }: { url: string; fileUrlFor: (path: string) => string }) {
+  const { language, t } = useLocale();
   const h = useQuery({
     queryKey: ["agent-history", url],
     queryFn: async () => {
       const r = await fetch(url);
-      if (!r.ok) throw new Error(`histórico indisponível (${r.status})`);
+      if (!r.ok) throw new Error(t("histórico indisponível ({0})", r.status));
       return (await r.json()) as { best_score: number; target_score: number; rounds: Round[] };
     },
   });
@@ -255,14 +255,14 @@ export function AgentRounds({ url, fileUrlFor }: { url: string; fileUrlFor: (pat
   return (
     <div className="agent-rounds">
       <div className="row" style={{ justifyContent: "space-between" }}>
-        <strong>Agente IA</strong>
-        <span className="chip">melhor nota {h.data.best_score.toFixed(1)} / 10 (alvo {h.data.target_score})</span>
+        <strong>{t("Agente IA")}</strong>
+        <span className="chip">{t("melhor nota")}{" "}{h.data.best_score.toFixed(1)}{" "}{t("/ 10 (alvo")}{" "}{h.data.target_score})</span>
       </div>
       {h.data.rounds.map((r) => (
         <details key={r.iteration} className="agent-round">
-          <summary>Rodada {r.iteration + 1}: nota {r.score.toFixed(1)} · {r.triangles.toLocaleString("pt-BR")} triângulos</summary>
+          <summary>{t("Rodada")}{" "}{r.iteration + 1}{t(": nota")}{" "}{r.score.toFixed(1)} · {r.triangles.toLocaleString(language)}{" "}{t("triângulos")}</summary>
           <div className="agent-renders">
-            {r.renders.map((p) => <img key={p} src={fileUrlFor(p)} alt={`Render da rodada ${r.iteration + 1}`} loading="lazy" />)}
+            {r.renders.map((p) => <img key={p} src={fileUrlFor(p)} alt={t("Render da rodada {0}", r.iteration + 1)} loading="lazy" />)}
           </div>
           {r.issues.length > 0 && <ul>{r.issues.map((i, k) => <li key={k}>{i}</li>)}</ul>}
         </details>

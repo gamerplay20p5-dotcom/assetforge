@@ -1,3 +1,4 @@
+import { useLocale } from "../i18n";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Dices, Save, Sparkles, Wand2 } from "lucide-react";
 import { useMemo, useState } from "react";
@@ -97,6 +98,7 @@ const CAT_LABEL: Record<string, string> = {
 };
 
 export function Generator() {
+  const { t } = useLocale();
   const nav = useNavigate();
   const qc = useQueryClient();
   const [f, setF] = useState<Form>(DEFAULTS);
@@ -170,51 +172,51 @@ export function Generator() {
     <div>
     <div className="grid" style={{ gridTemplateColumns: "minmax(0,1fr) 320px", gap: 14, alignItems: "start" }}>
       <div className="grid" style={{ gap: 14 }}>
-        <Panel title="Descrição textual → parâmetros" actions={<span className="muted">regras PT/EN; LLM local opcional</span>}>
+        <Panel title={t("Descrição textual → parâmetros")} actions={<span className="muted">{t("regras PT/EN; LLM local opcional")}</span>}>
           <div className="row">
-            <input value={desc} onChange={(e) => setDesc(e.target.value)} placeholder="ex.: hospital moderno de cinco andares, 40 x 20 m, com heliponto" aria-label="Descrição textual" onKeyDown={(e) => e.key === "Enter" && desc.length > 2 && plan.mutate()} />
+            <input value={desc} onChange={(e) => setDesc(e.target.value)} placeholder={t("ex.: hospital moderno de cinco andares, 40 x 20 m, com heliponto")} aria-label={t("Descrição textual")} onKeyDown={(e) => e.key === "Enter" && desc.length > 2 && plan.mutate()} />
             <button disabled={desc.trim().length < 3 || plan.isPending} onClick={() => plan.mutate()}>
-              <Wand2 size={14} /> Interpretar
+              <Wand2 size={14} /> {t("Interpretar")}
             </button>
           </div>
           <ErrorNote error={plan.error} />
           {planInfo && (
             <div className="note" style={{ marginTop: 8 }}>
-              Interpretado por <strong>{planInfo.source === "llm" ? "LLM local" : "regras"}</strong> (confiança {Math.round(planInfo.confidence * 100)}%): {planInfo.matched.join(" · ") || "nada reconhecido"}.
+              {t("Interpretado por")} <strong>{planInfo.source === "llm" ? t("LLM local") : "regras"}</strong>{" "}{t("(confiança")}{" "}{Math.round(planInfo.confidence * 100)}%): {planInfo.matched.join(" · ") || t("nada reconhecido")}.
               {planInfo.notes.map((n) => (
                 <div key={n}>⚠ {n}</div>
               ))}
-              <div className="muted">Revise os campos abaixo antes de gerar; a descrição só preenche parâmetros do gerador procedural.</div>
+              <div className="muted">{t("Revise os campos abaixo antes de gerar; a descrição só preenche parâmetros do gerador procedural.")}</div>
             </div>
           )}
         </Panel>
         <Panel title="Asset">
           <div className="grid g3">
             <label className="field" style={{ gridColumn: "span 2" }}>
-              Nome do asset
+              {t("Nome do asset")}
               <input value={f.name} onChange={(e) => set("name", e.target.value)} />
             </label>
             <label className="field">
               Seed
               <div className="row">
                 <input type="number" min={0} value={f.seed} onChange={(e) => set("seed", Math.max(0, Number(e.target.value) || 0))} />
-                <button className="icon" title="Seed aleatória" onClick={() => set("seed", Math.floor(Math.random() * 1_000_000))}>
+                <button className="icon" title={t("Seed aleatória")} onClick={() => set("seed", Math.floor(Math.random() * 1_000_000))}>
                   <Dices size={15} />
                 </button>
               </div>
             </label>
             <label className="field">
-              Categoria
+              {t("Categoria")}
               <select value={f.category} onChange={(e) => set("category", e.target.value)}>
                 {(g?.categories ?? [f.category]).map((c) => (
                   <option key={c} value={c}>
-                    {CAT_LABEL[c] ?? c}
+                    {t(CAT_LABEL[c] ?? c)}
                   </option>
                 ))}
               </select>
             </label>
             <label className="field">
-              Estilo arquitetônico
+              {t("Estilo arquitetônico")}
               <select value={f.style} onChange={(e) => setF((p) => ({ ...p, style: e.target.value, palette: "" }))}>
                 {Object.keys(g?.palettes ?? { [f.style]: [] }).map((s) => (
                   <option key={s}>{s}</option>
@@ -222,9 +224,9 @@ export function Generator() {
               </select>
             </label>
             <label className="field">
-              Paleta
+              {t("Paleta")}
               <select value={f.palette} onChange={(e) => set("palette", e.target.value)}>
-                <option value="">automática (pela seed)</option>
+                <option value="">{t("automática (pela seed)")}</option>
                 {palettes.map((p) => (
                   <option key={p}>{p}</option>
                 ))}
@@ -232,60 +234,60 @@ export function Generator() {
             </label>
           </div>
         </Panel>
-        <Panel title="Dimensões e arquitetura" actions={<span className="muted">vazio = automático por categoria + seed</span>}>
+        <Panel title={t("Dimensões e arquitetura")} actions={<span className="muted">{t("vazio = automático por categoria + seed")}</span>}>
           <div className="grid g4">
             <label className="field">
-              Comprimento (m)
+              {t("Comprimento (m)")}
               <input type="number" min={3} step={0.5} value={f.width} placeholder="auto" onChange={(e) => set("width", e.target.value)} />
             </label>
             <label className="field">
-              Largura (m)
+              {t("Largura (m)")}
               <input type="number" min={3} step={0.5} value={f.depth} placeholder="auto" onChange={(e) => set("depth", e.target.value)} />
             </label>
             <label className="field">
-              Andares
+              {t("Andares")}
               <input type="number" min={1} max={80} value={f.floors} placeholder="auto" onChange={(e) => set("floors", e.target.value)} />
             </label>
             <label className="field">
-              Pé-direito (m)
+              {t("Pé-direito (m)")}
               <input type="number" min={2.2} step={0.1} value={f.floor_height} placeholder="auto" onChange={(e) => set("floor_height", e.target.value)} />
             </label>
             <label className="field">
-              Telhado
+              {t("Telhado")}
               <select value={f.roof} onChange={(e) => set("roof", e.target.value)}>
-                <option value="">automático</option>
+                <option value="">{t("automático")}</option>
                 {["gable", "hip", "flat", "shed", "sawtooth"].map((r) => (
                   <option key={r}>{r}</option>
                 ))}
               </select>
             </label>
             <label className="field">
-              Varandas
+              {t("Varandas")}
               <select value={f.balconies} onChange={(e) => set("balconies", e.target.value)}>
-                <option value="">automático</option>
-                <option value="true">sim</option>
-                <option value="false">não</option>
+                <option value="">{t("automático")}</option>
+                <option value="true">{t("sim")}</option>
+                <option value="false">{t("não")}</option>
               </select>
             </label>
             <label className="field">
-              Garagem
+              {t("Garagem")}
               <select value={f.garage} onChange={(e) => set("garage", e.target.value)}>
-                <option value="">automático</option>
-                <option value="true">sim</option>
-                <option value="false">não</option>
+                <option value="">{t("automático")}</option>
+                <option value="true">{t("sim")}</option>
+                <option value="false">{t("não")}</option>
               </select>
             </label>
             <label className="field">
-              Conservação: {Math.round((1 - f.wear) * 100)}%
+              {t("Conservação:")} {Math.round((1 - f.wear) * 100)}%
               <input type="range" min={0} max={1} step={0.05} value={f.wear} onChange={(e) => set("wear", Number(e.target.value))} />
-              <span className="hint">100% = novo · 0% = desgastado</span>
+              <span className="hint">{t("100% = novo · 0% = desgastado")}</span>
             </label>
           </div>
         </Panel>
-        <Panel title="Qualidade e exportação">
+        <Panel title={t("Qualidade e exportação")}>
           <div className="grid g4">
             <label className="field">
-              Perfil de qualidade
+              {t("Perfil de qualidade")}
               <select value={f.quality_profile} onChange={(e) => set("quality_profile", e.target.value)}>
                 {Object.keys(g?.quality_profiles ?? { stylized_standard: 1 }).map((q) => (
                   <option key={q}>{q}</option>
@@ -293,11 +295,11 @@ export function Generator() {
               </select>
             </label>
             <label className="field">
-              Limite de triângulos
-              <input type="number" min={50} value={f.triangle_limit} placeholder={expected ? `${expected[1]} (perfil)` : "perfil"} onChange={(e) => set("triangle_limit", e.target.value)} />
+              {t("Limite de triângulos")}
+              <input type="number" min={50} value={f.triangle_limit} placeholder={expected ? t("{0} (perfil)", expected[1]) : "perfil"} onChange={(e) => set("triangle_limit", e.target.value)} />
             </label>
             <label className="field">
-              Resolução das texturas
+              {t("Resolução das texturas")}
               <select value={f.texture_resolution} onChange={(e) => set("texture_resolution", Number(e.target.value))}>
                 {[128, 256, 512, 1024, 2048].map((r) => (
                   <option key={r} value={r}>
@@ -307,21 +309,21 @@ export function Generator() {
               </select>
             </label>
             <label className="field">
-              Detalhe geométrico
+              {t("Detalhe geométrico")}
               <select value={f.detail} onChange={(e) => set("detail", Number(e.target.value))}>
-                <option value={0}>0 – simplificado</option>
-                <option value={1}>1 – padrão</option>
-                <option value={2}>2 – molduras e venezianas</option>
+                <option value={0}>{t("0 – simplificado")}</option>
+                <option value={1}>{t("1 – padrão")}</option>
+                <option value={2}>{t("2 – molduras e venezianas")}</option>
               </select>
             </label>
           </div>
           <div className="row wrap" style={{ marginTop: 12 }}>
-            <span className="muted">Formatos:</span>
+            <span className="muted">{t("Formatos:")}</span>
             <label className="check">
-              <input type="checkbox" checked disabled /> GLB (sempre)
+              <input type="checkbox" checked disabled /> {t("GLB (sempre)")}
             </label>
             {(["blend", "fbx"] as const).map((fmt) => (
-              <label key={fmt} className="check" title={blenderOnline ? "" : "Requer um worker com Blender online"}>
+              <label key={fmt} className="check" title={blenderOnline ? "" : t("Requer um worker com Blender online")}>
                 <input
                   type="checkbox"
                   checked={f.formats.includes(fmt)}
@@ -331,19 +333,19 @@ export function Generator() {
                 {fmt.toUpperCase()}
               </label>
             ))}
-            {!blenderOnline && <span className="muted">(BLEND/FBX exigem worker com Blender)</span>}
+            {!blenderOnline && <span className="muted">{t("(BLEND/FBX exigem worker com Blender)")}</span>}
           </div>
         </Panel>
-        <Panel title="Fila">
+        <Panel title={t("Fila")}>
           <div className="grid g4">
             <label className="field">
-              Prioridade ({f.priority})
+              {t("Prioridade (")}{f.priority})
               <input type="range" min={-10} max={10} value={f.priority} onChange={(e) => set("priority", Number(e.target.value))} />
             </label>
             <label className="field">
               Worker
               <select value={f.worker_id} onChange={(e) => set("worker_id", e.target.value)}>
-                <option value="">seleção automática</option>
+                <option value="">{t("seleção automática")}</option>
                 {(workers.data ?? []).map((w) => (
                   <option key={w.id} value={w.id}>
                     {w.name} ({w.kind}){w.online ? "" : " — offline"}
@@ -352,49 +354,49 @@ export function Generator() {
               </select>
             </label>
             <label className="field">
-              Agendar para
+              {t("Agendar para")}
               <input type="datetime-local" value={f.scheduled_at} onChange={(e) => set("scheduled_at", e.target.value)} />
             </label>
             <label className="field">
-              Depende dos jobs (ids)
+              {t("Depende dos jobs (ids)")}
               <input value={f.depends_on} placeholder="job_abc, job_def" onChange={(e) => set("depends_on", e.target.value)} />
             </label>
           </div>
         </Panel>
-        <Panel title="Planejado (ainda não disponível)">
+        <Panel title={t("Planejado (ainda não disponível)")}>
           <div className="grid g3 soon">
-            {["Prompt negativo", "Imagem de referência", "Modelo de IA", "Colisões avançadas", "Níveis de detalhe (LOD)", "Animações"].map((x) => (
+            {[t("Prompt negativo"), t("Imagem de referência"), t("Modelo de IA"), t("Colisões avançadas"), t("Níveis de detalhe (LOD)"), t("Animações")].map((x) => (
               <label key={x} className="field">
                 <span>
                   {x}
                   <span className="tag">M2–M4</span>
                 </span>
-                <input disabled placeholder="Requer providers de IA locais (Milestone 2+)" />
+                <input disabled placeholder={t("Requer providers de IA locais (Milestone 2+)")} />
               </label>
             ))}
           </div>
         </Panel>
       </div>
       <div className="grid" style={{ gap: 14, position: "sticky", top: 0 }}>
-        <Panel title="Resumo">
+        <Panel title={t("Resumo")}>
           <dl className="kv">
-            <dt>Gerador</dt>
+            <dt>{t("Gerador")}</dt>
             <dd className="mono">{g ? `${g.id}@${g.version}` : "—"}</dd>
-            <dt>Orçamento LOD0</dt>
+            <dt>{t("Orçamento LOD0")}</dt>
             <dd>{expected ? `${expected[0]}–${expected[1]} tris` : "—"}</dd>
-            <dt>Variações</dt>
+            <dt>{t("Variações")}</dt>
             <dd>
               <input type="number" min={1} max={1000} value={f.variations} onChange={(e) => set("variations", Math.max(1, Math.min(1000, Number(e.target.value) || 1)))} />
             </dd>
             <dt>Seeds</dt>
             <dd className="mono">{f.variations > 1 ? `${f.seed} … ${f.seed + f.variations - 1}` : f.seed}</dd>
-            <dt>Workers online</dt>
-            <dd>{anyOnline ? "sim" : <span className="check-warn">nenhum — o job ficará na fila</span>}</dd>
+            <dt>{t("Workers online")}</dt>
+            <dd>{anyOnline ? t("sim") : <span className="check-warn">{t("nenhum — o job ficará na fila")}</span>}</dd>
           </dl>
           <ErrorNote error={submit.error} />
           <div className="row sticky-actions" style={{ marginTop: 12 }}>
             <button className="primary" style={{ flex: 1, justifyContent: "center" }} disabled={!f.name || submit.isPending} onClick={() => submit.mutate()}>
-              <Sparkles size={15} /> {f.variations > 1 ? `Gerar ${f.variations} variações` : "Gerar asset"}
+              <Sparkles size={15} /> {f.variations > 1 ? t("Gerar {0} variações", f.variations) : t("Gerar asset")}
             </button>
           </div>
         </Panel>
@@ -407,7 +409,7 @@ export function Generator() {
                 if (p) setF({ ...DEFAULTS, ...(p.data as Partial<Form>) });
               }}
             >
-              <option value="">carregar preset…</option>
+              <option value="">{t("carregar preset…")}</option>
               {(presets.data ?? []).map((p) => (
                 <option key={p.id} value={p.id}>
                   {p.name}
@@ -416,9 +418,9 @@ export function Generator() {
             </select>
             <button
               className="icon"
-              title="Salvar configuração atual como preset"
+              title={t("Salvar configuração atual como preset")}
               onClick={() => {
-                const n = window.prompt("Nome do preset");
+                const n = window.prompt(t("Nome do preset"));
                 if (n) savePreset.mutate(n);
               }}
             >

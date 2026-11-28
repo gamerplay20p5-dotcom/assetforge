@@ -1,3 +1,4 @@
+import { useLocale } from "../i18n";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { RotateCcw, Upload, XCircle } from "lucide-react";
 import { useState } from "react";
@@ -15,12 +16,13 @@ Hospital,hospital,modern,400,,3
 Arranha-céu,skyscraper,modern,500,30,4`;
 
 export function BatchStudio() {
+  const { t } = useLocale();
   const qc = useQueryClient();
   const [text, setText] = useState(EXAMPLE_CSV);
   const [kind, setKind] = useState<"csv" | "json">("csv");
-  const [name, setName] = useState("Lote da cidade");
+  const [name, setName] = useState(t("Lote da cidade"));
   const [priority, setPriority] = useState(0);
-  const parsed = kind === "csv" ? parseBatchCsv(text) : parseBatchJson(text);
+  const parsed = kind === "csv" ? parseBatchCsv(text, t) : parseBatchJson(text, t);
   const batches = useQuery({ queryKey: ["batches"], queryFn: () => api<Batch[]>("/batches"), refetchInterval: 4000 });
   const submit = useMutation({
     mutationFn: () => api("/batches", { method: "POST", json: { name, items: parsed.items.map((i: BatchItem) => ({ ...i, priority: i.priority ?? priority })) } }),
@@ -39,7 +41,7 @@ export function BatchStudio() {
     <div className="grid" style={{ gap: 14 }}>
       <div className="grid g2">
         <Panel
-          title="Importar lista"
+          title={t("Importar lista")}
           actions={
             <>
               <select value={kind} onChange={(e) => setKind(e.target.value as "csv" | "json")} style={{ width: 90 }}>
@@ -47,7 +49,7 @@ export function BatchStudio() {
                 <option value="json">JSON</option>
               </select>
               <label className="btn">
-                <Upload size={14} /> Arquivo
+                <Upload size={14} /> {t("Arquivo")}
                 <input
                   type="file"
                   accept=".csv,.json,text/csv,application/json"
@@ -64,14 +66,14 @@ export function BatchStudio() {
             </>
           }
         >
-          <textarea rows={11} value={text} onChange={(e) => setText(e.target.value)} spellCheck={false} aria-label="Conteúdo da lista" />
+          <textarea rows={11} value={text} onChange={(e) => setText(e.target.value)} spellCheck={false} aria-label={t("Conteúdo da lista")} />
           <p className="muted" style={{ fontSize: 11 }}>
             {kind === "csv"
-              ? "Colunas: name, category, style, seed, width, depth, floors, floor_height, roof, wear, detail, formats (glb|blend|fbx), quality_profile, priority, count. 'count' expande a linha em N seeds."
-              : 'Formato: [{"name":"Casa 1","params":{"category":"house","seed":5}}, …] ou {"items":[…]}.'}
+              ? t("Colunas: name, category, style, seed, width, depth, floors, floor_height, roof, wear, detail, formats (glb|blend|fbx), quality_profile, priority, count. 'count' expande a linha em N seeds.")
+              : t("Formato: [{\"name\":\"Casa 1\",\"params\":{\"category\":\"house\",\"seed\":5}}, …] ou {\"items\":[…]}.")}
           </p>
         </Panel>
-        <Panel title="Pré-visualização">
+        <Panel title={t("Pré-visualização")}>
           {parsed.errors.map((e) => (
             <div className="error-note" key={e}>
               {e}
@@ -89,8 +91,8 @@ export function BatchStudio() {
             <table>
               <thead>
                 <tr>
-                  <th>Nome</th>
-                  <th>Categoria</th>
+                  <th>{t("Nome")}</th>
+                  <th>{t("Categoria")}</th>
                   <th>Seed</th>
                 </tr>
               </thead>
@@ -107,31 +109,31 @@ export function BatchStudio() {
           </div>
           <div className="grid g3" style={{ marginTop: 12 }}>
             <label className="field" style={{ gridColumn: "span 2" }}>
-              Nome do lote
+              {t("Nome do lote")}
               <input value={name} onChange={(e) => setName(e.target.value)} />
             </label>
             <label className="field">
-              Prioridade
+              {t("Prioridade")}
               <input type="number" value={priority} min={-100} max={100} onChange={(e) => setPriority(Number(e.target.value))} />
             </label>
           </div>
           <ErrorNote error={submit.error} />
           <button className="primary" style={{ marginTop: 12 }} disabled={!parsed.items.length || !!parsed.errors.length || submit.isPending || !name} onClick={() => submit.mutate()}>
-            Criar lote com {parsed.items.length} jobs rastreáveis
+            {t("Criar lote com")} {parsed.items.length} {t("jobs rastreáveis")}
           </button>
-          {submit.isSuccess && <div className="note" style={{ marginTop: 8 }}>Lote criado. Acompanhe abaixo ou na Queue Manager.</div>}
+          {submit.isSuccess && <div className="note" style={{ marginTop: 8 }}>{t("Lote criado. Acompanhe abaixo ou na Queue Manager.")}</div>}
         </Panel>
       </div>
-      <Panel title="Lotes">
+      <Panel title={t("Lotes")}>
         <div className="panel-body flush table-wrap" style={{ margin: -14 }}>
           {batches.data?.length ? (
             <table>
               <thead>
                 <tr>
-                  <th>Lote</th>
+                  <th>{t("Lote")}</th>
                   <th>Jobs</th>
-                  <th style={{ width: 200 }}>Progresso</th>
-                  <th>Criado</th>
+                  <th style={{ width: 200 }}>{t("Progresso")}</th>
+                  <th>{t("Criado")}</th>
                   <th />
                 </tr>
               </thead>
@@ -152,14 +154,14 @@ export function BatchStudio() {
                     <td>
                       <Progress value={b.progress} tone={b.finished === b.total ? "ok" : ""} />
                     </td>
-                    <td className="muted">{timeAgo(b.created_at)}</td>
+                    <td className="muted">{timeAgo(b.created_at, undefined, t)}</td>
                     <td>
                       <div className="row">
-                        <button title="Cancelar jobs pendentes e em execução" onClick={() => cancel.mutate(b.id)} disabled={b.finished === b.total}>
-                          <XCircle size={14} /> Cancelar
+                        <button title={t("Cancelar jobs pendentes e em execução")} onClick={() => cancel.mutate(b.id)} disabled={b.finished === b.total}>
+                          <XCircle size={14} /> {t("Cancelar")}
                         </button>
-                        <button title="Repetir os jobs que falharam" onClick={() => retry.mutate(b.id)} disabled={!b.counts.failed}>
-                          <RotateCcw size={14} /> Repetir falhas
+                        <button title={t("Repetir os jobs que falharam")} onClick={() => retry.mutate(b.id)} disabled={!b.counts.failed}>
+                          <RotateCcw size={14} /> {t("Repetir falhas")}
                         </button>
                       </div>
                     </td>
@@ -168,7 +170,7 @@ export function BatchStudio() {
               </tbody>
             </table>
           ) : (
-            <Empty>Nenhum lote ainda.</Empty>
+            <Empty>{t("Nenhum lote ainda.")}</Empty>
           )}
         </div>
       </Panel>

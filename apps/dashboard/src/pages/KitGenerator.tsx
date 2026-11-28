@@ -1,3 +1,4 @@
+import { useLocale } from "../i18n";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Hammer } from "lucide-react";
 import { useState } from "react";
@@ -29,6 +30,7 @@ export const KIT_HOUSES: KitHouse[] = [
 export const STAGES = ["Terreno", "Fundação", "Estrutura", "Paredes e telhado", "Acabamento", "Finalizada"];
 
 export function KitGenerator({ onCreated }: { onCreated: (ids: string[], preview?: string | null) => void }) {
+  const { t } = useLocale();
   const qc = useQueryClient();
   const [house, setHouse] = useState("ref01");
   const [stage, setStage] = useState(6);
@@ -63,30 +65,30 @@ export function KitGenerator({ onCreated }: { onCreated: (ids: string[], preview
 
   return (
     <>
-      <div className="st-title"><Hammer size={16} /> Casa do kit</div>
-      <div className="st-hint">Geometria limpa gerada pelo Blender, com os seis estados de obra. Escolha a casa e o estado.</div>
-      <div className="kit-grid" role="radiogroup" aria-label="Casa">
+      <div className="st-title"><Hammer size={16} />{" "}{t("Casa do kit")}</div>
+      <div className="st-hint">{t("Geometria limpa gerada pelo Blender, com os seis estados de obra. Escolha a casa e o estado.")}</div>
+      <div className="kit-grid" role="radiogroup" aria-label={t("Casa")}>
         {KIT_HOUSES.map((h) => (
-          <button key={h.id} role="radio" aria-checked={house === h.id} className={`kit-card ${house === h.id ? "on" : ""}`} onClick={() => setHouse(h.id)} title={h.hint}>
-            <img src={`/kit/${h.id}.jpg`} alt={h.label} loading="lazy" />
-            <span>{h.label}</span>
+          <button key={h.id} role="radio" aria-checked={house === h.id} className={`kit-card ${house === h.id ? "on" : ""}`} onClick={() => setHouse(h.id)} title={t(h.hint)}>
+            <img src={`/kit/${h.id}.jpg`} alt={t(h.label)} loading="lazy" />
+            <span>{t(h.label)}</span>
           </button>
         ))}
       </div>
-      <div className="st-label">Estado da obra</div>
-      <div className="stage-seg" role="radiogroup" aria-label="Estado da obra">
+      <div className="st-label">{t("Estado da obra")}</div>
+      <div className="stage-seg" role="radiogroup" aria-label={t("Estado da obra")}>
         {STAGES.map((s, i) => (
           <button key={s} role="radio" aria-checked={!allStages && stage === i + 1} disabled={allStages} className={!allStages && stage === i + 1 ? "on" : ""} onClick={() => setStage(i + 1)}>
             <b>{i + 1}</b>
-            <small>{s}</small>
+            <small>{t(s)}</small>
           </button>
         ))}
       </div>
       <label className="check">
-        <input type="checkbox" checked={allStages} onChange={(e) => setAllStages(e.target.checked)} /> Gerar os 6 estados de uma vez
+        <input type="checkbox" checked={allStages} onChange={(e) => setAllStages(e.target.checked)} /> {t("Gerar os 6 estados de uma vez")}
       </label>
       <div className="row wrap" style={{ gap: 12 }}>
-        <span className="muted">Formatos:</span>
+        <span className="muted">{t("Formatos:")}</span>
         <span className="check muted">GLB</span>
         {["fbx", "blend"].map((f) => (
           <label key={f} className="check">
@@ -96,11 +98,11 @@ export function KitGenerator({ onCreated }: { onCreated: (ids: string[], preview
         ))}
       </div>
       <div className="st-foot">
-        {!blenderUp && <div className="st-warn">Nenhum worker com Blender está online agora; o pedido ficaria na fila.</div>}
+        {!blenderUp && <div className="st-warn">{t("Nenhum worker com Blender está online agora; o pedido ficaria na fila.")}</div>}
         <ErrorNote error={generate.error} />
         <button className="st-generate" disabled={generate.isPending} onClick={() => generate.mutate()}>
           <Hammer size={18} />
-          {generate.isPending ? "Enviando…" : allStages ? "Gerar os 6 estados" : "Gerar casa"}
+          {generate.isPending ? t("Enviando…") : allStages ? t("Gerar os 6 estados") : t("Gerar casa")}
         </button>
       </div>
     </>

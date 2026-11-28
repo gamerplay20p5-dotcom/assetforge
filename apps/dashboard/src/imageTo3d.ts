@@ -1,3 +1,5 @@
+import { portuguese, type Translate } from "./i18n";
+
 export const MAX_IMAGE_MB = 10;
 
 /** Presets for a low/mid-poly game. `tris` is the LOD0 triangle target; the rest follows from it. */
@@ -41,8 +43,8 @@ export function parseLods(text: string): number[] | null {
 }
 
 /** Returns an error message when the file is not acceptable (checked before sending; the server checks again). */
-export function checkImageFile(f: { type: string; size: number }): string | null {
-  if (!["image/png", "image/jpeg", "image/webp"].includes(f.type)) return "use PNG, JPEG ou WEBP";
-  if (f.size > MAX_IMAGE_MB * 1024 * 1024) return `maior que ${MAX_IMAGE_MB} MB`;
+export function checkImageFile(f: { type: string; size: number }, t: Translate = portuguese): string | null {
+  if (!["image/png", "image/jpeg", "image/webp"].includes(f.type)) return t("use PNG, JPEG ou WEBP");
+  if (f.size > MAX_IMAGE_MB * 1024 * 1024) return t("maior que {0} MB", MAX_IMAGE_MB);
   return null;
 }

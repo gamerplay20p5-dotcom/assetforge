@@ -1,3 +1,4 @@
+import { useLocale, type Translate } from "../i18n";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, Download, Grid3x3, Heart, List, Package, RefreshCw, Trash2, X } from "lucide-react";
 import { useState } from "react";
@@ -29,25 +30,24 @@ function useDeleteAssets(onDone: (r: DeleteResult) => void) {
   });
 }
 
-function confirmDelete(names: string[]): boolean {
-  const list = names.slice(0, 6).join(", ") + (names.length > 6 ? ` e mais ${names.length - 6}` : "");
+function confirmDelete(names: string[], t: Translate): boolean {
+  const list = names.slice(0, 6).join(", ") + (names.length > 6 ? t(" e mais {0}", names.length - 6) : "");
   return window.confirm(
-    `Apagar ${names.length === 1 ? "este modelo" : `${names.length} modelos`} (${list})?
-
-Todas as versões e arquivos (GLB, FBX, BLEND, texturas e ZIP) saem do disco. Isso não pode ser desfeito.`,
+    t("Apagar {0} ({1})?\n\nTodas as versões e arquivos (GLB, FBX, BLEND, texturas e ZIP) saem do disco. Isso não pode ser desfeito.", names.length === 1 ? t("este modelo") : t("{0} modelos", names.length), list),
   );
 }
 
-function deleteMessage(r: DeleteResult): string {
+function deleteMessage(r: DeleteResult, t: Translate): string {
   const parts = [];
-  if (r.deleted.length) parts.push(`${r.deleted.length} apagado(s), ${formatBytes(r.freed_bytes)} liberados`);
-  if (r.skipped.length) parts.push(`${r.skipped.length} não apagado(s): ${r.skipped.map((x) => `${x.name ?? x.id} (${x.reason})`).join("; ")}`);
+  if (r.deleted.length) parts.push(t("{0} apagado(s), {1} liberados", r.deleted.length, formatBytes(r.freed_bytes)));
+  if (r.skipped.length) parts.push(t("{0} não apagado(s): {1}", r.skipped.length, r.skipped.map((x) => `${x.name ?? x.id} (${x.reason})`).join("; ")));
   return parts.join(" · ");
 }
 
 const REVIEW: Record<string, string> = { pending: "Pendente", approved: "Aprovado", rejected: "Rejeitado" };
 
 export function Library() {
+  const { language, t } = useLocale();
   const { assetId } = useParams();
   const [queryParams] = useSearchParams();
   const requestedVersion = Number(queryParams.get("version"));
@@ -65,7 +65,7 @@ export function Library() {
   const me = useQuery({ queryKey: ["me"], queryFn: () => api<{ username: string; role: string }>("/auth/me") });
   const canDelete = me.data?.role === "admin" || me.data?.role === "operator";
   const del = useDeleteAssets((r) => {
-    setNotice(deleteMessage(r));
+    setNotice(deleteMessage(r, t));
     setSelected(new Set());
     if (assetId && r.deleted.includes(assetId)) nav("/library");
   });
@@ -85,7 +85,7 @@ export function Library() {
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` },
       body: JSON.stringify({ asset_ids: [...selected], include: "package" }),
     });
-    if (!res.ok) return alert(`Falha no download: ${res.status}`);
+    if (!res.ok) return alert(t("Falha no download: {0}", res.status));
     const a = document.createElement("a");
     a.href = URL.createObjectURL(await res.blob());
     a.download = "assetforge_assets.zip";
@@ -94,67 +94,67 @@ export function Library() {
   };
   const deleteSelected = () => {
     const names = items.filter((a) => selected.has(a.id)).map((a) => a.name);
-    if (names.length && confirmDelete(names)) del.mutate([...selected]);
+    if (names.length && confirmDelete(names, t)) del.mutate([...selected]);
   };
   const allVisible = items.length > 0 && items.every((a) => selected.has(a.id));
   return (
     <div className={`lib-layout ${assetId ? "" : "no-detail"}`}>
       <div className="grid" style={{ gap: 12, minWidth: 0 }}>
         <div className="row wrap">
-          <input style={{ width: 240 }} placeholder="Buscar por nome, id, categoria…" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Buscar assets" />
-          <select style={{ width: 170 }} value={category} onChange={(e) => setCategory(e.target.value)} aria-label="Categoria">
-            <option value="">todas as categorias</option>
+          <input style={{ width: 240 }} placeholder={t("Buscar por nome, id, categoria…")} value={q} onChange={(e) => setQ(e.target.value)} aria-label={t("Buscar assets")} />
+          <select style={{ width: 170 }} value={category} onChange={(e) => setCategory(e.target.value)} aria-label={t("Categoria")}>
+            <option value="">{t("todas as categorias")}</option>
             {Object.entries(list.data?.facets.category ?? {}).map(([c, n]) => (
               <option key={c} value={c}>
                 {c} ({n})
               </option>
             ))}
           </select>
-          <select style={{ width: 140 }} value={review} onChange={(e) => setReview(e.target.value)} aria-label="Revisão">
-            <option value="">qualquer revisão</option>
+          <select style={{ width: 140 }} value={review} onChange={(e) => setReview(e.target.value)} aria-label={t("Revisão")}>
+            <option value="">{t("qualquer revisão")}</option>
             {Object.entries(REVIEW).map(([k, v]) => (
               <option key={k} value={k}>
-                {v}
+                {t(v)}
               </option>
             ))}
           </select>
-          <select style={{ width: 150 }} value={sort} onChange={(e) => setSort(e.target.value)} aria-label="Ordenar">
-            <option value="-created_at">mais recentes</option>
-            <option value="name">nome</option>
-            <option value="-triangle_count">mais triângulos</option>
-            <option value="triangle_count">menos triângulos</option>
+          <select style={{ width: 150 }} value={sort} onChange={(e) => setSort(e.target.value)} aria-label={t("Ordenar")}>
+            <option value="-created_at">{t("mais recentes")}</option>
+            <option value="name">{t("nome")}</option>
+            <option value="-triangle_count">{t("mais triângulos")}</option>
+            <option value="triangle_count">{t("menos triângulos")}</option>
           </select>
           <label className="check">
-            <input type="checkbox" checked={favOnly} onChange={(e) => setFavOnly(e.target.checked)} /> favoritos
+            <input type="checkbox" checked={favOnly} onChange={(e) => setFavOnly(e.target.checked)} /> {t("favoritos")}
           </label>
           <label className="check">
-            <input type="checkbox" checked={experimentsOnly} onChange={(e) => setExperimentsOnly(e.target.checked)} /> Experimentos CITY+++
+            <input type="checkbox" checked={experimentsOnly} onChange={(e) => setExperimentsOnly(e.target.checked)} /> {t("Experimentos CITY+++")}
           </label>
           <div className="spacer" />
           <span className="muted">{list.data?.total ?? 0} assets</span>
-          <button className="icon" onClick={() => setView(view === "grid" ? "list" : "grid")} aria-label="Alternar grade/lista" title="Alternar grade/lista">
+          <button className="icon" onClick={() => setView(view === "grid" ? "list" : "grid")} aria-label={t("Alternar grade/lista")} title={t("Alternar grade/lista")}>
             {view === "grid" ? <List size={15} /> : <Grid3x3 size={15} />}
           </button>
           <button disabled={!items.length} onClick={() => setSelected(allVisible ? new Set() : new Set(items.map((a) => a.id)))}>
-            {allVisible ? "Limpar seleção" : "Selecionar todos"}
+            {allVisible ? t("Limpar seleção") : t("Selecionar todos")}
           </button>
           <button disabled={!selected.size} onClick={downloadZip}>
-            <Package size={14} /> Baixar {selected.size || ""} (ZIP)
+            <Package size={14} />{" "}{t("Baixar")}{" "}{selected.size || ""} (ZIP)
           </button>
           {canDelete && (
-            <button className="danger" disabled={!selected.size || del.isPending} onClick={deleteSelected} title="Apaga do disco os modelos selecionados">
-              <Trash2 size={14} /> {del.isPending ? "Apagando…" : `Apagar ${selected.size || ""}`}
+            <button className="danger" disabled={!selected.size || del.isPending} onClick={deleteSelected} title={t("Apaga do disco os modelos selecionados")}>
+              <Trash2 size={14} /> {del.isPending ? t("Apagando…") : t("Apagar {0}", selected.size || "")}
             </button>
           )}
         </div>
         {notice && (
           <div className="note" role="status">
-            {notice} <button className="icon ghost" onClick={() => setNotice(null)} aria-label="Fechar aviso"><X size={12} /></button>
+            {notice} <button className="icon ghost" onClick={() => setNotice(null)} aria-label={t("Fechar aviso")}><X size={12} /></button>
           </div>
         )}
         <ErrorNote error={del.error} />
         {items.length === 0 ? (
-          <Empty>{list.isLoading ? "Carregando…" : "Nenhum asset encontrado."}</Empty>
+          <Empty>{list.isLoading ? t("Carregando…") : t("Nenhum asset encontrado.")}</Empty>
         ) : view === "grid" ? (
           <div className="cards">
             {items.map((a) => (
@@ -162,14 +162,14 @@ export function Library() {
                 <Thumb assetId={a.id} alt={a.name} hasThumb={a.has_thumbnail} />
                 <div className="corner">
                   {a.favorite && <span className="chip">♥</span>}
-                  {a.review_status !== "pending" && <span className={`chip ${a.review_status === "approved" ? "check-ok" : "check-fail"}`}>{REVIEW[a.review_status]}</span>}
+                  {a.review_status !== "pending" && <span className={`chip ${a.review_status === "approved" ? "check-ok" : "check-fail"}`}>{t(REVIEW[a.review_status] ?? a.review_status)}</span>}
                 </div>
-                <input className="check-box" type="checkbox" checked={selected.has(a.id)} onClick={(e) => e.stopPropagation()} onChange={() => toggle(a.id)} aria-label={`Selecionar ${a.name}`} />
+                <input className="check-box" type="checkbox" checked={selected.has(a.id)} onClick={(e) => e.stopPropagation()} onChange={() => toggle(a.id)} aria-label={t("Selecionar {0}", a.name)} />
                 <div className="meta">
                   <div className="title">{a.name}</div>
                   <div className="sub">
                     <span>{a.category}</span>
-                    <span>{a.triangle_count.toLocaleString()} △</span>
+                    <span>{a.triangle_count.toLocaleString(language)} △</span>
                   </div>
                 </div>
               </div>
@@ -182,20 +182,20 @@ export function Library() {
                 <thead>
                   <tr>
                     <th />
-                    <th>Nome</th>
-                    <th>Categoria</th>
-                    <th>Triângulos</th>
-                    <th>Dimensões (m)</th>
-                    <th>Versão</th>
-                    <th>Revisão</th>
-                    <th>Criado</th>
+                    <th>{t("Nome")}</th>
+                    <th>{t("Categoria")}</th>
+                    <th>{t("Triângulos")}</th>
+                    <th>{t("Dimensões (m)")}</th>
+                    <th>{t("Versão")}</th>
+                    <th>{t("Revisão")}</th>
+                    <th>{t("Criado")}</th>
                   </tr>
                 </thead>
                 <tbody>
                   {items.map((a) => (
                     <tr key={a.id} className={`clickable ${assetId === a.id ? "selected" : ""}`} onClick={() => nav(`/library/${a.id}`)}>
                       <td onClick={(e) => e.stopPropagation()}>
-                        <input type="checkbox" checked={selected.has(a.id)} onChange={() => toggle(a.id)} aria-label={`Selecionar ${a.name}`} />
+                        <input type="checkbox" checked={selected.has(a.id)} onChange={() => toggle(a.id)} aria-label={t("Selecionar {0}", a.name)} />
                       </td>
                       <td>
                         {a.favorite ? "♥ " : ""}
@@ -203,11 +203,11 @@ export function Library() {
                         <div className="muted mono">{a.id}</div>
                       </td>
                       <td>{a.category}</td>
-                      <td className="mono">{a.triangle_count.toLocaleString()}</td>
+                      <td className="mono">{a.triangle_count.toLocaleString(language)}</td>
                       <td className="mono">{a.dimensions_m?.map((d) => d.toFixed(1)).join(" × ") ?? "—"}</td>
                       <td>v{a.current_version}</td>
-                      <td>{REVIEW[a.review_status]}</td>
-                      <td className="muted">{timeAgo(a.created_at)}</td>
+                      <td>{t(REVIEW[a.review_status] ?? a.review_status)}</td>
+                      <td className="muted">{timeAgo(a.created_at, undefined, t)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -222,6 +222,7 @@ export function Library() {
 }
 
 function AssetDetail({ id, initialVersion, onClose }: { id: string; initialVersion?: number; onClose: () => void }) {
+  const { language, t } = useLocale();
   const qc = useQueryClient();
   const token = useDownloadToken();
   const [version, setVersion] = useState(initialVersion);
@@ -248,12 +249,12 @@ function AssetDetail({ id, initialVersion, onClose }: { id: string; initialVersi
       nav("/library");
       return;
     }
-    window.alert(deleteMessage(r));
+    window.alert(deleteMessage(r, t));
   });
   const regen = useMutation({
     mutationFn: async () => {
-      if (!a?.manifest) throw new Error("sem manifesto");
-      const seedText = window.prompt("Seed para a nova versão (vazio = mesma seed)", String(a.seed ?? ""));
+      if (!a?.manifest) throw new Error(t("sem manifesto"));
+      const seedText = window.prompt(t("Seed para a nova versão (vazio = mesma seed)"), String(a.seed ?? ""));
       if (seedText === null) return null;
       const { summary: _s, ...params } = a.manifest.generation_params as Record<string, unknown>;
       void _s;
@@ -263,8 +264,8 @@ function AssetDetail({ id, initialVersion, onClose }: { id: string; initialVersi
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["jobs"] }),
   });
-  if (asset.error instanceof ApiError && asset.error.status === 404) return <Panel title="Asset"><Empty>Asset não encontrado.</Empty></Panel>;
-  if (!a) return <Panel title="Asset"><Empty>Carregando…</Empty></Panel>;
+  if (asset.error instanceof ApiError && asset.error.status === 404) return <Panel title="Asset"><Empty>{t("Asset não encontrado.")}</Empty></Panel>;
+  if (!a) return <Panel title="Asset"><Empty>{t("Carregando…")}</Empty></Panel>;
   const m = a.manifest;
   const archive = m?.generation_params.archive as { worker: string; requested_resolution: number; effective_resolution: number | null; wall_seconds: number } | undefined;
   const ver = a.version_info?.version ?? a.current_version;
@@ -275,17 +276,17 @@ function AssetDetail({ id, initialVersion, onClose }: { id: string; initialVersi
     <Panel
       title={
         <span>
-          {a.name} <span className="muted mono">v{ver}{m?.generator_id === "asset.prepare" ? " · Derivado" : m?.generator_id === "experimental.reconstruct" ? " · Master" : ""}</span>
+          {a.name} <span className="muted mono">v{ver}{m?.generator_id === "asset.prepare" ? t(" · Derivado") : m?.generator_id === "experimental.reconstruct" ? " · Master" : ""}</span>
         </span>
       }
       actions={
         <span className="row" style={{ gap: 4 }}>
           {canDelete && (
-            <button className="icon ghost danger" disabled={del.isPending} onClick={() => confirmDelete([a.name]) && del.mutate([a.id])} aria-label="Apagar este modelo" title="Apagar este modelo (remove os arquivos do disco)">
+            <button className="icon ghost danger" disabled={del.isPending} onClick={() => confirmDelete([a.name], t) && del.mutate([a.id])} aria-label={t("Apagar este modelo")} title={t("Apagar este modelo (remove os arquivos do disco)")}>
               <Trash2 size={15} />
             </button>
           )}
-          <button className="icon ghost" onClick={onClose} aria-label="Fechar detalhe">
+          <button className="icon ghost" onClick={onClose} aria-label={t("Fechar detalhe")}>
             <X size={15} />
           </button>
         </span>
@@ -294,16 +295,16 @@ function AssetDetail({ id, initialVersion, onClose }: { id: string; initialVersi
       <div className="tabs" role="tablist">
         {(
           [
-            ["preview", "Preview 3D"],
-            ["compare", "Comparar"],
-            ["info", "Geometria e materiais"],
-            ["validation", "Validação"],
-            ["versions", "Versões"],
-            ["files", "Arquivos"],
+            ["preview", t("Preview 3D")],
+            ["compare", t("Comparar")],
+            ["info", t("Geometria e materiais")],
+            ["validation", t("Validação")],
+            ["versions", t("Versões")],
+            ["files", t("Arquivos")],
           ] as const
         ).map(([k, l]) => (
           <button key={k} role="tab" aria-selected={tab === k} className={tab === k ? "on" : ""} onClick={() => setTab(k)}>
-            {l}
+            {t(l)}
           </button>
         ))}
       </div>
@@ -319,15 +320,15 @@ function AssetDetail({ id, initialVersion, onClose }: { id: string; initialVersi
               <input type="checkbox" checked={bounds} onChange={(e) => setBounds(e.target.checked)} /> Bounding box
             </label>
             <label className="check">
-              <input type="checkbox" checked={rotate} onChange={(e) => setRotate(e.target.checked)} /> Girar
+              <input type="checkbox" checked={rotate} onChange={(e) => setRotate(e.target.checked)} /> {t("Girar")}
             </label>
             {(m?.lods?.length ?? 0) > 1 && (
               <label className="check">
                 LOD
-                <select style={{ width: 150 }} value={lod} onChange={(e) => setLod(Number(e.target.value))} aria-label="Nível de detalhe">
+                <select style={{ width: 150 }} value={lod} onChange={(e) => setLod(Number(e.target.value))} aria-label={t("Nível de detalhe")}>
                   {m!.lods.map((x, i) => (
                     <option key={i} value={i}>
-                      LOD{x.level} · {x.triangles.toLocaleString()} △
+                      LOD{x.level} · {x.triangles.toLocaleString(language)} △
                     </option>
                   ))}
                 </select>
@@ -336,9 +337,9 @@ function AssetDetail({ id, initialVersion, onClose }: { id: string; initialVersi
           </div>
           {stats && (
             <div className="row wrap muted" style={{ marginTop: 6, fontSize: 12 }}>
-              <span className={over ? "check-warn" : ""}>{stats.triangles.toLocaleString()} triângulos {m?.triangle_budget ? `(orçamento ${m.triangle_budget.join("–")})` : ""}</span>
+              <span className={over ? "check-warn" : ""}>{stats.triangles.toLocaleString(language)}{" "}{t("triângulos")}{" "}{m?.triangle_budget ? t("(orçamento {0})", m.triangle_budget.join("–")) : ""}</span>
               <span>· {stats.size.map((s) => s.toFixed(1)).join(" × ")} {m?.generator_id === "experimental.reconstruct" ? "u." : "m"}</span>
-              <span>· {stats.meshes} malhas/materiais</span>
+              <span>· {stats.meshes}{" "}{t("malhas/materiais")}</span>
             </div>
           )}
         </>
@@ -346,48 +347,48 @@ function AssetDetail({ id, initialVersion, onClose }: { id: string; initialVersi
       {tab === "info" && m && (
         <div className="grid" style={{ gap: 12 }}>
           <dl className="kv">
-            <dt>Categoria</dt>
+            <dt>{t("Categoria")}</dt>
             <dd>{a.category}</dd>
-            <dt>Dimensões</dt>
-            <dd>{a.dimensions_m?.map((d) => d.toFixed(2)).join(" × ")} {m.generator_id === "experimental.reconstruct" ? "unidades do motor" : "m"} (L×A×P)</dd>
-            <dt>Pivô</dt>
-            <dd>{m.generator_id === "experimental.reconstruct" ? "Sistema de coordenadas original do motor" : "Centro da base (Y-up)"}</dd>
+            <dt>{t("Dimensões")}</dt>
+            <dd>{a.dimensions_m?.map((d) => d.toFixed(2)).join(" × ")} {m.generator_id === "experimental.reconstruct" ? t("unidades do motor") : "m"}{" "}{t("(L×A×P)")}</dd>
+            <dt>{t("Pivô")}</dt>
+            <dd>{m.generator_id === "experimental.reconstruct" ? t("Sistema de coordenadas original do motor") : t("Centro da base (Y-up)")}</dd>
             {m.provenance.weights_revision && <>
-              <dt>Pesos</dt><dd className="mono">{m.provenance.weights} @ {m.provenance.weights_revision}</dd>
+              <dt>{t("Pesos")}</dt><dd className="mono">{m.provenance.weights} @ {m.provenance.weights_revision}</dd>
             </>}
-            {m.provenance.master_sha256 && <><dt>SHA-256 do master</dt><dd className="mono">{m.provenance.master_sha256}</dd></>}
-            {m.provenance.source_version && <><dt>Origem do derivado</dt><dd>Master v{m.provenance.source_version}</dd></>}
+            {m.provenance.master_sha256 && <><dt>{t("SHA-256 do master")}</dt><dd className="mono">{m.provenance.master_sha256}</dd></>}
+            {m.provenance.source_version && <><dt>{t("Origem do derivado")}</dt><dd>Master v{m.provenance.source_version}</dd></>}
             {archive && <>
-              <dt>Worker original</dt><dd>{archive.worker === "4090" ? "RTX 4090" : "DGX Spark"}</dd>
-              <dt>Resolução</dt><dd>{archive.requested_resolution} solicitada · {archive.effective_resolution ?? "—"} efetiva</dd>
-              <dt>Tempo de geração</dt><dd>{archive.wall_seconds.toLocaleString("pt-BR")} s</dd>
+              <dt>{t("Worker original")}</dt><dd>{archive.worker === "4090" ? "RTX 4090" : "DGX Spark"}</dd>
+              <dt>{t("Resolução")}</dt><dd>{archive.requested_resolution}{" "}{t("solicitada ·")}{" "}{archive.effective_resolution ?? "—"}{" "}{t("efetiva")}</dd>
+              <dt>{t("Tempo de geração")}</dt><dd>{archive.wall_seconds.toLocaleString(language)} s</dd>
             </>}
-            <dt>Triângulos</dt>
+            <dt>{t("Triângulos")}</dt>
             <dd>
-              {m.triangle_count.toLocaleString()} (LOD0){m.triangle_budget && ` · orçamento ${m.triangle_budget.join("–")}`}
+              {m.triangle_count.toLocaleString(language)} (LOD0){m.triangle_budget && t(" · orçamento {0}", m.triangle_budget.join("–"))}
             </dd>
-            <dt>Gerador</dt>
+            <dt>{t("Gerador")}</dt>
             <dd className="mono">
               {m.generator_id}@{m.generator_version} · seed {a.seed}
             </dd>
-            <dt>Motor de export</dt>
+            <dt>{t("Motor de export")}</dt>
             <dd>{a.engine}</dd>
-            <dt>Perfil visual</dt>
+            <dt>{t("Perfil visual")}</dt>
             <dd>{a.art_profile}</dd>
-            <dt>Licença</dt>
-            <dd>{m.license}</dd>
+            <dt>{t("Licença")}</dt>
+            <dd>{t(m.license)}</dd>
             <dt>LODs</dt>
-            <dd>{m.lods.map((l) => `LOD${l.level}: ${l.triangles}`).join(", ")} (LODs adicionais: Milestone 3)</dd>
-            <dt>Colisão</dt>
+            <dd>{m.lods.map((l) => `LOD${l.level}: ${l.triangles}`).join(", ")}{" "}{t("(LODs adicionais: Milestone 3)")}</dd>
+            <dt>{t("Colisão")}</dt>
             <dd>{m.colliders.map((c) => `${c.type} ${c.size.map((s) => s.toFixed(1)).join("×")}`).join(", ")}</dd>
-            <dt>Pontos de conexão</dt>
+            <dt>{t("Pontos de conexão")}</dt>
             <dd>{m.connection_points.map((c) => c.name).join(", ") || "—"}</dd>
           </dl>
           <div>
-            <h4 style={{ margin: "0 0 6px" }}>Materiais</h4>
+            <h4 style={{ margin: "0 0 6px" }}>{t("Materiais")}</h4>
             <div className="row wrap">
               {m.materials.map((mt) => (
-                <span className="chip" key={mt.name} title={`${mt.texture ?? "cor lisa"} · rugosidade ${mt.roughness} · metal ${mt.metallic}`}>
+                <span className="chip" key={mt.name} title={t("{0} · rugosidade {1} · metal {2}", mt.texture ?? t("cor lisa"), mt.roughness, mt.metallic)}>
                   <span className="swatch" style={{ background: mt.base_color }} />
                   {mt.name}
                 </span>
@@ -395,7 +396,7 @@ function AssetDetail({ id, initialVersion, onClose }: { id: string; initialVersi
             </div>
           </div>
           <div>
-            <h4 style={{ margin: "0 0 6px" }}>Texturas</h4>
+            <h4 style={{ margin: "0 0 6px" }}>{t("Texturas")}</h4>
             <div className="row wrap">
               {token &&
                 m.textures.map((t) => (
@@ -405,12 +406,12 @@ function AssetDetail({ id, initialVersion, onClose }: { id: string; initialVersi
                 ))}
             </div>
           </div>
-          <p className="note">Edição de escala, rotação, pivô, materiais e geometria (Asset Inspector) chega no Milestone 3; operações destrutivas criarão novas versões.</p>
+          <p className="note">{t("Edição de escala, rotação, pivô, materiais e geometria (Asset Inspector) chega no Milestone 3; operações destrutivas criarão novas versões.")}</p>
         </div>
       )}
       {tab === "validation" && a.validation && (
         <div className="grid" style={{ gap: 6 }}>
-          <div className={a.validation.passed ? "check-ok" : "check-fail"}>{a.validation.passed ? "✔ Validação aprovada" : "✘ Validação reprovada"}</div>
+          <div className={a.validation.passed ? "check-ok" : "check-fail"}>{a.validation.passed ? t("✔ Validação aprovada") : t("✘ Validação reprovada")}</div>
           {a.validation.checks.map((c, i) => (
             <div key={i} className={`check-${c.status === "pass" ? "ok" : c.status}`} style={{ fontSize: 12 }}>
               {c.status === "pass" ? "✔" : c.status === "warn" ? "⚠" : "✘"} <strong>{c.name}</strong> <span className="muted">{c.detail}</span>
@@ -422,21 +423,21 @@ function AssetDetail({ id, initialVersion, onClose }: { id: string; initialVersi
         <table>
           <thead>
             <tr>
-              <th>Versão</th>
-              <th>Triângulos</th>
-              <th>Motor</th>
-              <th>Criada</th>
+              <th>{t("Versão")}</th>
+              <th>{t("Triângulos")}</th>
+              <th>{t("Motor")}</th>
+              <th>{t("Criada")}</th>
             </tr>
           </thead>
           <tbody>
             {(a.versions ?? []).slice().reverse().map((v) => (
               <tr key={v.version} className="clickable" onClick={() => setVersion(v.version)}>
                 <td>
-                  v{v.version} {v.version === a.current_version && <span className="chip">atual</span>} {v.version === ver && <span className="chip">vendo</span>}
+                  v{v.version} {v.version === a.current_version && <span className="chip">{t("atual")}</span>} {v.version === ver && <span className="chip">{t("vendo")}</span>}
                 </td>
-                <td className="mono">{v.triangle_count.toLocaleString()}</td>
+                <td className="mono">{v.triangle_count.toLocaleString(language)}</td>
                 <td>{v.engine}</td>
-                <td className="muted">{timeAgo(v.created_at)}</td>
+                <td className="muted">{timeAgo(v.created_at, undefined, t)}</td>
               </tr>
             ))}
           </tbody>
@@ -464,22 +465,22 @@ function AssetDetail({ id, initialVersion, onClose }: { id: string; initialVersi
       <ErrorNote error={patch.error ?? regen.error} />
       <div className="row wrap">
         <button className={a.review_status === "approved" ? "primary" : ""} onClick={() => patch.mutate({ review_status: a.review_status === "approved" ? "pending" : "approved" })}>
-          <Check size={14} /> Aprovar
+          <Check size={14} /> {t("Aprovar")}
         </button>
         <button className={a.review_status === "rejected" ? "danger" : ""} onClick={() => patch.mutate({ review_status: a.review_status === "rejected" ? "pending" : "rejected" })}>
-          <X size={14} /> Rejeitar
+          <X size={14} /> {t("Rejeitar")}
         </button>
         <button onClick={() => patch.mutate({ favorite: !a.favorite })} aria-pressed={a.favorite}>
-          <Heart size={14} fill={a.favorite ? "currentColor" : "none"} /> Favorito
+          <Heart size={14} fill={a.favorite ? "currentColor" : "none"} /> {t("Favorito")}
         </button>
         {m?.generator_id === "experimental.reconstruct" ? <Link className="btn"
           to={`/engines?${new URLSearchParams({ asset: a.id, version: String(ver) })}`}>
-          <RefreshCw size={14} /> Repetir geração
+          <RefreshCw size={14} /> {t("Repetir geração")}
         </Link> : m?.generator_id !== "asset.prepare" && <button onClick={() => regen.mutate()} disabled={regen.isPending}>
-          <RefreshCw size={14} /> Nova versão
+          <RefreshCw size={14} /> {t("Nova versão")}
         </button>}
         {m && m.generator_id !== "asset.prepare" && ["building", "vehicle", "npc", "prop"].includes(a.category) &&
-          <Link className="btn" to={`/prepare?${new URLSearchParams({ asset: a.id, version: String(ver) })}`}>Preparar para Unity</Link>}
+          <Link className="btn" to={`/prepare?${new URLSearchParams({ asset: a.id, version: String(ver) })}`}>{t("Preparar para Unity")}</Link>}
       </div>
       <div className="row wrap" style={{ marginTop: 8 }}>
         <a className="btn" href={fileUrl(a.id, "model.glb", token, ver, true)}>
@@ -496,14 +497,14 @@ function AssetDetail({ id, initialVersion, onClose }: { id: string; initialVersi
           </a>
         )}
         <a className="btn" href={packageUrl(a.id, token, ver)}>
-          <Package size={14} /> Pacote ZIP
+          <Package size={14} /> {t("Pacote ZIP")}
         </a>
       </div>
       <div className="row wrap" style={{ marginTop: 10 }}>
-        {a.tags.map((t) => (
-          <span key={t} className="chip">
-            #{t}{" "}
-            <button className="ghost icon" style={{ padding: 0, border: 0 }} aria-label={`Remover tag ${t}`} onClick={() => patch.mutate({ tags: a.tags.filter((x) => x !== t) })}>
+        {a.tags.map((tag) => (
+          <span key={tag} className="chip">
+            #{tag}{" "}
+            <button className="ghost icon" style={{ padding: 0, border: 0 }} aria-label={t("Remover tag {0}", tag)} onClick={() => patch.mutate({ tags: a.tags.filter((x) => x !== tag) })}>
               ×
             </button>
           </span>

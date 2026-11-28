@@ -1,9 +1,11 @@
+import { useLocale } from "../i18n";
 import type { ReactNode } from "react";
 import { fileUrl, useDownloadToken } from "../api";
 import { stateLabel } from "../lib";
 
 export function StatusBadge({ state }: { state: string }) {
-  return <span className={`badge st-${state}`}>{stateLabel(state)}</span>;
+  const { t } = useLocale();
+  return <span className={`badge st-${state}`}>{stateLabel(state, t)}</span>;
 }
 
 export function Progress({ value, tone }: { value: number; tone?: string }) {
@@ -17,13 +19,14 @@ export function Progress({ value, tone }: { value: number; tone?: string }) {
 }
 
 export function Meter({ label, value, max, unit, na }: { label: string; value: number | null; max?: number | null; unit?: string; na?: string }) {
+  const { t } = useLocale();
   const hasValue = value !== null && value !== undefined;
   const pct = hasValue ? (max ? (value / max) * 100 : value) : 0;
   return (
     <div className="meter">
       <div className="meter-head">
         <span>{label}</span>
-        <span className="mono">{hasValue ? (max ? `${Math.round(value)} / ${Math.round(max)} ${unit ?? ""}` : `${value.toFixed(0)}${unit ?? "%"}`) : (na ?? "sem dados")}</span>
+        <span className="mono">{hasValue ? (max ? `${Math.round(value)} / ${Math.round(max)} ${unit ?? ""}` : `${value.toFixed(0)}${unit ?? "%"}`) : (na ?? t("sem dados"))}</span>
       </div>
       <div className="meter-track">
         <div className={`meter-fill ${pct > 85 ? "hot" : ""}`} style={{ width: `${Math.min(100, pct)}%` }} />
@@ -57,8 +60,9 @@ export function Panel({ title, actions, children, className }: { title?: ReactNo
 }
 
 export function Thumb({ assetId, version, alt, hasThumb = true }: { assetId: string; version?: number; alt: string; hasThumb?: boolean }) {
+  const { t } = useLocale();
   const token = useDownloadToken();
-  if (!hasThumb) return <div className="thumb empty">sem miniatura</div>;
+  if (!hasThumb) return <div className="thumb empty">{t("sem miniatura")}</div>;
   if (!token) return <div className="thumb skeleton" />;
   return <img className="thumb" loading="lazy" alt={alt} src={fileUrl(assetId, "thumbnail.png", token, version)} />;
 }

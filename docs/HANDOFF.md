@@ -1,11 +1,13 @@
 # HANDOFF — AssetForge (estado em 2026-11-27)
 
-Escrito para: outro agente de código (Codex) que vai continuar o trabalho sem o histórico da conversa. Idioma do projeto, da UI e dos docs: **PT-BR**.
+Escrito para: outro agente de código (Codex) que vai continuar o trabalho sem o histórico da conversa. A documentação usa PT-BR e o dashboard oferece português e inglês.
 Commits em Conventional Commits; PRs em português **e** inglês. Atribuição nos commits: `Co-Authored-By: <modelo> <noreply@anthropic.com>` se feitos por Claude.
 
 ## Reconstrução e Biblioteca CITY+++ · 27/11/2026
 
 ### Entradas e perfis de geometria
+
+Use o seletor **Português / English** no login ou na barra superior. A preferência fica no navegador e muda os textos da interface sem reiniciar o formulário. O catálogo em `apps/dashboard/src/english.ts` usa o texto original em português como chave. Nomes cadastrados, relatórios gerados e mensagens brutas dos workers e provedores conservam o idioma de origem.
 
 No estúdio, o botão × remove a imagem de uma vista ou um arquivo do lote. **Limpar lote** remove toda a seleção local. Os mesmos arquivos podem ser selecionados novamente.
 

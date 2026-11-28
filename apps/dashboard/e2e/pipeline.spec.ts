@@ -1,5 +1,29 @@
 import { expect, test } from "@playwright/test";
 
+test("English persists across login and reload without resetting studio inputs", async ({ page }) => {
+  await page.goto("/engines");
+  const language = page.locator("select.language-select");
+  await page.getByLabel("Idioma").selectOption("en");
+  await expect(page.locator("html")).toHaveAttribute("lang", "en");
+  await expect(page.getByLabel("Language")).toHaveValue("en");
+  await page.getByLabel("Password").fill("e2e-admin-password");
+  await page.getByRole("button", { name: "Sign in" }).click();
+  await expect(page.getByRole("link", { name: "3D Reconstruction" })).toBeVisible();
+
+  await page.getByRole("button", { name: "Description", exact: true }).click();
+  await page.getByLabel("Describe what you want to create").fill("A wooden bench");
+  await language.selectOption("pt-BR");
+  await expect(page.getByLabel("Descreva o que quer criar")).toHaveValue("A wooden bench");
+  await language.selectOption("en");
+  await expect(page.getByLabel("Describe what you want to create")).toHaveValue("A wooden bench");
+  await page.getByRole("link", { name: "Infrastructure" }).click();
+  await page.getByRole("link", { name: "Queue", exact: true }).click();
+  await expect(page.getByRole("button", { name: "All", exact: true })).toBeVisible();
+  await page.reload();
+  await expect(page.getByLabel("Language")).toHaveValue("en");
+  await expect(page.getByRole("link", { name: "Library" })).toBeVisible();
+});
+
 // Acceptance flow for Milestone 1, driven through the real UI against a real API + worker.
 test("login -> describe -> generate -> queue -> library -> 3D viewer -> download", async ({ page, request }) => {
   await page.goto("/");

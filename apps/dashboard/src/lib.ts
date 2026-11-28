@@ -1,3 +1,5 @@
+import { portuguese, type Translate } from "./i18n";
+
 /** Pure helpers (unit-tested with Vitest). */
 
 export function formatBytes(n: number | null | undefined): string {
@@ -21,14 +23,14 @@ export function formatDuration(seconds: number | null | undefined): string {
   return `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, "0")}m`;
 }
 
-export function timeAgo(iso: string | null | undefined, now: number = Date.now()): string {
-  if (!iso) return "nunca";
+export function timeAgo(iso: string | null | undefined, now: number = Date.now(), t: Translate = portuguese): string {
+  if (!iso) return t("nunca");
   const s = Math.max(0, Math.round((now - new Date(iso).getTime()) / 1000));
-  if (s < 5) return "agora";
-  if (s < 60) return `${s}s atrás`;
-  if (s < 3600) return `${Math.floor(s / 60)}min atrás`;
-  if (s < 86400) return `${Math.floor(s / 3600)}h atrás`;
-  return `${Math.floor(s / 86400)}d atrás`;
+  if (s < 5) return t("agora");
+  if (s < 60) return t("{0}s atrás", s);
+  if (s < 3600) return t("{0}min atrás", Math.floor(s / 60));
+  if (s < 86400) return t("{0}h atrás", Math.floor(s / 3600));
+  return t("{0}d atrás", Math.floor(s / 86400));
 }
 
 export interface BatchItem {
@@ -67,10 +69,10 @@ export function splitCsvLine(line: string): string[] {
 
 /** CSV columns: name, category, style, seed, width, depth, floors, roof, wear, detail, formats (glb|blend|fbx),
  *  quality_profile, priority, count. A `count` > 1 expands the row into that many seeds. */
-export function parseBatchCsv(text: string): { items: BatchItem[]; errors: string[] } {
+export function parseBatchCsv(text: string, t: Translate = portuguese): { items: BatchItem[]; errors: string[] } {
   const lines = text.split(/\r?\n/).filter((l) => l.trim() !== "");
   const errors: string[] = [];
-  if (lines.length < 2) return { items: [], errors: ["CSV precisa de cabeçalho e ao menos uma linha"] };
+  if (lines.length < 2) return { items: [], errors: [t("CSV precisa de cabeçalho e ao menos uma linha")] };
   const header = splitCsvLine(lines[0]).map((h) => h.toLowerCase());
   const items: BatchItem[] = [];
   lines.slice(1).forEach((line, idx) => {
@@ -79,7 +81,7 @@ export function parseBatchCsv(text: string): { items: BatchItem[]; errors: strin
     header.forEach((h, i) => (row[h] = cells[i] ?? ""));
     const lineNo = idx + 2;
     if (!row.name) {
-      errors.push(`linha ${lineNo}: 'name' é obrigatório`);
+      errors.push(t("linha {0}: 'name' é obrigatório", lineNo));
       return;
     }
     const params: Record<string, unknown> = {};
@@ -88,7 +90,7 @@ export function parseBatchCsv(text: string): { items: BatchItem[]; errors: strin
       if (NUMERIC.has(k)) {
         const n = Number(v);
         if (Number.isNaN(n)) {
-          errors.push(`linha ${lineNo}: '${k}' não é número`);
+          errors.push(t("linha {0}: '{1}' não é número", lineNo, k));
           return;
         }
         params[k] = n;
@@ -111,27 +113,27 @@ export function parseBatchCsv(text: string): { items: BatchItem[]; errors: strin
   return { items, errors };
 }
 
-export function parseBatchJson(text: string): { items: BatchItem[]; errors: string[] } {
+export function parseBatchJson(text: string, t: Translate = portuguese): { items: BatchItem[]; errors: string[] } {
   try {
     const data = JSON.parse(text);
     const arr = Array.isArray(data) ? data : Array.isArray(data?.items) ? data.items : null;
-    if (!arr) return { items: [], errors: ["JSON deve ser um array de itens ou { items: [...] }"] };
+    if (!arr) return { items: [], errors: [t("JSON deve ser um array de itens ou { items: [...] }")] };
     const errors: string[] = [];
     const items: BatchItem[] = [];
     arr.forEach((it: Record<string, unknown>, i: number) => {
       if (typeof it !== "object" || it === null || typeof it.name !== "string") {
-        errors.push(`item ${i + 1}: 'name' é obrigatório`);
+        errors.push(t("item {0}: 'name' é obrigatório", i + 1));
         return;
       }
       items.push({ ...(it as object), params: (it.params as Record<string, unknown>) ?? {} } as BatchItem);
     });
     return { items, errors };
   } catch (e) {
-    return { items: [], errors: [`JSON inválido: ${(e as Error).message}`] };
+    return { items: [], errors: [t("JSON inválido: {0}", (e as Error).message)] };
   }
 }
 
-export function stateLabel(state: string): string {
+export function stateLabel(state: string, t: Translate = portuguese): string {
   const map: Record<string, string> = {
     queued: "Na fila",
     running: "Executando",
@@ -143,10 +145,10 @@ export function stateLabel(state: string): string {
     retrying: "Nova tentativa",
     cancelling: "Cancelando",
   };
-  return map[state] ?? state;
+  return t(map[state] ?? state);
 }
 
-export function stageLabel(stage: string | null): string {
+export function stageLabel(stage: string | null, t: Translate = portuguese): string {
   const map: Record<string, string> = {
     prepare: "Preparar referências",
     conditioning: "Condicionar pelas imagens",
@@ -161,5 +163,5 @@ export function stageLabel(stage: string | null): string {
     validate_outputs: "Validação dos arquivos",
     package: "Pacote",
   };
-  return stage ? (map[stage] ?? stage) : "—";
+  return stage ? t(map[stage] ?? stage) : "—";
 }

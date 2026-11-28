@@ -1,3 +1,4 @@
+import { useLocale } from "../i18n";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowDown, ArrowUp, KeyRound, Plug, Trash2 } from "lucide-react";
 import { useState } from "react";
@@ -48,6 +49,7 @@ const PROVIDER_LABEL = { gemini: "Google Gemini", grok: "xAI Grok" } as const;
 const STATUS_LABEL: Record<string, string> = { ok: "ok", cache: "cache", quota: "cota", auth: "chave recusada", error: "erro" };
 
 function AddKey({ onDone }: { onDone: () => void }) {
+  const { t } = useLocale();
   const [provider, setProvider] = useState<"gemini" | "grok">("gemini");
   const [key, setKey] = useState("");
   const [label, setLabel] = useState("");
@@ -74,49 +76,49 @@ function AddKey({ onDone }: { onDone: () => void }) {
     },
   });
   return (
-    <Panel title={<><KeyRound size={15} /> Adicionar chave</>}>
+    <Panel title={<><KeyRound size={15} />{" "}{t("Adicionar chave")}</>}>
       <div className="ai-form">
-        <label className="field">Provedor
+        <label className="field">{t("Provedor")}
           <select value={provider} onChange={(e) => { setProvider(e.target.value as "gemini" | "grok"); setModels(null); }}>
-            <option value="gemini">Google Gemini (tem nível gratuito)</option>
-            <option value="grok">xAI Grok (pago)</option>
+            <option value="gemini">{t("Google Gemini (tem nível gratuito)")}</option>
+            <option value="grok">{t("xAI Grok (pago)")}</option>
           </select>
         </label>
-        <label className="field">Nome (opcional)
-          <input value={label} maxLength={80} onChange={(e) => setLabel(e.target.value)} placeholder="ex.: conta pessoal" />
+        <label className="field">{t("Nome (opcional)")}
+          <input value={label} maxLength={80} onChange={(e) => setLabel(e.target.value)} placeholder={t("ex.: conta pessoal")} />
         </label>
-        <label className="field ai-wide">Chave de API
+        <label className="field ai-wide">{t("Chave de API")}
           <input type="password" autoComplete="off" spellCheck={false} value={key} onChange={(e) => { setKey(e.target.value.trim()); setModels(null); }}
             placeholder={provider === "gemini" ? "AIza…" : "xai-…"} />
-          <span className="hint">Vai direto para o servidor, é guardada criptografada e nunca mais é exibida.</span>
+          <span className="hint">{t("Vai direto para o servidor, é guardada criptografada e nunca mais é exibida.")}</span>
         </label>
         <div className="row ai-wide">
-          <button disabled={key.length < 8 || probe.isPending} onClick={() => probe.mutate()}><Plug size={14} /> {probe.isPending ? "Testando…" : "Testar e listar modelos"}</button>
+          <button disabled={key.length < 8 || probe.isPending} onClick={() => probe.mutate()}><Plug size={14} /> {probe.isPending ? t("Testando…") : t("Testar e listar modelos")}</button>
         </div>
         {models && (
           <>
-            <label className="field ai-wide">Modelo
+            <label className="field ai-wide">{t("Modelo")}
               <select value={model} onChange={(e) => setModel(e.target.value)}>
                 {models.map((m) => <option key={m.name} value={m.name}>{m.display && m.display !== m.name ? `${m.display} (${m.name})` : m.name}</option>)}
               </select>
               {provider === "gemini" && !models.some((m) => m.name === "gemini-3.5-flash-lite") && (
-                <span className="hint">O gemini-3.5-flash-lite (o mesmo do bot HTS) não aparece para esta chave; foi sugerido o melhor disponível.</span>
+                <span className="hint">{t("O gemini-3.5-flash-lite (o mesmo do bot HTS) não aparece para esta chave; foi sugerido o melhor disponível.")}</span>
               )}
             </label>
-            <label className="field">Limite por minuto
+            <label className="field">{t("Limite por minuto")}
               <input type="number" min={0} value={rpm} onChange={(e) => setRpm(Number(e.target.value))} />
             </label>
-            <label className="field">Limite por dia
+            <label className="field">{t("Limite por dia")}
               <input type="number" min={0} value={rpd} onChange={(e) => setRpd(Number(e.target.value))} />
             </label>
             {provider === "grok" && (
               <label className="row ai-wide" style={{ gap: 6 }}>
                 <input type="checkbox" checked={allowPaid} onChange={(e) => setAllowPaid(e.target.checked)} />
-                Permitir uso pago desta chave (o Grok não tem nível gratuito; cobra na sua conta xAI)
+                {t("Permitir uso pago desta chave (o Grok não tem nível gratuito; cobra na sua conta xAI)")}
               </label>
             )}
             <div className="row ai-wide">
-              <button className="primary" disabled={!model || save.isPending} onClick={() => save.mutate()}>{save.isPending ? "Salvando…" : "Salvar chave"}</button>
+              <button className="primary" disabled={!model || save.isPending} onClick={() => save.mutate()}>{save.isPending ? t("Salvando…") : t("Salvar chave")}</button>
             </div>
           </>
         )}
@@ -127,6 +129,7 @@ function AddKey({ onDone }: { onDone: () => void }) {
 }
 
 export function AiSettings() {
+  const { language, t } = useLocale();
   const qc = useQueryClient();
   const keys = useQuery({ queryKey: ["ai-keys"], queryFn: () => api<AiKey[]>("/ai/keys"), refetchInterval: 10000 });
   const settings = useQuery({ queryKey: ["ai-settings"], queryFn: () => api<Settings>("/ai/settings") });
@@ -157,30 +160,29 @@ export function AiSettings() {
   return (
     <div className="grid" style={{ gap: 14 }}>
       <div className="note">
-        As chaves ficam só no servidor (criptografadas). A ordem da lista é a ordem de uso: quando uma chave atinge a cota, o sistema passa para a
-        próxima e volta a ela quando a cota renova. {s?.data_notice}
+        {t("As chaves ficam só no servidor (criptografadas). A ordem da lista é a ordem de uso: quando uma chave atinge a cota, o sistema passa para a próxima e volta a ela quando a cota renova.")} {s?.data_notice && t(s.data_notice)}
       </div>
       <div className="grid cols-4">
-        <Stat label="Chaves ativas" value={list.filter((k) => k.enabled).length} />
-        <Stat label="Disponíveis agora" value={list.filter((k) => k.enabled && !k.cooldown_until).length} />
-        <Stat label="Tokens hoje" value={todayTokens.toLocaleString("pt-BR")} />
-        <Stat label="Pedidos (7 dias)" value={usage.data?.week.requests ?? "—"} hint={`${(usage.data?.week.tokens ?? 0).toLocaleString("pt-BR")} tokens`} />
+        <Stat label={t("Chaves ativas")} value={list.filter((k) => k.enabled).length} />
+        <Stat label={t("Disponíveis agora")} value={list.filter((k) => k.enabled && !k.cooldown_until).length} />
+        <Stat label={t("Tokens hoje")} value={todayTokens.toLocaleString(language)} />
+        <Stat label={t("Pedidos (7 dias)")} value={usage.data?.week.requests ?? "—"} hint={`${(usage.data?.week.tokens ?? 0).toLocaleString(language)} tokens`} />
       </div>
 
       {s && (
-        <Panel title="Comportamento">
+        <Panel title={t("Comportamento")}>
           <div className="ai-form">
             <label className="row ai-wide" style={{ gap: 6 }}>
               <input type="checkbox" checked={s.free_only} onChange={(e) => putSettings.mutate({ free_only: e.target.checked })} />
-              <strong>Modo exclusivamente gratuito</strong>
-              <span className="muted">chaves de provedores pagos (Grok) só são usadas se marcadas "permitir uso pago"</span>
+              <strong>{t("Modo exclusivamente gratuito")}</strong>
+              <span className="muted">{t("chaves de provedores pagos (Grok) só são usadas se marcadas \"permitir uso pago\"")}</span>
             </label>
-            <label className="field">Rodadas de correção (padrão)
+            <label className="field">{t("Rodadas de correção (padrão)")}
               <select value={s.agent_iterations} onChange={(e) => putSettings.mutate({ agent_iterations: Number(e.target.value) })}>
                 {[0, 1, 2, 3, 4, 5].map((n) => <option key={n} value={n}>{n}</option>)}
               </select>
             </label>
-            <label className="field">Nota alvo (padrão, 0–10)
+            <label className="field">{t("Nota alvo (padrão, 0–10)")}
               <input type="number" min={0} max={10} step={0.5} defaultValue={s.target_score}
                 onBlur={(e) => putSettings.mutate({ target_score: Math.max(0, Math.min(10, Number(e.target.value))) })} />
             </label>
@@ -189,38 +191,38 @@ export function AiSettings() {
         </Panel>
       )}
 
-      <Panel title="Chaves (em ordem de uso)">
+      <Panel title={t("Chaves (em ordem de uso)")}>
         {list.length === 0 ? (
-          <Empty>Nenhuma chave. Crie uma chave do Gemini em aistudio.google.com (botão "Get API key") e adicione abaixo.</Empty>
+          <Empty>{t("Nenhuma chave. Crie uma chave do Gemini em aistudio.google.com (botão \"Get API key\") e adicione abaixo.")}</Empty>
         ) : (
           <div className="panel-body flush table-wrap" style={{ margin: -14 }}>
             <table>
               <thead>
-                <tr><th>#</th><th>Chave</th><th>Modelo</th><th>Uso (min / dia)</th><th>Estado</th><th /></tr>
+                <tr><th>#</th><th>{t("Chave")}</th><th>{t("Modelo")}</th><th>{t("Uso (min / dia)")}</th><th>{t("Estado")}</th><th /></tr>
               </thead>
               <tbody>
                 {list.map((k, i) => (
                   <tr key={k.id} className={k.enabled ? "" : "muted"}>
                     <td className="row" style={{ gap: 2 }}>
-                      <button className="icon" aria-label="Subir" disabled={i === 0} onClick={() => move(i, -1)}><ArrowUp size={13} /></button>
-                      <button className="icon" aria-label="Descer" disabled={i === list.length - 1} onClick={() => move(i, 1)}><ArrowDown size={13} /></button>
+                      <button className="icon" aria-label={t("Subir")} disabled={i === 0} onClick={() => move(i, -1)}><ArrowUp size={13} /></button>
+                      <button className="icon" aria-label={t("Descer")} disabled={i === list.length - 1} onClick={() => move(i, 1)}><ArrowDown size={13} /></button>
                     </td>
                     <td>
                       <strong>{PROVIDER_LABEL[k.provider]}</strong> {k.label && <span className="muted">· {k.label}</span>}
-                      <div className="mono muted">{k.key_hint}{k.paid ? " · pago" : ""}</div>
+                      <div className="mono muted">{k.key_hint}{k.paid ? t(" · pago") : ""}</div>
                     </td>
                     <td className="mono">{k.model || "—"}</td>
                     <td className="mono">{k.usage.rpm}/{k.rpm_limit || "∞"} · {k.usage.rpd}/{k.rpd_limit || "∞"}</td>
                     <td>
-                      {!k.enabled ? "desativada" : k.paid && s?.free_only && !k.allow_paid ? "bloqueada (modo gratuito)" : k.cooldown_until ? `em espera até ${new Date(k.cooldown_until).toLocaleString("pt-BR")}` : "pronta"}
+                      {!k.enabled ? t("desativada") : k.paid && s?.free_only && !k.allow_paid ? t("bloqueada (modo gratuito)") : k.cooldown_until ? t("em espera até {0}", new Date(k.cooldown_until).toLocaleString(language)) : t("pronta")}
                       {k.last_error && <div className="check-fail" title={k.last_error}>{k.last_error.slice(0, 90)}</div>}
                     </td>
                     <td className="row" style={{ gap: 4, justifyContent: "flex-end" }}>
-                      <button onClick={() => test.mutate(k.id)} disabled={test.isPending}>Testar</button>
-                      {k.cooldown_until && <button onClick={() => patch.mutate({ id: k.id, clear_cooldown: true })}>Liberar</button>}
-                      {k.paid && <button onClick={() => patch.mutate({ id: k.id, allow_paid: !k.allow_paid })}>{k.allow_paid ? "Bloquear pago" : "Permitir pago"}</button>}
-                      <button onClick={() => patch.mutate({ id: k.id, enabled: !k.enabled })}>{k.enabled ? "Desativar" : "Ativar"}</button>
-                      <button className="icon" aria-label="Remover chave" onClick={() => confirm("Remover esta chave?") && del.mutate(k.id)}><Trash2 size={14} /></button>
+                      <button onClick={() => test.mutate(k.id)} disabled={test.isPending}>{t("Testar")}</button>
+                      {k.cooldown_until && <button onClick={() => patch.mutate({ id: k.id, clear_cooldown: true })}>{t("Liberar")}</button>}
+                      {k.paid && <button onClick={() => patch.mutate({ id: k.id, allow_paid: !k.allow_paid })}>{k.allow_paid ? t("Bloquear pago") : t("Permitir pago")}</button>}
+                      <button onClick={() => patch.mutate({ id: k.id, enabled: !k.enabled })}>{k.enabled ? t("Desativar") : t("Ativar")}</button>
+                      <button className="icon" aria-label={t("Remover chave")} onClick={() => confirm(t("Remover esta chave?")) && del.mutate(k.id)}><Trash2 size={14} /></button>
                     </td>
                   </tr>
                 ))}
@@ -228,27 +230,27 @@ export function AiSettings() {
             </table>
           </div>
         )}
-        {test.data && <div className={test.data.ok ? "check-ok" : "check-fail"}>{test.data.ok ? (test.data.model_available === false ? "Chave ok, mas o modelo escolhido não está mais disponível." : "Chave ok.") : test.data.error}</div>}
+        {test.data && <div className={test.data.ok ? "check-ok" : "check-fail"}>{test.data.ok ? (test.data.model_available === false ? t("Chave ok, mas o modelo escolhido não está mais disponível.") : t("Chave ok.")) : test.data.error}</div>}
         <ErrorNote error={patch.error ?? del.error ?? test.error} />
       </Panel>
 
       <AddKey onDone={refresh} />
 
-      <Panel title="Histórico de pedidos">
+      <Panel title={t("Histórico de pedidos")}>
         {(reqs.data ?? []).length === 0 ? (
-          <Empty>Nenhum pedido ainda.</Empty>
+          <Empty>{t("Nenhum pedido ainda.")}</Empty>
         ) : (
           <div className="panel-body flush table-wrap" style={{ margin: -14 }}>
             <table>
-              <thead><tr><th>Quando</th><th>Tarefa</th><th>Modelo</th><th>Resultado</th><th>Tokens</th><th>Tempo</th></tr></thead>
+              <thead><tr><th>{t("Quando")}</th><th>{t("Tarefa")}</th><th>{t("Modelo")}</th><th>{t("Resultado")}</th><th>Tokens</th><th>{t("Tempo")}</th></tr></thead>
               <tbody>
                 {(reqs.data ?? []).map((r) => (
                   <tr key={r.id}>
-                    <td>{timeAgo(r.ts)}</td>
-                    <td>{r.task === "spec" ? "especificação" : r.task === "critique" ? "comparação" : r.task}</td>
+                    <td>{timeAgo(r.ts, undefined, t)}</td>
+                    <td>{r.task === "spec" ? t("especificação") : r.task === "critique" ? t("comparação") : r.task}</td>
                     <td className="mono">{r.provider}/{r.model}</td>
-                    <td className={r.status === "ok" || r.status === "cache" ? "check-ok" : "check-fail"} title={r.error}>{STATUS_LABEL[r.status] ?? r.status}</td>
-                    <td className="mono">{r.total_tokens.toLocaleString("pt-BR")}</td>
+                    <td className={r.status === "ok" || r.status === "cache" ? "check-ok" : "check-fail"} title={r.error}>{t(STATUS_LABEL[r.status] ?? r.status)}</td>
+                    <td className="mono">{r.total_tokens.toLocaleString(language)}</td>
                     <td className="mono">{r.latency_ms ? `${(r.latency_ms / 1000).toFixed(1)} s` : "—"}</td>
                   </tr>
                 ))}

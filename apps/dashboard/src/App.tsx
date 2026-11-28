@@ -1,3 +1,4 @@
+import { LanguageSelect, useLocale } from "./i18n";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Bot, Boxes, Cpu, Gauge, Layers, LogOut, Moon, Pause, Play, Sun, Triangle } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -81,28 +82,31 @@ const NAV = [
 ];
 
 function Construction() {
+  const { t } = useLocale();
   const navigate = useNavigate();
   return <section className="stack">
-    <Panel title="Agente de construções">
-      <p className="muted">Gemini ou Grok interpretam as referências e preenchem a especificação de um kit de construção.</p>
-      <Link to="/generator">Abrir kits manuais</Link>
+    <Panel title={t("Agente de construções")}>
+      <p className="muted">{t("Gemini ou Grok interpretam as referências e preenchem a especificação de um kit de construção.")}</p>
+      <Link to="/generator">{t("Abrir kits manuais")}</Link>
     </Panel>
     <CloudAgent onCreated={() => navigate("/queue")} />
   </section>;
 }
 
 function Infrastructure() {
-  return <Panel title="Infraestrutura">
+  const { t } = useLocale();
+  return <Panel title={t("Infraestrutura")}>
     <div className="row wrap">
       <Link className="btn" to="/workers">Workers</Link>
-      <Link className="btn" to="/queue">Fila</Link>
-      <Link className="btn" to="/batch">Lotes</Link>
-      <Link className="btn" to="/ai">Provedores de IA</Link>
+      <Link className="btn" to="/queue">{t("Fila")}</Link>
+      <Link className="btn" to="/batch">{t("Lotes")}</Link>
+      <Link className="btn" to="/ai">{t("Provedores de IA")}</Link>
     </div>
   </Panel>;
 }
 
 export function App() {
+  const { t } = useLocale();
   const [authed, setAuthed] = useState<boolean>(!!getToken());
   const [theme, toggleTheme] = useTheme();
   const pathname = useLocation().pathname;
@@ -142,10 +146,10 @@ export function App() {
         </div>
         <nav className="nav">
           {NAV.map(({ to, label, icon: Icon }) => (
-            <NavLink key={to} to={to} aria-label={label} title={label}
+            <NavLink key={to} to={to} aria-label={t(label)} title={t(label)}
               className={({ isActive }) => isActive || (to === "/infra" && ["/workers", "/queue", "/batch", "/ai"].includes(pathname)) ? "active" : ""}>
               <Icon size={17} />
-              <span className="label">{label}</span>
+              <span className="label">{t(label)}</span>
             </NavLink>
           ))}
         </nav>
@@ -154,24 +158,25 @@ export function App() {
       <div className="main">
         <header className="topbar">
           <span className="topbrand">AssetForge</span>
-          <span className="pill" title="Atualizações em tempo real (SSE)">
+          <span className="pill" title={t("Atualizações em tempo real (SSE)")}>
             <span className={`dot ${live ? "ok" : "warn"}`} />
-            {live ? "ao vivo" : "reconectando"}
+            {live ? t("ao vivo") : t("reconectando")}
           </span>
           <div className="spacer" />
+          <LanguageSelect />
           {canOperate && (
-            <button onClick={togglePause} title="Pausar/retomar o despacho de novos jobs">
+            <button onClick={togglePause} title={t("Pausar/retomar o despacho de novos jobs")}>
               {queue.data?.paused ? <Play size={14} /> : <Pause size={14} />}
-              {queue.data?.paused ? "Fila pausada — retomar" : "Pausar despacho"}
+              {queue.data?.paused ? t("Fila pausada — retomar") : t("Pausar despacho")}
             </button>
           )}
-          <button className="icon ghost" onClick={toggleTheme} aria-label="Alternar tema">
+          <button className="icon ghost" onClick={toggleTheme} aria-label={t("Alternar tema")}>
             {theme === "dark" ? <Sun size={16} /> : <Moon size={16} />}
           </button>
           <span className="muted">{me.data?.username}</span>
           <button
             className="icon ghost"
-            aria-label="Sair"
+            aria-label={t("Sair")}
             onClick={() => {
               setToken(null);
               setAuthed(false);

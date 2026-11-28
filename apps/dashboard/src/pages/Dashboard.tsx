@@ -1,3 +1,4 @@
+import { useLocale } from "../i18n";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { api } from "../api";
@@ -6,50 +7,51 @@ import { formatBytes, formatDuration, stageLabel, timeAgo } from "../lib";
 import type { Asset, Job, Summary } from "../types";
 
 export function Dashboard() {
+  const { t } = useLocale();
   const sum = useQuery({ queryKey: ["summary"], queryFn: () => api<Summary>("/dashboard/summary"), refetchInterval: 5000 });
   const jobs = useQuery({ queryKey: ["jobs", "recent"], queryFn: () => api<{ items: Job[] }>("/jobs?limit=8"), refetchInterval: 5000 });
   const assets = useQuery({ queryKey: ["assets", "recent"], queryFn: () => api<{ items: Asset[] }>("/assets?limit=8&sort=-created_at") });
   const s = sum.data;
-  if (!s) return <Empty>Carregando…</Empty>;
+  if (!s) return <Empty>{t("Carregando…")}</Empty>;
   const r = s.resources;
   const maxBar = Math.max(1, ...s.history.map((h) => h.succeeded + h.failed + h.cancelled));
   const usedPct = s.storage.total_bytes ? ((s.storage.total_bytes - s.storage.free_bytes) / s.storage.total_bytes) * 100 : 0;
   return (
     <div className="grid" style={{ gap: 14 }}>
       <div className="grid g6">
-        <Stat label="Assets gerados" value={s.assets.total} hint={`${s.assets.by_review.approved ?? 0} aprovados`} />
-        <Stat label="Jobs ativos" value={s.jobs.running} tone="info" />
-        <Stat label="Aguardando" value={s.jobs.queued} tone={s.jobs.paused ? "warn" : undefined} hint={s.jobs.paused ? "despacho pausado" : undefined} />
-        <Stat label="Concluídos" value={s.jobs.succeeded} tone="ok" />
-        <Stat label="Com falha" value={s.jobs.failed} tone={s.jobs.failed ? "err" : undefined} />
-        <Stat label="Workers online" value={`${s.workers.online}/${s.workers.total}`} hint={`${s.workers.busy} ocupados`} />
+        <Stat label={t("Assets gerados")} value={s.assets.total} hint={t("{0} aprovados", s.assets.by_review.approved ?? 0)} />
+        <Stat label={t("Jobs ativos")} value={s.jobs.running} tone="info" />
+        <Stat label={t("Aguardando")} value={s.jobs.queued} tone={s.jobs.paused ? "warn" : undefined} hint={s.jobs.paused ? t("despacho pausado") : undefined} />
+        <Stat label={t("Concluídos")} value={s.jobs.succeeded} tone="ok" />
+        <Stat label={t("Com falha")} value={s.jobs.failed} tone={s.jobs.failed ? "err" : undefined} />
+        <Stat label={t("Workers online")} value={`${s.workers.online}/${s.workers.total}`} hint={t("{0} ocupados", s.workers.busy)} />
       </div>
       <div className="grid g3">
-        <Panel title="Recursos dos workers (medidos)">
-          <Meter label="CPU" value={r.cpu_percent} na="nenhum worker online" />
-          <Meter label="RAM" value={r.ram_used_mb} max={r.ram_total_mb} unit="MB" na="nenhum worker online" />
-          <Meter label="GPU" value={r.gpu_percent} na="sem worker GPU (Milestone 2)" />
-          <Meter label="VRAM" value={r.vram_used_mb} max={r.vram_total_mb} unit="MB" na="sem worker GPU (Milestone 2)" />
+        <Panel title={t("Recursos dos workers (medidos)")}>
+          <Meter label="CPU" value={r.cpu_percent} na={t("nenhum worker online")} />
+          <Meter label="RAM" value={r.ram_used_mb} max={r.ram_total_mb} unit="MB" na={t("nenhum worker online")} />
+          <Meter label="GPU" value={r.gpu_percent} na={t("sem worker GPU (Milestone 2)")} />
+          <Meter label="VRAM" value={r.vram_used_mb} max={r.vram_total_mb} unit="MB" na={t("sem worker GPU (Milestone 2)")} />
         </Panel>
-        <Panel title="Armazenamento do servidor">
-          <Meter label="Disco" value={usedPct} />
+        <Panel title={t("Armazenamento do servidor")}>
+          <Meter label={t("Disco")} value={usedPct} />
           <dl className="kv">
-            <dt>Livre</dt>
+            <dt>{t("Livre")}</dt>
             <dd>{formatBytes(s.storage.free_bytes)}</dd>
             <dt>Total</dt>
             <dd>{formatBytes(s.storage.total_bytes)}</dd>
             <dt>Assets</dt>
             <dd>{formatBytes(s.storage.assets_bytes)}</dd>
-            <dt>Tempo médio/job</dt>
+            <dt>{t("Tempo médio/job")}</dt>
             <dd>{formatDuration(s.avg_job_seconds)}</dd>
           </dl>
         </Panel>
-        <Panel title="Histórico de processamento (24 h)">
-          <div className="bars" aria-label="Jobs finalizados por hora">
+        <Panel title={t("Histórico de processamento (24 h)")}>
+          <div className="bars" aria-label={t("Jobs finalizados por hora")}>
             {s.history.map((h) => {
               const tot = h.succeeded + h.failed + h.cancelled;
               return (
-                <div className="col" key={h.hour} title={`${new Date(h.hour).getHours()}h — ${h.succeeded} ok, ${h.failed} falhas, ${h.cancelled} cancelados`}>
+                <div className="col" key={h.hour} title={t("{0}h — {1} ok, {2} falhas, {3} cancelados", new Date(h.hour).getHours(), h.succeeded, h.failed, h.cancelled)}>
                   <div className="seg-ok" style={{ height: `${(h.succeeded / maxBar) * 100}%` }} />
                   <div className="seg-err" style={{ height: `${(h.failed / maxBar) * 100}%` }} />
                   <div className="seg-can" style={{ height: `${(h.cancelled / maxBar) * 100}%` }} />
@@ -61,14 +63,14 @@ export function Dashboard() {
           <div className="bar-axis">
             <span>-24h</span>
             <span>
-              <span className="check-ok">■</span> ok <span className="check-fail">■</span> falha
+              <span className="check-ok">■</span> ok <span className="check-fail">■</span> {t("falha")}
             </span>
-            <span>agora</span>
+            <span>{t("agora")}</span>
           </div>
         </Panel>
       </div>
       <div className="grid g2">
-        <Panel title="Jobs recentes" actions={<Link to="/queue">ver fila →</Link>}>
+        <Panel title={t("Jobs recentes")} actions={<Link to="/queue">{t("ver fila →")}</Link>}>
           <div className="panel-body flush table-wrap">
             {jobs.data?.items.length ? (
               <table>
@@ -86,10 +88,10 @@ export function Dashboard() {
                         {j.status === "running" ? (
                           <>
                             <Progress value={j.progress} />
-                            <div className="muted" style={{ fontSize: 11 }}>{stageLabel(j.current_stage)}</div>
+                            <div className="muted" style={{ fontSize: 11 }}>{stageLabel(j.current_stage, t)}</div>
                           </>
                         ) : (
-                          <span className="muted">{timeAgo(j.finished_at ?? j.created_at)}</span>
+                          <span className="muted">{timeAgo(j.finished_at ?? j.created_at, undefined, t)}</span>
                         )}
                       </td>
                     </tr>
@@ -97,11 +99,11 @@ export function Dashboard() {
                 </tbody>
               </table>
             ) : (
-              <Empty>Nenhum job ainda. Crie o primeiro no Asset Generator.</Empty>
+              <Empty>{t("Nenhum job ainda. Crie o primeiro no Asset Generator.")}</Empty>
             )}
           </div>
         </Panel>
-        <Panel title="Assets recentes" actions={<Link to="/library">biblioteca →</Link>}>
+        <Panel title={t("Assets recentes")} actions={<Link to="/library">{t("biblioteca →")}</Link>}>
           {assets.data?.items.length ? (
             <div className="cards" style={{ gridTemplateColumns: "repeat(auto-fill,minmax(110px,1fr))" }}>
               {assets.data.items.map((a) => (
@@ -114,7 +116,7 @@ export function Dashboard() {
               ))}
             </div>
           ) : (
-            <Empty>Nenhum asset registrado ainda.</Empty>
+            <Empty>{t("Nenhum asset registrado ainda.")}</Empty>
           )}
         </Panel>
       </div>

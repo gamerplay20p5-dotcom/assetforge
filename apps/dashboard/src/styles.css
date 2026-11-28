@@ -77,6 +77,11 @@ a {
   grid-template-columns: 78px 1fr;
   height: 100%;
 }
+@media (min-width: 901px) {
+  html:lang(en) .app {
+    grid-template-columns: 108px 1fr;
+  }
+}
 .sidebar {
   background: var(--bg-2);
   border-right: 1px solid var(--border);
@@ -157,6 +162,11 @@ a {
 }
 .topbar h1 {
   font-size: 15px;
+}
+.language-select {
+  width: auto;
+  flex: none;
+  font-size: 12px;
 }
 .spacer {
   flex: 1;
@@ -753,7 +763,7 @@ tr.selected td {
   place-items: center;
 }
 .login form {
-  width: 340px;
+  width: min(340px, calc(100% - 24px));
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -813,6 +823,13 @@ tr.selected td {
   }
 }
 @media (max-width: 560px) {
+  .topbar {
+    height: auto;
+    min-height: 48px;
+    padding: 6px 8px;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
   .g3,
   .g4,
   .g6 {
