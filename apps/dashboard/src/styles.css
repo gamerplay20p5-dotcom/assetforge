@@ -1787,6 +1787,14 @@ tr.selected td {
 .af-quality-scores dt { font-size: 0.85rem; }
 .af-quality-scores dd { margin: 4px 0 0; font-weight: 650; }
 .af-impostor-frame { width: min(100%, 340px); aspect-ratio: 1; margin-inline: auto; background-repeat: no-repeat; }
+@media (min-width: 1201px) {
+  .lib-layout:has(.af-optimization-compare) { grid-template-columns: minmax(250px, 1fr) minmax(0, 3.5fr); }
+  .af-optimization-compare .engine-compare .viewer { height: clamp(340px, 48vh, 590px); }
+  .af-optimization-compare .engine-compare img { width: min(100%, 380px); }
+}
+@media (max-width: 1200px) {
+  .lib-layout:has(.af-optimization-compare) > .grid { display: none; }
+}
 .viewer-capture { position: absolute; bottom: 10px; left: 10px; z-index: 1; }
 @media (max-width: 950px) {
   .engine-compare { grid-template-columns: minmax(0, 1fr); }
