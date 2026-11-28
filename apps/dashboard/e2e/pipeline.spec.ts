@@ -155,6 +155,27 @@ test("the studio shows the reference job and reconstruction on the same stage", 
   await page.goto("about:blank");
 });
 
+test("regeneration uses the saved reference job ID without uploading again", async ({ page }) => {
+  const referenceJobId = "job_0123456789ab";
+  await page.route("**/api/v1/assets/ast_saved?version=1", (route) => route.fulfill({ json: {
+    id: "ast_saved", name: "Lanterna", category: "prop",
+    manifest: { generation_params: { engine: "trellis2-gguf", resolution: 512, reference_job_id: referenceJobId,
+      references: { front: "ref_0123456789ab" } } },
+  } }));
+  await page.route("**/api/v1/references/batch", () => { throw new Error("Regeneration should reuse the saved PNG"); });
+  await page.route("**/api/v1/jobs", (route) => route.fulfill({ status: 201, json: { name: "Lanterna", id: "job_regenerated" } }));
+  await page.goto("/engines?asset=ast_saved&version=1");
+  await page.getByLabel("Senha").fill("e2e-admin-password");
+  await page.getByRole("button", { name: "Entrar" }).click();
+  await expect(page.getByText("Reutilizar esta vista")).toBeVisible();
+  await page.getByLabel("Seed").fill("7");
+  const request = page.waitForRequest((candidate) => candidate.url().endsWith("/api/v1/jobs") && candidate.method() === "POST");
+  await page.getByRole("button", { name: "Gerar modelo", exact: true }).click();
+  expect((await request).postDataJSON().params).toMatchObject({
+    reference_job_id: referenceJobId, references: {}, resolution: 512, seed: 7, skip_decimation: true,
+  });
+});
+
 test("references can be removed and selected again", async ({ page }) => {
   const file = (name: string) => ({
     name, mimeType: "image/png",

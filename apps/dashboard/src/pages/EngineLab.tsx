@@ -158,7 +158,7 @@ function ReconstructionForm({ source, onCreated }: { source?: Asset; onCreated: 
   const usePrepared = !!(sameEngine && recipe?.prepared_inputs && !Object.keys(files).length);
   const archivedProjection = usePrepared ? recipe?.archived_projection : undefined;
   const existing = sameEngine && (!recipe?.prepared_inputs || usePrepared) ? recipe?.references : recipe?.original_references ?? recipe?.references;
-  const generatedSource = !textMode && engine?.views.length === 1 && recipe?.reference_job_id && !files.front;
+  const generatedSource = !textMode && engine?.views.length === 1 && !files.front ? recipe?.reference_job_id : undefined;
   const textWorkers = (workers.data ?? []).filter((worker) => worker.capabilities.features?.includes("engine.split-reference"));
   const compatible = (workers.data ?? []).filter((worker) =>
     worker.capabilities.features?.includes(`engine.${engineId}`) &&
