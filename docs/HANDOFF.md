@@ -28,6 +28,18 @@ A central 206 e a Spark apresentaram timeout no SSH durante a integração, por 
 
 Os SHA-256 dos 40 masters disponíveis localmente coincidiram com os usados no benchmark Docker anterior. A reaplicação dos limiares de silhueta e cor aos três renders arquivados aprovou nesses dois critérios 8/40 LOD0 híbridos, 28/40 LOD1 voxel e 25/40 LOD2 voxel. O gltfpack conservador passou nos dois critérios nos 40 masters, com contagens frequentemente acima dos alvos de geometria. Essa auditoria parcial cobre as três câmeras antigas. As medidas adicionais de desvio, baking e regiões vêm da nova execução.
 
+A bateria integrada terminou no Blender local com 40 masters, 120 GLBs de LOD processados e os 40 hashes preservados. O ensaio usou alvos provisórios por categoria, prévias de 112 px e baking de 256 px no LOD0. Os nove primeiros relatórios vieram dos pilotos enquanto os fallbacks eram ajustados. Os outros 31 registram a versão `0.2.0`. A mediana por asset foi de 151 s. O menor IoU registrado nos LODs publicados foi de 92,14%. A checagem automática manteve 91 níveis acima dos respectivos alvos, incluindo todos os veículos.
+
+| Categoria | Masters | LOD0 no alvo | LOD1 no alvo | LOD2 no alvo | Triângulos medianos no LOD2 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Construções | 16 | 6 | 3 | 2 | 31.987 |
+| Veículos | 12 | 0 | 0 | 0 | 49.833 |
+| NPCs | 12 | 0 | 11 | 7 | 300 |
+
+`reports_out/engines/preparation-integration/archive40/results.json` preserva as tentativas, medidas e SHA-256. `lods.csv` resume contagens, tamanhos, tempos e medidas por nível. A captura `truck/dashboard-comparacao.png` mostra os renders reais do caminhão carregados no comparador local. O piloto dedicado ao caminhão usou alvo de 27.000 para o LOD0 e baking de 512 px.
+
+Os nove cenários Playwright passaram entre a primeira execução e a repetição isolada dos dois fluxos legados que excederam o tempo durante a bateria. Os 11 testes unitários do dashboard e os três testes focados de preparação e qualidade também passaram. Os dois testes legados de subprocessos Python passaram após a execução com o `PYTHONPATH` do monorepo.
+
 ## Otimização experimental CITY+++ · 28/11/2026
 
 A bateria de retopologia usa os 40 masters de `~/assetforge-phase3/archive40-source/results` montados como somente leitura. O relatório [Retopologia e LODs do CITY+++](CITY_RETOPOLOGY_BENCHMARK.md) registra os métodos, os orçamentos provisórios, a qualidade visual e a reprodução em Docker. Os candidatos ficam separados dos masters e do catálogo. A decisão sobre o perfil padrão permanece vinculada à revisão artística e ao benchmark na Unity.
