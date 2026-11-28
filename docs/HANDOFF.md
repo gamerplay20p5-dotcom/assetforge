@@ -24,7 +24,9 @@ docker run --rm \
     --jobs 2 --threads 4 --metrics-only
 ```
 
-A central 206 e a Spark apresentaram timeout no SSH durante a integração. A validação local usa a cópia arquivada. O workflow `preparation-container.yml` constrói a imagem e testa publicação, relatórios e pacote com um fixture sintético. A RTX 4090 segue em manutenção.
+A central 206 e a Spark apresentaram timeout no SSH durante a integração, por isso a versão do painel em produção ainda requer implantação. No GitHub, o [run Docker 46105438889](https://github.com/gamerplay20p5-dotcom/assetforge/actions/runs/46105438889) foi bloqueado antes do build por uma pendência de cobrança da conta. O workflow `preparation-container.yml` testa roteamento, publicação e pacote com um fixture sintético. Os dois testes passaram localmente com Blender 4.5.17 e gltfpack 1.3. O Playwright confirmou o formulário e o comparador com respostas controladas da API. A reimportação do FBX do caminhão no Blender confirmou as três malhas e as respectivas contagens. O BLEND reabriu com quatro texturas empacotadas. A RTX 4090 segue em manutenção.
+
+Os SHA-256 dos 40 masters disponíveis localmente coincidiram com os usados no benchmark Docker anterior. A reaplicação dos limiares de silhueta e cor aos três renders arquivados aprovou nesses dois critérios 8/40 LOD0 híbridos, 28/40 LOD1 voxel e 25/40 LOD2 voxel. O gltfpack conservador passou nos dois critérios nos 40 masters, com contagens frequentemente acima dos alvos de geometria. Essa auditoria parcial cobre as três câmeras antigas. As medidas adicionais de desvio, baking e regiões vêm da nova execução.
 
 ## Otimização experimental CITY+++ · 28/11/2026
 
