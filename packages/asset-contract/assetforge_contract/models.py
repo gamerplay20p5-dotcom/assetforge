@@ -148,6 +148,11 @@ class PreparationParams(StrictModel):
     rotation_deg: tuple[float, float, float] = (0, 0, 0)
     lod_ratios: list[float] = Field(default_factory=lambda: [1.0], min_length=1)
     lod_heights: list[float] = Field(default_factory=lambda: [0.0], min_length=1)
+    method: Literal["legacy", "auto", "hybrid", "voxel", "instant", "quadri", "conservative"] = "legacy"
+    triangle_targets: list[int] | None = None
+    bake_size: Literal[256, 512, 1024, 2048] = 512
+    impostor: bool = False
+    projection: Literal["adaptive", "fixed"] = "adaptive"
 
     @model_validator(mode="after")
     def _validate_lods(self):
@@ -157,11 +162,24 @@ class PreparationParams(StrictModel):
             raise ValueError("rotation requires finite angles")
         if not 0 < self.lod_ratios[0] <= 1 or any(not 0 < b < a for a, b in zip(self.lod_ratios, self.lod_ratios[1:])):
             raise ValueError("LOD ratios must be in (0, 1] and decrease")
-        if (len(self.lod_heights) != len(self.lod_ratios)
+        if ((self.method == "legacy" and len(self.lod_heights) != len(self.lod_ratios))
                 or any(not 0 <= h < 1 for h in self.lod_heights)
                 or any(a <= b for a, b in zip(self.lod_heights, self.lod_heights[1:]))):
             raise ValueError("Provide one descending screen height per LOD")
+        if self.method == "legacy":
+            if self.triangle_targets is not None or self.impostor:
+                raise ValueError("Triangle targets and impostors require an optimization method")
+        elif (not self.triangle_targets or len(self.lod_heights) != len(self.triangle_targets)
+                or min(self.triangle_targets) < 4
+                or any(a <= b for a, b in zip(self.triangle_targets, self.triangle_targets[1:]))):
+            raise ValueError("Provide one positive decreasing triangle target per LOD")
+        if self.impostor and self.lod_heights[-1] <= 0:
+            raise ValueError("The last mesh LOD must transition above zero to show an impostor")
         return self
+
+    def job_params(self):
+        fields = {"method", "triangle_targets", "bake_size", "impostor", "projection"}
+        return self.model_dump(mode="json", exclude=fields if self.method == "legacy" else None)
 
 
 class JobCreate(StrictModel):
@@ -205,7 +223,7 @@ class JobCreate(StrictModel):
             if not self.asset_id or self.triangle_limit is not None:
                 raise ValueError("preparation requires an existing master and explicit LOD ratios")
             self.formats = ["glb", "fbx", "blend"]
-            self.params = PreparationParams.model_validate(self.params).model_dump(mode="json")
+            self.params = PreparationParams.model_validate(self.params).job_params()
         else:
             ai = AiParams.model_validate(self.params)
             if self.job_type == "ai.text_to_3d" and ai.provider != "intel":

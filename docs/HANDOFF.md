@@ -1,7 +1,30 @@
-# HANDOFF — AssetForge (estado em 2026-11-27)
+# HANDOFF — AssetForge (estado em 2026-11-28)
 
 Escrito para: outro agente de código (Codex) que vai continuar o trabalho sem o histórico da conversa. A documentação usa PT-BR e o dashboard oferece português e inglês.
 Commits em Conventional Commits; PRs em português **e** inglês. Atribuição nos commits: `Co-Authored-By: <modelo> <noreply@anthropic.com>` se feitos por Claude.
+
+## Preparação integrada de assets · 28/11/2026
+
+A tela **Preparação de assets** aceita seleção automática ou manual de híbrido planar, voxel com baking, Instant Meshes, QuadriFlow e gltfpack conservador. Os alvos de Low, Mid e High Poly são editáveis e provisórios. O perfil Master integral continua disponível na exportação clássica. O worker anuncia o pipeline quando encontra Blender e gltfpack e anuncia Instant Meshes separadamente. Os leases continuam entregando o GLB da versão original. O SHA-256 é conferido ao final da preparação.
+
+O automático usa categoria, proporção de área alinhada aos eixos e fração de bordas abertas na malha intermediária soldada. Em quatro câmeras fixas, a checagem mede sobreposição de silhueta, perda interna, diferenças RGB sob a mesma luz, manchas novas, bordas de contraste e distância de superfície nos dois sentidos. As regiões indicativas de portas, janelas, rodas e membros exigem revisão visual. Se o método escolhido reprovar, o pipeline pode tentar projeção fixa, simplificação com UV e materiais existentes ou manter a geometria do nível anterior. `quality.json` registra métricas, limiares, tentativas, contagem efetiva, tamanho e divergência do alvo. Em **Biblioteca → Comparar**, o usuário pode abrir o master de origem, alternar os níveis em 3D, ver as vistas alinhadas das tentativas e inspecionar o atlas do impostor.
+
+No caminhão `veh_industrial_001_sv_1024_4090`, o teste A/B manteve a mesma malha híbrida de 26.981 triângulos e as mesmas quatro câmeras. A pior diferença RGB foi de 10,62% com o cage adaptativo e 7,47% com distância fixa. A maior incidência de manchas escuras caiu de 1,74% para 0,68%. As sondas sem interseção passaram de 6,74% para 0,92%. A silhueta mínima foi de 97,29% nos dois. A malha soldada mostrou uma ilha relevante e o ensaio manteve a carroceria conectada. A projeção fixa ainda deixou marcas visíveis no teto e na traseira. Os PNGs, a folha `comparativo-projecao.jpg` e o relatório estão em `reports_out/engines/preparation-integration/truck/`.
+
+O ZIP reúne GLB, FBX, BLEND, texturas, metadados de importação, scripts de Editor/Runtime e atlas opcional. Instale os scripts uma vez no projeto URP e use **Assets → AssetForge → Build URP prefab** com o manifesto selecionado. O importador configura escala em metros, materiais URP, colisão simples e LODGroup, com textura de impostor alternada por direção de câmera. A execução no Editor Unity e os orçamentos finais de geometria continuam pendentes. [Instruções do pacote](../integrations/unity-export/README.md) · [Unity LODGroup.SetLODs](https://docs.unity3d.com/6000.0/Documentation/ScriptReference/LODGroup.SetLODs.html) · [Blender BakeSettings](https://docs.blender.org/api/current/bpy.types.BakeSettings.html)
+
+Para repetir a bateria no worker Docker, monte o arquivo dos 40 masters como somente leitura e um diretório de resultados gravável pelo usuário do contêiner. Ajuste a concorrência do ensaio às cargas existentes.
+
+```sh
+docker build -f deployment/Dockerfile.worker -t assetforge-worker:preparation .
+docker run --rm \
+  --mount type=bind,source=/caminho/archive40-source/results,target=/masters,readonly \
+  --mount type=bind,source=/caminho/resultados,target=/out \
+  assetforge-worker:preparation python scripts/engines/benchmark_preparation.py /masters /out \
+    --jobs 2 --threads 4 --metrics-only
+```
+
+A central 206 e a Spark apresentaram timeout no SSH durante a integração. A validação local usa a cópia arquivada. O workflow `preparation-container.yml` constrói a imagem e testa publicação, relatórios e pacote com um fixture sintético. A RTX 4090 segue em manutenção.
 
 ## Otimização experimental CITY+++ · 28/11/2026
 

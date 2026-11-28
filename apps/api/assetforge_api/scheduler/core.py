@@ -44,7 +44,11 @@ def requirements_for(job_type: str, formats: list[str], vram_mb: int = 7000, pro
         return {"features": ["engine.split-reference"], **estimate_reference(unified=False)}
     if job_type == "asset.prepare":
         features = ["asset.prepare", "blender"]
-        if params and params["lod_ratios"][0] < 1:
+        if params and params.get("method", "legacy") != "legacy":
+            features.append("asset.prepare-optimization")
+            if params["method"] == "instant":
+                features.append("asset.prepare-instant")
+        elif params and params["lod_ratios"][0] < 1:
             features.append("asset.prepare-density")
         return {"features": features, "cpu_cores": 4, "ram_mb": 4096, "vram_mb": 0}
     if job_type == "ai.image_to_3d" and provider in ("sf3d", "triposr"):

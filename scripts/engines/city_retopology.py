@@ -28,7 +28,7 @@ def simplify(source, output, count, permissive=False):
     subprocess.run(command, check=True, timeout=120)
 
 
-def render(object_, framing, folder, label, pixels, threads):
+def render(object_, framing, folder, label, pixels, threads, views=VIEWS):
     scene = bpy.context.scene
     scene.render.engine = "CYCLES"
     scene.render.threads_mode, scene.render.threads = "FIXED", threads
@@ -39,6 +39,7 @@ def render(object_, framing, folder, label, pixels, threads):
     scene.render.resolution_percentage = 100
     scene.render.film_transparent = True
     scene.render.image_settings.file_format, scene.render.image_settings.color_mode = "PNG", "RGBA"
+    world = scene.world
     scene.world = bpy.data.worlds.new("Neutral light")
     scene.world.use_nodes = True
     scene.world.node_tree.nodes["Background"].inputs[0].default_value = (0.68, 0.68, 0.68, 1)
@@ -54,11 +55,12 @@ def render(object_, framing, folder, label, pixels, threads):
     center, extent = framing
     camera.data.type, camera.data.ortho_scale = "ORTHO", extent * 1.06
     camera.data.clip_start, camera.data.clip_end = extent * 0.001, extent * 10
-    hidden = [(mesh, mesh.hide_render) for mesh in scene.objects if mesh.type == "MESH"]
-    for mesh, _ in hidden:
-        mesh.hide_render = mesh != object_
+    hidden = [(mesh, tuple(mesh.users_collection)) for mesh in scene.objects if mesh.type == "MESH" and mesh != object_]
+    for mesh, collections in hidden:
+        for collection in collections:
+            collection.objects.unlink(mesh)
     try:
-        for name, azimuth, elevation in VIEWS:
+        for name, azimuth, elevation in views:
             a, e = math.radians(azimuth), math.radians(elevation)
             direction = Vector((math.sin(a) * math.cos(e), -math.cos(a) * math.cos(e), math.sin(e)))
             camera.location = center + direction * extent * 2
@@ -66,10 +68,15 @@ def render(object_, framing, folder, label, pixels, threads):
             scene.render.filepath = str(folder / f"{label}-{name}.png")
             bpy.ops.render.render(write_still=True)
     finally:
-        for mesh, was_hidden in hidden:
-            mesh.hide_render = was_hidden
+        for mesh, collections in hidden:
+            for collection in collections:
+                collection.objects.link(mesh)
         bpy.data.objects.remove(camera, do_unlink=True)
         bpy.data.objects.remove(sun, do_unlink=True)
+        bpy.data.lights.remove(light)
+        current = scene.world
+        scene.world = world
+        bpy.data.worlds.remove(current)
         scene.render.use_persistent_data = False
 
 
@@ -105,21 +112,22 @@ def metallic_emission(high):
                 tree.links.new(link, surface)
 
 
-def bake(high, low, pixels):
+def bake(high, low, pixels, *, cage=None, max_distance=None):
     smart_uv(low)
-    mat = bpy.data.materials.new("Reprojected master")
+    mat = bpy.data.materials.new(f"Master {low.name}")
     mat.use_nodes = True
     low.data.materials.clear()
     low.data.materials.append(mat)
     tree = mat.node_tree
     bsdf = tree.nodes["Principled BSDF"]
     radius = max(high.dimensions) * 0.018
+    projection = {"cage": cage, "max_distance": max_distance}
     with NeutralMetal(high):
-        color = bake_pass(high, low, "DIFFUSE", pixels, "Base Color", radius)
-    normal = bake_pass(high, low, "NORMAL", pixels, "Tangent Normal", radius)
-    roughness = bake_pass(high, low, "ROUGHNESS", pixels, "Roughness", radius)
+        color = bake_pass(high, low, "DIFFUSE", pixels, "Base Color", radius, **projection)
+    normal = bake_pass(high, low, "NORMAL", pixels, "Tangent Normal", radius, **projection)
+    roughness = bake_pass(high, low, "ROUGHNESS", pixels, "Roughness", radius, **projection)
     with metallic_emission(high):
-        metallic = bake_pass(high, low, "EMIT", pixels, "Metallic", radius)
+        metallic = bake_pass(high, low, "EMIT", pixels, "Metallic", radius, **projection)
     tangent = tree.nodes.new("ShaderNodeNormalMap")
     tree.links.new(normal.outputs["Color"], tangent.inputs["Color"])
     tree.links.new(tangent.outputs["Normal"], bsdf.inputs["Normal"])

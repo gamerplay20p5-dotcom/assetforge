@@ -122,8 +122,13 @@ def capabilities(cfg: WorkerConfig, blender_bin: str | None, ai: dict | None = N
     bver = blender_version(blender_bin)
     if bver:
         features += ["blender", "agent.building"]  # cloud-AI agent: the AI is reached through the API, the worker builds + renders
-        if Path("/app/scripts/engines/prepare_game.py").is_file():
+        scripts = Path(__file__).resolve().parents[3] / "scripts/engines"
+        if (scripts / "prepare_game.py").is_file():
             features.extend(("asset.prepare", "asset.prepare-density"))
+        if shutil.which("gltfpack") and (scripts / "prepare_optimized.py").is_file():
+            features.append("asset.prepare-optimization")
+            if shutil.which("instant-meshes"):
+                features.append("asset.prepare-instant")
     vm = psutil.virtual_memory()
     gpus = detect_gpus() if cfg.kind in ("intel", "hybrid") else []
     runtimes = ai_runtimes()

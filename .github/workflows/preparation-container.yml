@@ -1,0 +1,38 @@
+name: Asset preparation container
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - .github/workflows/preparation-container.yml
+      - .dockerignore
+      - deployment/Dockerfile.worker
+      - requirements.txt
+      - apps/api/**
+      - workers/cpu/**
+      - packages/asset-contract/**
+      - pipeline/**
+      - scripts/engines/**
+      - integrations/unity-export/**
+      - tests/integration/test_archived_reconstruction.py
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  preparation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the CPU worker
+        run: docker build -f deployment/Dockerfile.worker -t assetforge-worker:ci .
+      - name: Exercise optimization and publication in Docker
+        run: |
+          docker run --rm \
+            -v "$PWD/apps/api:/app/apps/api:ro" \
+            -v "$PWD/tests:/app/tests:ro" \
+            -v "$PWD/pyproject.toml:/app/pyproject.toml:ro" \
+            assetforge-worker:ci python -m pytest -q -o cache_dir=/tmp/pytest-cache \
+            tests/integration/test_archived_reconstruction.py -k optimization

@@ -1,7 +1,25 @@
 # AssetForge worker (CPU / Intel GPU / hybrid). One image: the node kind is chosen with ASSETFORGE_WORKER_KIND.
 # Blender is downloaded from blender.org and verified against the SHA-256 published for 4.5.17 LTS.
-# NOTE: written for Docker but NOT built/tested in the authoring environment (no Docker available there).
 # No NVIDIA/CUDA components. Intel GPU access (hybrid/intel kinds) is by passing /dev/dri, never --privileged.
+
+FROM debian:bookworm-slim AS mesh-tools
+ARG MESHOPT_COMMIT=73583c335e541c139821d0de2bf5f12960a04941
+ARG INSTANT_COMMIT=7b3160864a2e1025af498c84cfed91cbfb613698
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates cmake g++ git make \
+      libgl-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libxxf86vm-dev \
+    && rm -rf /var/lib/apt/lists/*
+RUN git init /meshopt \
+    && git -C /meshopt fetch --depth=1 https://github.com/zeux/meshoptimizer.git "${MESHOPT_COMMIT}" \
+    && git -C /meshopt checkout --detach FETCH_HEAD \
+    && cmake -S /meshopt -B /meshopt-build -DCMAKE_BUILD_TYPE=Release -DMESHOPT_BUILD_GLTFPACK=ON \
+    && cmake --build /meshopt-build --target gltfpack -j 4
+RUN git init /instant \
+    && git -C /instant fetch --depth=1 https://github.com/wjakob/instant-meshes.git "${INSTANT_COMMIT}" \
+    && git -C /instant checkout --detach FETCH_HEAD \
+    && git -C /instant submodule update --init --recursive --depth 1 \
+    && cmake -S /instant -B /instant-build -DCMAKE_BUILD_TYPE=Release \
+    && cmake --build /instant-build -j 4 \
+    && cp "/instant-build/Instant Meshes" /instant-meshes
 
 FROM python:3.12-slim AS runtime
 ARG BLENDER_VERSION=4.5.17
@@ -10,6 +28,7 @@ ENV PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1 BLENDER_BIN=/opt/blender/blender \
     PYTHONPATH=/app/workers/cpu:/app/generators/procedural:/app/generators/vision:/app/generators/intel_ai:/app/generators/mesh:/app/pipeline/validation:/app/pipeline/optimization:/app/pipeline/export:/app/packages/asset-contract
 RUN apt-get update && apt-get install -y --no-install-recommends curl xz-utils ca-certificates procps \
       libgl1 libegl1 libxi6 libxrender1 libxfixes3 libxxf86vm1 libxkbcommon0 libsm6 libxext6 pciutils \
+      libxrandr2 libxinerama1 libxcursor1 \
     && rm -rf /var/lib/apt/lists/*
 RUN curl -fsSL -o /tmp/blender.tar.xz \
       "https://download.blender.org/release/Blender4.5/blender-${BLENDER_VERSION}-linux-x64.tar.xz" \
@@ -26,6 +45,10 @@ COPY generators/mesh generators/mesh
 COPY pipeline pipeline
 COPY packages packages
 COPY scripts scripts
+COPY integrations/unity-export integrations/unity-export
+COPY --from=mesh-tools /meshopt-build/gltfpack /instant-meshes /usr/local/bin/
+COPY --from=mesh-tools /meshopt/LICENSE.md /usr/share/doc/gltfpack/LICENSE.md
+COPY --from=mesh-tools /instant/LICENSE.txt /usr/share/doc/instant-meshes/LICENSE.txt
 RUN useradd --system --uid 10002 --create-home assetforge && mkdir -p /state /app/validation_reports /bench && chown assetforge /state /app/validation_reports /bench
 USER assetforge
 ENV ASSETFORGE_WORKER_STATE_DIR=/state

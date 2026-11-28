@@ -3,6 +3,7 @@
 .git
 data
 data_dev
+reports_out
 **/node_modules
 apps/dashboard/dist
 **/__pycache__

@@ -116,6 +116,10 @@ def create_job(db: Session, spec: JobCreate, user: User, settings, batch_id: str
             raise HTTPException(422, "O worker ainda não suporta estas opções de reprodução.")
         if spec.job_type == "asset.prepare" and "asset.prepare" not in (worker.capabilities or {}).get("features", []):
             raise HTTPException(422, "O worker precisa ter Blender e a preparação de assets.")
+        if spec.job_type == "asset.prepare" and spec.params.get("method", "legacy") != "legacy":
+            features = (worker.capabilities or {}).get("features", [])
+            if "asset.prepare-optimization" not in features or (spec.params["method"] == "instant" and "asset.prepare-instant" not in features):
+                raise HTTPException(422, "O worker não oferece o método de otimização escolhido.")
         if spec.job_type == TEXT_REFERENCE and "engine.split-reference" not in (worker.capabilities or {}).get("features", []):
             raise HTTPException(422, "worker does not support the independent reference stage")
     if dependencies:

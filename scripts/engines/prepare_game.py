@@ -125,6 +125,11 @@ def maps(objects, root):
                 filename = f"textures/{index:02d}-{key}.png"
                 png(image, root / filename)
                 meta[key] = filename
+                if key == "albedo":
+                    # A direct image connection replaces the socket default.
+                    meta["baseColor"] = [1, 1, 1, 1]
+                elif inputs[socket].links[0].from_node.type == "NORMAL_MAP":
+                    meta["normalScale"] = inputs[socket].links[0].from_node.inputs["Strength"].default_value
         metal, metal_channel = input_image(inputs["Metallic"])
         rough, rough_channel = input_image(inputs["Roughness"])
         source = metal or rough

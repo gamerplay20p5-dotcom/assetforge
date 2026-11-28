@@ -1,5 +1,66 @@
 import { expect, test } from "@playwright/test";
 
+test("asset preparation offers automatic and manual methods and compares the published levels", async ({ page }) => {
+  const id = "ast_optimization_ui";
+  const source = { id, name: "Caminhão", category: "vehicle", current_version: 2, triangle_count: 21000, tags: [] };
+  const lods = [{ level: 0, file: "model.glb", triangles: 5200 }, { level: 1, file: "lod1.glb", triangles: 2300 },
+    { level: 2, file: "lod2.glb", triangles: 2300 }];
+  const files = ["quality.json", "impostor/atlas.png", "assetforge-import.json"].map((name) => ({ name }));
+  const accepted = { method: "reuse_previous", projection: null, issues: [],
+    views: { front: { silhouette_iou: 0.98, color_mae: 0.05, dark_patches: 0, interior_missing: 0.01,
+      regions: { wheels: { edge_recall: 0.8, silhouette_missing: 0.01 } } } } };
+  await page.route(`**/api/v1/assets/${id}?version=1`, (route) => route.fulfill({ json: {
+    ...source, version_info: { version: 1 }, manifest: { generator_id: "experimental.reconstruct" },
+  } }));
+  await page.route(`**/api/v1/assets/${id}?version=2`, (route) => route.fulfill({ json: {
+    ...source, files, version_info: { version: 2 },
+    manifest: { generator_id: "asset.prepare", generation_params: {}, lods, provenance: { source_version: "1" } },
+  } }));
+  await page.route(`**/api/v1/assets/${id}/files/**`, async (route) => {
+    const filename = new URL(route.request().url()).pathname.split("/").at(-1);
+    if (filename === "quality.json") return route.fulfill({ json: { views: ["front"], levels: lods.map((item, i) => ({
+      index: i, target: [6000, 1800, 450][i], triangles: item.triangles, target_met: i === 0, accepted,
+      attempts: [{ method: "voxel", projection: "adaptive", triangles: 449, issues: ["regional_detail"] }],
+    })) } });
+    if (filename === "atlas.json") return route.fulfill({ json: { rows: 3, columns: 3, tile_size: 256,
+      frames: [{ azimuth_degrees: 0, x: 0, y: 512 }, { azimuth_degrees: 45, x: 256, y: 512 }] } });
+    if (filename?.endsWith(".png")) return route.fulfill({ contentType: "image/svg+xml",
+      body: '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><rect width="32" height="32" fill="gold"/></svg>' });
+    return route.abort();
+  });
+  await page.route("**/api/v1/workers", (route) => route.fulfill({ json: [{
+    id: "wrk_cpu", name: "CPU de otimização", state: "enabled", online: true,
+    capabilities: { features: ["asset.prepare", "asset.prepare-optimization", "asset.prepare-instant"] },
+  }] }));
+  await page.route("**/api/v1/jobs", (route) => route.fulfill({ status: 201, json: {
+    id: "job_optimization_ui", status: "succeeded", asset_version: 2,
+  } }));
+  await page.goto(`/prepare?asset=${id}&version=1`);
+  await page.getByLabel("Senha").fill("e2e-admin-password");
+  await page.getByRole("button", { name: "Entrar" }).click();
+  await expect(page.getByLabel("Método de otimização")).toHaveValue("auto");
+  await page.getByLabel("Método de otimização").selectOption("instant");
+  await page.getByLabel("Altura real (m)").fill("3.6");
+  await page.getByLabel("LOD0", { exact: true }).fill("6500");
+  const submitted = page.waitForRequest((req) => req.url().endsWith("/api/v1/jobs") && req.method() === "POST");
+  await page.getByRole("button", { name: "Enfileirar preparação" }).click();
+  expect((await submitted).postDataJSON().params).toMatchObject({ method: "instant", height_m: 3.6, impostor: true,
+    triangle_targets: [6500, 1800, 450], source_version: 1 });
+  await page.getByRole("link", { name: "Abrir versão preparada" }).click();
+  await page.getByRole("tab", { name: "Comparar" }).click();
+  await expect(page.getByRole("heading", { name: "Master v1" })).toBeVisible();
+  await page.getByRole("button", { name: "LOD2" }).click();
+  await expect(page.getByText("Acima do alvo para preservar qualidade")).toBeVisible();
+  await page.getByText("Métodos avaliados").click();
+  await expect(page.getByText(/Perda de detalhe regional/)).toBeVisible();
+  await page.getByRole("button", { name: "Vistas alinhadas" }).click();
+  await expect(page.getByRole("img", { name: "LOD2 · Frente" })).toBeVisible();
+  await page.getByRole("button", { name: "Impostor", exact: true }).click();
+  await page.getByLabel("Ângulo do impostor").selectOption("1");
+  await expect(page.getByRole("img", { name: "Impostor · 45°" })).toBeVisible();
+  await page.goto("about:blank");
+});
+
 test("English persists across login and reload without resetting studio inputs", async ({ page }) => {
   await page.goto("/engines");
   const language = page.locator("select.language-select");

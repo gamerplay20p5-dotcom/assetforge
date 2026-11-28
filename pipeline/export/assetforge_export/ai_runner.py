@@ -174,7 +174,7 @@ class NeutralMetal:
                 bsdf.id_data.links.new(src, dst)
 
 
-def bake_pass(high, low, kind: str, res: int, label: str, extrusion: float):
+def bake_pass(high, low, kind: str, res: int, label: str, extrusion: float, *, cage=None, max_distance=None):
     img = bpy.data.images.new(label, res, res, alpha=False)
     if kind in ("NORMAL", "ROUGHNESS", "EMIT"):
         img.colorspace_settings.name = "Non-Color"
@@ -190,7 +190,9 @@ def bake_pass(high, low, kind: str, res: int, label: str, extrusion: float):
     bk = sc.render.bake
     bk.use_selected_to_active = True
     bk.cage_extrusion = extrusion
-    bk.max_ray_distance = extrusion * 4
+    bk.max_ray_distance = extrusion * 4 if max_distance is None else max_distance
+    bk.use_cage = cage is not None
+    bk.cage_object = cage
     bk.margin = 8
     bk.margin_type = "EXTEND"
     bk.use_clear = True

@@ -1,13 +1,19 @@
 import base64
 import hashlib
 import json
+import os
+import shutil
 from io import BytesIO
 from types import SimpleNamespace
+from zipfile import ZipFile
 
+import pytest
+import trimesh
 from assetforge_api.models import Asset, AssetVersion
 from assetforge_api.routers import assets
 from assetforge_contract.engines import ENGINES, ReconstructionParams
 from assetforge_worker.engine_job import cpp_command, prepare_views
+from assetforge_worker.preparation import run_preparation
 from PIL import Image
 
 
@@ -137,6 +143,77 @@ def test_preparation_master_requires_the_lease_and_preserves_source(client, app,
     downloaded = client.get(route, headers={**worker.headers, "X-Lease-Token": lease["lease_token"]})
     assert downloaded.status_code == 200
     assert downloaded.content == (source / "model.glb").read_bytes() == b"immutable source"
+
+
+def test_optimization_routes_only_to_the_requested_capable_worker(client, app, admin, make_worker):
+    asset_id = "ast_optimization_test"
+    with app.state.db.session() as db:
+        db.add(Asset(id=asset_id, name="Source", category="vehicle", current_version=1))
+        db.flush()
+        db.add(AssetVersion(asset_id=asset_id, version=1, files=[{"name": "model.glb"}],
+                            manifest={"category": "vehicle", "generator_id": "experimental.reconstruct"}))
+        db.commit()
+    standard = make_worker(features=("asset.prepare", "blender", "asset.prepare-optimization"))
+    instant = make_worker(features=("asset.prepare", "blender", "asset.prepare-optimization", "asset.prepare-instant"))
+    params = {"category": "vehicle", "source_version": 1, "height_m": 3.6, "method": "instant",
+              "triangle_targets": [6000, 2400, 600], "lod_heights": [0.55, 0.16, 0.04], "impostor": True}
+    payload = {"name": "Truck", "job_type": "asset.prepare", "asset_id": asset_id, "params": params}
+    failed = client.post("/api/v1/jobs", headers=admin, json={**payload, "worker_id": standard.id})
+    assert failed.status_code == 422
+    invalid = client.post("/api/v1/jobs", headers=admin, json={**payload, "params": {**params, "lod_heights": [0.55, 0.16, 0]}})
+    assert invalid.status_code == 422
+    queued = client.post("/api/v1/jobs", headers=admin, json=payload)
+    assert queued.status_code == 201, queued.text
+    assert standard.lease() is None
+    lease = instant.lease()
+    assert lease["job_id"] == queued.json()["id"]
+    assert all(lease["job"]["params"][key] == value for key, value in params.items())
+
+
+@pytest.mark.blender
+@pytest.mark.skipif(not os.environ.get("BLENDER_BIN") or not shutil.which("gltfpack"),
+                    reason="requires Blender and gltfpack")
+def test_optimization_uploads_lods_quality_and_unity_zip(client, app, admin, make_worker, tmp_path):
+    asset_id = "ast_unity_test"
+    with app.state.db.session() as db:
+        db.add(Asset(id=asset_id, name="Source", category="prop", current_version=1))
+        db.flush()
+        db.add(AssetVersion(asset_id=asset_id, version=1, files=[{"name": "model.glb"}],
+                            manifest={"category": "prop", "generator_id": "experimental.reconstruct"}))
+        db.commit()
+    source = app.state.storage.asset_dir(asset_id, 1)
+    source.mkdir(parents=True)
+    master = trimesh.creation.icosphere(subdivisions=3).export(file_type="glb")
+    (source / "model.glb").write_bytes(master)
+    worker = make_worker(features=("asset.prepare", "blender", "asset.prepare-optimization"))
+    job = client.post("/api/v1/jobs", headers=admin, json={
+        "name": "Unity package", "job_type": "asset.prepare", "asset_id": asset_id,
+        "params": {"category": "prop", "source_version": 1, "height_m": 2, "method": "conservative",
+                   "triangle_targets": [900, 450, 100], "lod_heights": [0.55, 0.16, 0.04], "impostor": True},
+    })
+    assert job.status_code == 201, job.text
+    lease = worker.lease()
+    path = f"/api/v1/worker/jobs/{lease['job_id']}/master"
+    data = client.get(path, headers={**worker.headers, "X-Lease-Token": lease["lease_token"]})
+    assert data.content == master
+    (tmp_path / "master.glb").write_bytes(data.content)
+    result = run_preparation(lease["job"], tmp_path, lambda _event: None, 2)
+    out = tmp_path / "out"
+    for file in result["files"]:
+        upload = worker.upload(lease, file["name"], out / file["name"])
+        assert upload.status_code == 201, upload.text
+    completed = worker.complete(lease, result)
+    assert completed.status_code == 200, completed.text
+    base = f"/api/v1/assets/{asset_id}/files"
+    report = client.get(f"{base}/quality.json?version=2", headers=admin).json()
+    assert report["master_sha256"] == hashlib.sha256(master).hexdigest()
+    assert len(report["levels"]) == 3
+    atlas = client.get(f"{base}/impostor/atlas.json?version=2", headers=admin).json()
+    assert len(atlas["frames"]) == 8
+    with ZipFile(out / "asset.zip") as package:
+        assert {"model.glb", "model.fbx", "model.blend", "lod1.glb", "lod2.glb",
+                "unity/Editor/AssetForgeImporter.cs", "impostor/atlas.png"} <= set(package.namelist())
+    assert (source / "model.glb").read_bytes() == master
 
 
 def test_gemini_review_uses_the_original_reference(client, app, admin, monkeypatch):

@@ -6,6 +6,7 @@ import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom"
 import { ApiError, api, fileUrl, getToken, packageUrl, useDownloadToken } from "../api";
 import { Viewer3D, type ViewerStats } from "../components/Viewer3D";
 import { AssetComparison } from "../components/AssetComparison";
+import { OptimizationComparison } from "../components/OptimizationComparison";
 import { Empty, ErrorNote, Panel, Thumb } from "../components/ui";
 import { formatBytes, timeAgo } from "../lib";
 import type { Asset } from "../types";
@@ -311,7 +312,9 @@ function AssetDetail({ id, initialVersion, onClose }: { id: string; initialVersi
           </button>
         ))}
       </div>
-      {tab === "compare" && <AssetComparison key={`${id}-${ver}`} asset={a} version={ver} token={token} />}
+      {tab === "compare" && (m?.generator_id === "asset.prepare" && a.files?.some((file) => file.name === "quality.json")
+        ? <OptimizationComparison key={`${id}-${ver}`} asset={a} version={ver} token={token} />
+        : <AssetComparison key={`${id}-${ver}`} asset={a} version={ver} token={token} />)}
       {tab === "preview" && (
         <>
           <Viewer3D url={glb} wireframe={wire} showBounds={bounds} autoRotate={rotate} onStats={setStats} />
